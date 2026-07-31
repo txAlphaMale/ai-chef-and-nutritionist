@@ -45,16 +45,29 @@ SETTING_SPECS: list[SettingSpec] = [
         key="ollama_chat_model",
         label="Ollama chat model",
         is_secret=False,
-        default="qwen2.5:14b",
-        description="Ollama model used for chat, meal planning, and recipe generation.",
+        default="qwen3.5:9b",
+        description=(
+            "Ollama model used for chat, meal planning, and recipe generation. "
+            "Chosen (2026-07-31) to comfortably fit a single 11GB-class GPU (e.g. "
+            "a GTX 1080 Ti) with headroom, leaving a second GPU free for the "
+            "vision model -- a larger dense model like qwen3.6:27b is a "
+            "reasonable upgrade on beefier/single-larger-GPU hardware, but "
+            "doesn't fit one 11GB card and Ollama's multi-GPU split doesn't "
+            "speed up a single request, only lets a bigger model fit."
+        ),
         env_fallback="OLLAMA_CHAT_MODEL",
     ),
     SettingSpec(
         key="ollama_vision_model",
         label="Ollama vision model",
         is_secret=False,
-        default="llava:13b",
-        description="Vision-capable Ollama model used for inventory photo intake.",
+        default="qwen2.5vl:7b",
+        description=(
+            "Vision-capable Ollama model used for inventory photo intake and "
+            "recipe photo import. Qwen2.5-VL was trained on substantially more "
+            "structured/document visual content than LLaVA, which matters for "
+            "reading labels, nutrition facts, and (future) receipts."
+        ),
         env_fallback="OLLAMA_VISION_MODEL",
     ),
     SettingSpec(

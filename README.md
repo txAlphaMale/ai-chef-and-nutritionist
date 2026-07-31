@@ -48,7 +48,7 @@ full phase-by-phase roadmap, architecture notes, and what's left.
 - [Ollama](https://ollama.com) running and reachable (host install or
   elsewhere on your network -- see below for an optional containerized,
   GPU-accelerated alternative) with a chat-capable model (e.g.
-  `qwen2.5:14b`) and a vision-capable model (e.g. `llava:13b`) pulled
+  `qwen3.5:9b`) and a vision-capable model (e.g. `qwen2.5vl:7b`) pulled
 - A [Tavily](https://tavily.com) API key (free tier available)
 
 ## Setup
