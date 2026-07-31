@@ -11,6 +11,7 @@ const emptyForm = {
   expiration_date: "",
   is_priority: false,
   priority_note: "",
+  unit_price: "",
   notes: "",
 };
 
@@ -31,6 +32,7 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
       unit: form.unit || null,
       location: form.location || null,
       priority_note: form.priority_note || null,
+      unit_price: form.unit_price === "" || form.unit_price == null ? null : Number(form.unit_price),
       notes: form.notes || null,
     };
     onSubmit(payload);
@@ -72,6 +74,16 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
         <label>
           Location
           <input value={form.location || ""} onChange={(e) => set("location", e.target.value)} placeholder="top shelf..." />
+        </label>
+        <label>
+          Price paid
+          <input
+            type="number"
+            step="any"
+            value={form.unit_price ?? ""}
+            onChange={(e) => set("unit_price", e.target.value)}
+            placeholder="optional"
+          />
         </label>
         <label className="checkbox-label">
           <input type="checkbox" checked={!!form.is_priority} onChange={(e) => set("is_priority", e.target.checked)} />

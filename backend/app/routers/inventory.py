@@ -15,8 +15,19 @@ source.
 Route ordering matters here -- FastAPI matches path operations in
 declaration order, so the static paths (/priority-suggestions,
 /vision-intake, /vision-intake/confirm, /import, /import/confirm,
-/deduct, /update-by-name) are declared before the dynamic /{item_id}
-routes to avoid being swallowed by them.
+/order-import, /order-import/profiles, /deduct, /update-by-name) are
+declared before the dynamic /{item_id} routes to avoid being swallowed
+by them.
+
+A third intake source lives here too (backlog B10.3, 2026-08-01): a
+generic order-history CSV/XLSX importer (/order-import,
+/order-import/profiles). Unlike the receipt/list import above, this one
+is pure deterministic parsing with no AI call -- see
+order_import_service.py's module docstring for why no AI is needed and
+why no pre-built "Walmart" column profile ships. It still lands in the
+same VisionDetectedItem preview shape and reuses /import/confirm's
+bulk-create, per the backlog's explicit "same review screen, not a
+separate UI" guidance.
 """
 from __future__ import annotations
 
@@ -24,8 +35,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import InventoryItem
+from app.models import InventoryItem, OrderImportProfile
 from app.schemas.inventory import (
+    ColumnMapping,
     InventoryDeductRequest,
     InventoryImportConfirmRequest,
     InventoryImportResponse,
@@ -33,11 +45,15 @@ from app.schemas.inventory import (
     InventoryItemRead,
     InventoryItemUpdate,
     InventoryUpdateByNameRequest,
+    OrderImportPreviewResponse,
+    OrderImportProfileCreate,
+    OrderImportProfileRead,
+    OrderImportProfileUpdate,
     PrioritySuggestion,
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
-from app.services import inventory_service, ollama_client, recipe_service
+from app.services import inventory_service, ollama_client, order_import_service, recipe_service
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -257,6 +273,115 @@ def confirm_inventory_import(payload: InventoryImportConfirmRequest, db: Session
     list import preview -- identical mechanics to /vision-intake/confirm,
     see _bulk_create_items above."""
     return _bulk_create_items(db, payload.items)
+
+
+@router.get("/order-import/profiles", response_model=list[OrderImportProfileRead])
+def list_order_import_profiles(db: Session = Depends(get_db)):
+    return db.query(OrderImportProfile).order_by(OrderImportProfile.name).all()
+
+
+@router.post("/order-import/profiles", response_model=OrderImportProfileRead, status_code=201)
+def create_order_import_profile(payload: OrderImportProfileCreate, db: Session = Depends(get_db)):
+    if db.query(OrderImportProfile).filter(OrderImportProfile.name == payload.name).first():
+        raise HTTPException(status_code=409, detail=f'A profile named "{payload.name}" already exists.')
+    profile = OrderImportProfile(**payload.model_dump())
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.patch("/order-import/profiles/{profile_id}", response_model=OrderImportProfileRead)
+def update_order_import_profile(profile_id: int, payload: OrderImportProfileUpdate, db: Session = Depends(get_db)):
+    profile = db.get(OrderImportProfile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Import profile not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(profile, field, value)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.delete("/order-import/profiles/{profile_id}", status_code=204)
+def delete_order_import_profile(profile_id: int, db: Session = Depends(get_db)):
+    profile = db.get(OrderImportProfile, profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Import profile not found")
+    db.delete(profile)
+    db.commit()
+    return None
+
+
+@router.post("/order-import", response_model=OrderImportPreviewResponse)
+async def order_import(
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    name_column: str | None = Form(None),
+    quantity_column: str | None = Form(None),
+    unit_column: str | None = Form(None),
+    price_column: str | None = Form(None),
+    date_column: str | None = Form(None),
+    profile_id: int | None = Form(None),
+):
+    """Backlog B10.3: parses an uploaded order-history CSV/XLSX and
+    returns a PREVIEW, same discipline as every other intake source --
+    nothing is written to inventory here. No AI call is involved (see
+    order_import_service.py) -- this is deterministic column parsing.
+
+    Column-mapping precedence: an explicit `*_column` form field wins if
+    given; else a saved `profile_id`'s mapping is used; else this call
+    returns the module's best-guess `suggested_mapping` and applies THAT
+    (so a first-time upload still produces a usable preview, not an
+    empty one) -- the frontend shows both the applied mapping and the
+    detected items together, so the user can see the guess and re-POST
+    with corrected `*_column` fields (optionally saving a profile) if
+    it's wrong. Re-uploading the same file each time a mapping is
+    adjusted is deliberate and consistent with how every other
+    preview-then-confirm flow in this app already works (nothing is
+    cached server-side between preview attempts)."""
+    raw_bytes = await file.read()
+    try:
+        headers, rows = order_import_service.parse_tabular_file(raw_bytes, file.filename or "", file.content_type or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not headers:
+        raise HTTPException(status_code=400, detail="Could not find any columns in this file -- is it empty?")
+
+    suggested = order_import_service.guess_column_mapping(headers)
+
+    profile_mapping = None
+    if profile_id is not None:
+        profile = db.get(OrderImportProfile, profile_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Import profile not found")
+        profile_mapping = ColumnMapping(
+            name_column=profile.name_column,
+            quantity_column=profile.quantity_column,
+            unit_column=profile.unit_column,
+            price_column=profile.price_column,
+            date_column=profile.date_column,
+        )
+
+    mapping_used = ColumnMapping(
+        name_column=name_column or (profile_mapping.name_column if profile_mapping else suggested.name_column),
+        quantity_column=quantity_column
+        or (profile_mapping.quantity_column if profile_mapping else suggested.quantity_column),
+        unit_column=unit_column or (profile_mapping.unit_column if profile_mapping else suggested.unit_column),
+        price_column=price_column or (profile_mapping.price_column if profile_mapping else suggested.price_column),
+        date_column=date_column or (profile_mapping.date_column if profile_mapping else suggested.date_column),
+    )
+
+    detected, skipped = order_import_service.apply_mapping(headers, rows, mapping_used)
+    return OrderImportPreviewResponse(
+        headers=headers,
+        suggested_mapping=suggested,
+        mapping_used=mapping_used,
+        detected_items=detected,
+        row_count=len(rows),
+        skipped_row_count=skipped,
+    )
 
 
 @router.post("/deduct", response_model=InventoryItemRead)

@@ -17,11 +17,15 @@ class InventoryItemBase(BaseModel):
     last_used_date: date | None = None
     is_priority: bool = False
     priority_note: str | None = None
+    # Backlog B10.3 -- price actually paid for this quantity, as
+    # purchased. Nullable: most intake sources have no price signal;
+    # today only the order-history importer populates this.
+    unit_price: float | None = None
     notes: str | None = None
 
 
 class InventoryItemCreate(InventoryItemBase):
-    source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text
+    source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text|import_order_history
 
 
 class InventoryItemUpdate(BaseModel):
@@ -37,6 +41,7 @@ class InventoryItemUpdate(BaseModel):
     last_used_date: date | None = None
     is_priority: bool | None = None
     priority_note: str | None = None
+    unit_price: float | None = None
     notes: str | None = None
 
 
@@ -65,6 +70,11 @@ class VisionDetectedItem(BaseModel):
     category: str = "other"
     expiration_date: date | None = None
     confidence_note: str | None = None
+    # Backlog B10.3 -- optional so this shape keeps working unchanged for
+    # every intake source that has no price signal (vision, receipt/list
+    # AI import); populated only by the order-history importer below.
+    unit_price: float | None = None
+    purchased_date: date | None = None
 
 
 class VisionIntakeResponse(BaseModel):
@@ -95,6 +105,70 @@ class InventoryImportResponse(BaseModel):
 
 class InventoryImportConfirmRequest(BaseModel):
     items: list[InventoryItemCreate]
+
+
+class ColumnMapping(BaseModel):
+    """Which column (by header text, not index -- headers are stable
+    across re-exports of the same source even if column order isn't)
+    supplies each inventory field. Any field left null means "no column
+    maps to this" -- never guessed, always either the user's explicit
+    choice or order_import_service's keyword-based suggestion, which the
+    user can always override before parsing for real."""
+
+    name_column: str | None = None
+    quantity_column: str | None = None
+    unit_column: str | None = None
+    price_column: str | None = None
+    date_column: str | None = None
+
+
+class OrderImportPreviewResponse(BaseModel):
+    """Backlog B10.3 (2026-08-01): result of parsing an uploaded order-
+    history CSV/XLSX with a given (or auto-suggested) column mapping.
+    `detected_items` is deliberately the SAME `VisionDetectedItem` shape
+    the receipt/list AI import and pantry-photo vision intake already
+    use -- the backlog explicitly calls for landing this in the same
+    review-then-confirm screen, not a separate UI, and there's no reason
+    for the preview shape to differ just because no AI call was involved
+    this time."""
+
+    headers: list[str]
+    suggested_mapping: ColumnMapping
+    mapping_used: ColumnMapping
+    detected_items: list[VisionDetectedItem]
+    row_count: int
+    skipped_row_count: int = Field(
+        ..., description="Rows with no usable name under the given mapping -- blank/footer/subtotal-style rows, most likely"
+    )
+
+
+class OrderImportProfileBase(BaseModel):
+    name: str
+    name_column: str | None = None
+    quantity_column: str | None = None
+    unit_column: str | None = None
+    price_column: str | None = None
+    date_column: str | None = None
+
+
+class OrderImportProfileCreate(OrderImportProfileBase):
+    pass
+
+
+class OrderImportProfileUpdate(BaseModel):
+    name: str | None = None
+    name_column: str | None = None
+    quantity_column: str | None = None
+    unit_column: str | None = None
+    price_column: str | None = None
+    date_column: str | None = None
+
+
+class OrderImportProfileRead(OrderImportProfileBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
 
 
 class InventoryDeductRequest(BaseModel):

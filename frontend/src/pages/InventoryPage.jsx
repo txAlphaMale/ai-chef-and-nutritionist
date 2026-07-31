@@ -39,9 +39,44 @@ export default function InventoryPage() {
   const [showImportForm, setShowImportForm] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState(null);
-  const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text"
+  const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text" | "order_history"
   const [importItems, setImportItems] = useState(null); // editable rows, or null when no preview is active
   const [importText, setImportText] = useState("");
+
+  // Backlog B10.3 (author-requested group, 2026-08-01) -- generic order-
+  // history CSV/XLSX import (e.g. a Walmart order-history export from a
+  // browser extension, since Walmart itself publishes neither a
+  // consumer API nor a built-in export). Deliberately lands its results
+  // in the SAME `importItems` editable preview table as the receipt/
+  // list import above, per the backlog's own "same review screen, not
+  // a separate UI" guidance -- only the file-upload-and-column-mapping
+  // step below it differs, since a spreadsheet needs the user to say
+  // which column is which before anything can be parsed.
+  const [showOrderImportForm, setShowOrderImportForm] = useState(false);
+  const [orderImportBusy, setOrderImportBusy] = useState(false);
+  const [orderImportError, setOrderImportError] = useState(null);
+  const [orderFile, setOrderFile] = useState(null); // kept so a mapping change can re-POST the same file
+  const [orderHeaders, setOrderHeaders] = useState([]);
+  const [orderMapping, setOrderMapping] = useState({
+    name_column: "",
+    quantity_column: "",
+    unit_column: "",
+    price_column: "",
+    date_column: "",
+  });
+  const [orderRowInfo, setOrderRowInfo] = useState(null); // { row_count, skipped_row_count }
+  const [orderProfiles, setOrderProfiles] = useState([]);
+  const [orderProfileId, setOrderProfileId] = useState("");
+  const [orderNewProfileName, setOrderNewProfileName] = useState("");
+
+  useEffect(() => {
+    if (showOrderImportForm) {
+      api
+        .get("/inventory/order-import/profiles")
+        .then(setOrderProfiles)
+        .catch(() => setOrderProfiles([]));
+    }
+  }, [showOrderImportForm]);
 
   async function refresh() {
     setLoading(true);
@@ -135,6 +170,8 @@ export default function InventoryPage() {
           quantity: d.estimated_quantity ?? 1,
           unit: d.unit || "",
           expiration_date: d.expiration_date || "",
+          purchased_date: d.purchased_date || "",
+          unit_price: d.unit_price ?? "",
           confidence_note: d.confidence_note || "",
           included: true,
         }))
@@ -172,7 +209,13 @@ export default function InventoryPage() {
 
   async function confirmImportItems() {
     const sourceTag =
-      importSourceType === "photo" ? "import_photo" : importSourceType === "pdf" ? "import_pdf" : "import_text";
+      importSourceType === "photo"
+        ? "import_photo"
+        : importSourceType === "pdf"
+        ? "import_pdf"
+        : importSourceType === "order_history"
+        ? "import_order_history"
+        : "import_text";
     const items = importItems
       .filter((r) => r.included)
       .map((r) => ({
@@ -181,6 +224,8 @@ export default function InventoryPage() {
         quantity: Number(r.quantity) || 1,
         unit: r.unit || null,
         expiration_date: r.expiration_date || null,
+        purchased_date: r.purchased_date || null,
+        unit_price: r.unit_price === "" || r.unit_price == null ? null : Number(r.unit_price),
         source: sourceTag,
       }));
     if (items.length === 0) return;
@@ -194,6 +239,94 @@ export default function InventoryPage() {
     setImportSourceType(null);
     setImportError(null);
     setImportText("");
+    setOrderFile(null);
+    setOrderHeaders([]);
+    setOrderMapping({ name_column: "", quantity_column: "", unit_column: "", price_column: "", date_column: "" });
+    setOrderRowInfo(null);
+    setOrderImportError(null);
+    setOrderProfileId("");
+  }
+
+  async function runOrderImport(file, mappingOverride, profileId) {
+    setOrderImportBusy(true);
+    setOrderImportError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const mapping = mappingOverride || {};
+      if (mapping.name_column) formData.append("name_column", mapping.name_column);
+      if (mapping.quantity_column) formData.append("quantity_column", mapping.quantity_column);
+      if (mapping.unit_column) formData.append("unit_column", mapping.unit_column);
+      if (mapping.price_column) formData.append("price_column", mapping.price_column);
+      if (mapping.date_column) formData.append("date_column", mapping.date_column);
+      if (profileId) formData.append("profile_id", profileId);
+      const result = await api.post("/inventory/order-import", formData);
+      setOrderHeaders(result.headers);
+      setOrderMapping({
+        name_column: result.mapping_used.name_column || "",
+        quantity_column: result.mapping_used.quantity_column || "",
+        unit_column: result.mapping_used.unit_column || "",
+        price_column: result.mapping_used.price_column || "",
+        date_column: result.mapping_used.date_column || "",
+      });
+      setOrderRowInfo({ row_count: result.row_count, skipped_row_count: result.skipped_row_count });
+      setImportSourceType("order_history");
+      setImportItems(
+        result.detected_items.map((d) => ({
+          name: d.name,
+          category: d.category || "other",
+          quantity: d.estimated_quantity ?? 1,
+          unit: d.unit || "",
+          expiration_date: d.expiration_date || "",
+          purchased_date: d.purchased_date || "",
+          unit_price: d.unit_price ?? "",
+          confidence_note: d.confidence_note || "",
+          included: true,
+        }))
+      );
+    } catch (err) {
+      setOrderImportError(err.message);
+    } finally {
+      setOrderImportBusy(false);
+    }
+  }
+
+  async function handleOrderFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOrderFile(file);
+    await runOrderImport(file, null, orderProfileId || null);
+  }
+
+  function handleOrderMappingChange(field, value) {
+    setOrderMapping((m) => ({ ...m, [field]: value }));
+  }
+
+  async function handleReparseOrderImport() {
+    if (!orderFile) return;
+    await runOrderImport(orderFile, orderMapping, null);
+  }
+
+  async function handleSaveOrderProfile() {
+    if (!orderNewProfileName.trim()) return;
+    try {
+      const profile = await api.post("/inventory/order-import/profiles", {
+        name: orderNewProfileName.trim(),
+        ...orderMapping,
+      });
+      setOrderProfiles((p) => [...p, profile]);
+      setOrderNewProfileName("");
+    } catch (err) {
+      setOrderImportError(err.message);
+    }
+  }
+
+  async function handleSelectOrderProfile(e) {
+    const id = e.target.value;
+    setOrderProfileId(id);
+    if (orderFile && id) {
+      await runOrderImport(orderFile, null, id);
+    }
   }
 
   return (
@@ -217,6 +350,9 @@ export default function InventoryPage() {
         </label>
         <button className="btn btn-secondary" onClick={() => setShowImportForm((v) => !v)}>
           {showImportForm ? "Close" : "🧾 Import receipt/list"}
+        </button>
+        <button className="btn btn-secondary" onClick={() => setShowOrderImportForm((v) => !v)}>
+          {showOrderImportForm ? "Close" : "📊 Import order history"}
         </button>
       </div>
 
@@ -264,6 +400,90 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {showOrderImportForm && (
+        <div className="card">
+          <h3>Import order history (CSV/XLSX)</h3>
+          <p className="hint">
+            From a retailer order-history export (e.g. a Walmart order-history file from a browser extension --
+            Walmart itself publishes neither a public purchase-history API nor a built-in export button). No
+            built-in retailer presets ship, since no retailer publishes a stable, verified export format -- map
+            your file's columns below, then optionally save the mapping as a named profile to skip this step
+            on future imports from the same source.
+          </p>
+          {orderProfiles.length > 0 && (
+            <div className="form-row">
+              <label>
+                Saved profile
+                <select value={orderProfileId} onChange={handleSelectOrderProfile}>
+                  <option value="">-- none --</option>
+                  {orderProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+          <div className="form-row">
+            <label className="btn btn-secondary file-btn">
+              {orderImportBusy ? "Parsing..." : "Upload CSV or XLSX"}
+              <input
+                type="file"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={handleOrderFileSelect}
+                disabled={orderImportBusy}
+                hidden
+              />
+            </label>
+          </div>
+          {orderImportError && <p className="error-text">Import failed: {orderImportError}</p>}
+          {orderHeaders.length > 0 && (
+            <>
+              <p className="hint">
+                {orderRowInfo?.row_count} row(s) parsed, {orderRowInfo?.skipped_row_count} skipped (no usable name
+                under the current mapping).
+              </p>
+              <div className="form-row">
+                {[
+                  ["name_column", "Name"],
+                  ["quantity_column", "Quantity"],
+                  ["unit_column", "Unit"],
+                  ["price_column", "Price"],
+                  ["date_column", "Purchase date"],
+                ].map(([field, label]) => (
+                  <label key={field}>
+                    {label} column
+                    <select value={orderMapping[field] || ""} onChange={(e) => handleOrderMappingChange(field, e.target.value)}>
+                      <option value="">-- none --</option>
+                      {orderHeaders.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <div className="form-actions">
+                <button className="btn btn-secondary" onClick={handleReparseOrderImport} disabled={orderImportBusy}>
+                  {orderImportBusy ? "Parsing..." : "Re-parse with this mapping"}
+                </button>
+                <input
+                  placeholder="Save this mapping as..."
+                  value={orderNewProfileName}
+                  onChange={(e) => setOrderNewProfileName(e.target.value)}
+                  style={{ maxWidth: "12em" }}
+                />
+                <button className="btn btn-secondary" onClick={handleSaveOrderProfile} disabled={!orderNewProfileName.trim()}>
+                  Save profile
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {importItems && (
         <div className="card">
           <h3>Review imported items</h3>
@@ -279,6 +499,8 @@ export default function InventoryPage() {
                     <th>Category</th>
                     <th>Qty</th>
                     <th>Unit</th>
+                    <th>Price</th>
+                    <th>Purchased</th>
                     <th>Expires</th>
                     <th></th>
                   </tr>
@@ -320,6 +542,23 @@ export default function InventoryPage() {
                           value={row.unit}
                           onChange={(e) => updateImportRow(i, "unit", e.target.value)}
                           style={{ width: "6em" }}
+                        />
+                      </td>
+                      <td data-label="Price">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="—"
+                          value={row.unit_price}
+                          onChange={(e) => updateImportRow(i, "unit_price", e.target.value)}
+                          style={{ width: "5em" }}
+                        />
+                      </td>
+                      <td data-label="Purchased">
+                        <input
+                          type="date"
+                          value={row.purchased_date}
+                          onChange={(e) => updateImportRow(i, "purchased_date", e.target.value)}
                         />
                       </td>
                       <td data-label="Expires">
@@ -397,6 +636,7 @@ export default function InventoryPage() {
               <th>Name</th>
               <th>Category</th>
               <th>Qty</th>
+              <th>Price</th>
               <th>Expires</th>
               <th>Priority</th>
               <th>Why it matters</th>
@@ -407,7 +647,7 @@ export default function InventoryPage() {
             {items.map((item) =>
               editingId === item.id ? (
                 <tr key={item.id}>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <InventoryItemForm
                       initial={item}
                       onSubmit={(payload) => handleUpdate(item.id, payload)}
@@ -427,6 +667,7 @@ export default function InventoryPage() {
                   <td data-label="Qty">
                     {item.quantity} {item.unit || ""}
                   </td>
+                  <td data-label="Price">{item.unit_price != null ? `$${item.unit_price.toFixed(2)}` : "—"}</td>
                   <td data-label="Expires">{item.expiration_date || "—"}</td>
                   <td data-label="Priority">{item.is_priority ? "★" : ""}</td>
                   <td className="reasons-cell" data-label="Why it matters">
