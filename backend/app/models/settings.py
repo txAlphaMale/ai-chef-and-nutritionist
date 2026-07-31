@@ -38,3 +38,10 @@ class KnowledgeFile(Base, TimestampMixin):
     storage_path: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Extracted plain text (PDF/txt/md), populated once at upload time so
+    # meal-plan generation and future chat grounding (Phase 7) don't need
+    # to re-read/re-parse the original file on every request. Nullable
+    # since extraction can fail for an unsupported/corrupt file without
+    # blocking the upload itself.
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)

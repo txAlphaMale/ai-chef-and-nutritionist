@@ -15,7 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
-from app.services import inventory_service, recipe_service
+from app.services import health_service, inventory_service, recipe_service
 from app.services.recipe_service import _extract_json_object, _safe_int
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -106,6 +106,11 @@ def gather_generation_context(
         "meal_types_requested": meal_types,
         "slots": slots,
         "notes": notes,
+        # Phase 6: household health trends (BMI/cholesterol/weight) and
+        # any imported nutritionist reference material -- both optional,
+        # both empty strings when nothing's been logged/uploaded yet.
+        "health_summary": health_service.build_health_context_summary(db),
+        "knowledge_context": health_service.build_knowledge_context(db),
     }
 
 
@@ -155,7 +160,7 @@ Existing recipe catalog (id, title, tags, staple/rating) -- STRONGLY \
 prefer reusing a good-fit id from here, especially staples, over \
 proposing a new recipe for every slot:
 {recipe_catalog}
-
+{health_section}{knowledge_section}
 Meal slots to plan, with any specific guidance for that slot:
 {slots}
 {extra_notes}"""
@@ -196,6 +201,29 @@ def _format_slots(slots: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_health_section(health_summary: str | None) -> str:
+    if not health_summary:
+        return ""
+    return (
+        "\nHousehold health trends (use to favor lower-cholesterol, "
+        "appropriately-portioned, nutrient-dense choices where relevant -- "
+        "do not mention these numbers directly to the user, just let them "
+        "quietly steer meal selection):\n" + health_summary + "\n"
+    )
+
+
+def _format_knowledge_section(knowledge_context: str | None) -> str:
+    if not knowledge_context:
+        return ""
+    return (
+        "\nReference material the household has provided (a nutritionist's "
+        "guidance, a specific diet plan, etc.) -- follow it where relevant "
+        "and it doesn't conflict with the dietary restrictions above:\n"
+        + knowledge_context
+        + "\n"
+    )
+
+
 def build_generation_prompt(context: dict) -> str:
     goals_line = f"Goals: {context['goals']}. " if context.get("goals") else ""
     dietary = ", ".join(context.get("dietary_restrictions") or []) or "none specified"
@@ -212,6 +240,8 @@ def build_generation_prompt(context: dict) -> str:
         equipment=", ".join(context.get("equipment") or []) or "unspecified",
         priority_ingredients=_format_priority_ingredients(context.get("priority_ingredients") or []),
         recipe_catalog=_format_recipe_catalog(context.get("recipe_catalog") or []),
+        health_section=_format_health_section(context.get("health_summary")),
+        knowledge_section=_format_knowledge_section(context.get("knowledge_context")),
         slots=_format_slots(context.get("slots") or []),
         extra_notes=extra_notes,
     )
