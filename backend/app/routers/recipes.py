@@ -25,12 +25,12 @@ from app.schemas.recipe import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import food_data_service, ollama_client, recipe_image_service, recipe_service
+from app.services import allergen_service, food_data_service, ollama_client, recipe_image_service, recipe_service
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
-def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
+def _to_read(recipe: Recipe, db: Session, servings_shown: int | None = None) -> RecipeRead:
     servings_shown = servings_shown or recipe.default_servings
     ingredients = [
         {
@@ -47,6 +47,9 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
         for ing in recipe.ingredients
     ]
     scaled = recipe_service.scale_ingredients(ingredients, recipe.default_servings, servings_shown)
+    restriction_check = allergen_service.check_household_restrictions(
+        db, [ing.ingredient_name for ing in recipe.ingredients]
+    )
     return RecipeRead(
         id=recipe.id,
         title=recipe.title,
@@ -57,6 +60,8 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
         instructions=recipe.instructions or [],
         nutrition=recipe.nutrition or {},
         nutrition_provenance=recipe.nutrition_provenance,
+        restriction_warnings=[vars(m) for m in restriction_check.matches],
+        cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
         is_staple=recipe.is_staple,
         image_path=recipe.image_path,
         source_url=recipe.source_url,
@@ -107,7 +112,7 @@ def list_recipes(
     recipes = query.order_by(Recipe.title).all()
     if tag:
         recipes = [r for r in recipes if tag.lower() in {t.name for t in r.tags}]
-    return [_to_read(r) for r in recipes]
+    return [_to_read(r, db) for r in recipes]
 
 
 @router.post("/import", response_model=RecipeImportResponse)
@@ -200,7 +205,20 @@ async def import_recipe(
             parsed[key] = value
     if image_path:
         parsed["image_path"] = image_path
-    return RecipeImportResponse(recipe=RecipeCreate(**parsed), raw_model_output=raw_output)
+
+    # Backlog B3.1: check the parsed-but-not-yet-saved ingredients against
+    # the household's current restrictions BEFORE the user ever confirms
+    # this import -- a conflict should be visible in the review step, not
+    # discovered later on the recipe's own page.
+    restriction_check = allergen_service.check_household_restrictions(
+        db, [ing.get("ingredient_name", "") for ing in parsed.get("ingredients", [])]
+    )
+    return RecipeImportResponse(
+        recipe=RecipeCreate(**parsed),
+        raw_model_output=raw_output,
+        restriction_warnings=[vars(m) for m in restriction_check.matches],
+        cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
+    )
 
 
 async def _run_text_extraction(db: Session, content: str) -> str:
@@ -217,7 +235,7 @@ def get_recipe(recipe_id: int, servings: int | None = None, db: Session = Depend
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    return _to_read(recipe, servings_shown=servings)
+    return _to_read(recipe, db, servings_shown=servings)
 
 
 @router.get("/{recipe_id}/variants", response_model=list[RecipeRead])
@@ -230,7 +248,7 @@ def list_recipe_variants(recipe_id: int, db: Session = Depends(get_db)):
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    return [_to_read(v) for v in recipe.variants]
+    return [_to_read(v, db) for v in recipe.variants]
 
 
 @router.post("", response_model=RecipeRead, status_code=201)
@@ -252,7 +270,7 @@ def create_recipe(payload: RecipeCreate, db: Session = Depends(get_db)):
     recipe.tags = recipe_service.resolve_tags(db, payload.tags)
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.patch("/{recipe_id}", response_model=RecipeRead)
@@ -277,7 +295,7 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, db: Session = Depends(g
         recipe.tags = recipe_service.resolve_tags(db, payload.tags)
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.post("/{recipe_id}/chat", response_model=RecipeChatResponse)
@@ -293,7 +311,7 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
         raise HTTPException(status_code=404, detail="Recipe not found")
 
     servings = payload.servings or recipe.default_servings
-    read_view = _to_read(recipe, servings_shown=servings)
+    read_view = _to_read(recipe, db, servings_shown=servings)
     system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
     context = recipe_service.build_recipe_chat_context(read_view.model_dump())
 
@@ -343,7 +361,7 @@ async def upload_recipe_image(recipe_id: int, file: UploadFile, db: Session = De
     db.refresh(recipe)
     if old_path and old_path != new_path:
         recipe_image_service.delete_image(old_path)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.delete("/{recipe_id}/image", response_model=RecipeRead)
@@ -355,7 +373,7 @@ def delete_recipe_image(recipe_id: int, db: Session = Depends(get_db)):
     recipe.image_path = None
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.get("/{recipe_id}/image")
@@ -386,7 +404,7 @@ def resolve_recipe_nutrition(recipe_id: int, force: bool = False, db: Session = 
         food_data_service.resolve_and_cache_ingredient(db, ingredient, force=force)
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.post("/{recipe_id}/compute-nutrition", response_model=RecipeRead)
@@ -421,7 +439,7 @@ def compute_recipe_nutrition_endpoint(recipe_id: int, force: bool = False, db: S
     recipe.nutrition_provenance = provenance
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.post("/{recipe_id}/rating", response_model=RecipeRead)
@@ -432,7 +450,7 @@ def rate_recipe(recipe_id: int, payload: RecipeRatingUpdate, db: Session = Depen
     recipe.rating = payload.rating
     db.commit()
     db.refresh(recipe)
-    return _to_read(recipe)
+    return _to_read(recipe, db)
 
 
 @router.delete("/{recipe_id}", status_code=204)

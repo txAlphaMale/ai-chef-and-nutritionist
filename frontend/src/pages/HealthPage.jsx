@@ -29,6 +29,11 @@ export default function HealthPage() {
   const [preferences, setPreferences] = useState(null);
   const [prefsForm, setPrefsForm] = useState(null);
   const [prefsSaving, setPrefsSaving] = useState(false);
+  // Backlog B3.1/B3.2 -- the fixed allergen taxonomy + observance levels
+  // the deterministic check runs against (app/services/allergen_service.py),
+  // fetched once from GET /household/allergen-options rather than
+  // hardcoded here so backend and frontend can never drift apart.
+  const [allergenOptions, setAllergenOptions] = useState({ allergens: [], observance_levels: [] });
 
   const [members, setMembers] = useState([]);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
@@ -47,9 +52,10 @@ export default function HealthPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prefs, memberList] = await Promise.all([
+      const [prefs, memberList, allergenOpts] = await Promise.all([
         api.get("/household/preferences"),
         api.get("/household/members"),
+        api.get("/household/allergen-options"),
       ]);
       setPreferences(prefs);
       setPrefsForm({
@@ -58,7 +64,10 @@ export default function HealthPage() {
         goals: prefs.goals || "",
         indulgence_frequency: prefs.indulgence_frequency,
         notes: prefs.notes || "",
+        restricted_allergens: prefs.restricted_allergens || [],
+        gluten_observance_level: prefs.gluten_observance_level || "",
       });
+      setAllergenOptions(allergenOpts);
       setMembers(memberList);
       if (memberList.length > 0 && selectedMemberId === null) {
         setSelectedMemberId(memberList[0].id);
@@ -104,13 +113,32 @@ export default function HealthPage() {
         goals: prefsForm.goals || null,
         indulgence_frequency: prefsForm.indulgence_frequency,
         notes: prefsForm.notes || null,
+        restricted_allergens: prefsForm.restricted_allergens,
+        gluten_observance_level: prefsForm.restricted_allergens.includes("gluten")
+          ? prefsForm.gluten_observance_level || "flexible"
+          : null,
       });
       setPreferences(updated);
+      setPrefsForm((f) => ({
+        ...f,
+        restricted_allergens: updated.restricted_allergens || [],
+        gluten_observance_level: updated.gluten_observance_level || "",
+      }));
     } catch (e) {
       setError(e.message);
     } finally {
       setPrefsSaving(false);
     }
+  }
+
+  function toggleAllergen(key) {
+    setPrefsForm((f) => {
+      const has = f.restricted_allergens.includes(key);
+      return {
+        ...f,
+        restricted_allergens: has ? f.restricted_allergens.filter((a) => a !== key) : [...f.restricted_allergens, key],
+      };
+    });
   }
 
   async function handleAddMember(e) {
@@ -221,6 +249,46 @@ export default function HealthPage() {
                 onChange={(e) => setPrefsForm((f) => ({ ...f, goals: e.target.value }))}
               />
             </label>
+
+            <fieldset>
+              <legend>Allergens &amp; restrictions to check for (Backlog B3.1)</legend>
+              <p className="hint">
+                Checked items are matched against every recipe's ingredients automatically -- at import, in the
+                weekly meal-plan preview, and again before a meal is confirmed as made.
+              </p>
+              <div className="form-row">
+                {allergenOptions.allergens.map((a) => (
+                  <label className="checkbox-label inline" key={a.key}>
+                    <input
+                      type="checkbox"
+                      checked={prefsForm.restricted_allergens.includes(a.key)}
+                      onChange={() => toggleAllergen(a.key)}
+                    />
+                    {a.label}
+                  </label>
+                ))}
+              </div>
+              {prefsForm.restricted_allergens.includes("gluten") && (
+                <label>
+                  Gluten observance level
+                  <select
+                    value={prefsForm.gluten_observance_level}
+                    onChange={(e) => setPrefsForm((f) => ({ ...f, gluten_observance_level: e.target.value }))}
+                  >
+                    {allergenOptions.observance_levels.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="hint">
+                    "No cross-contact" also flags non-certified oats and similar ingredients that commonly share
+                    equipment with wheat, even though oats aren't gluten-containing themselves.
+                  </span>
+                </label>
+              )}
+            </fieldset>
+
             <div className="form-actions">
               <button className="btn btn-primary" type="submit" disabled={prefsSaving}>
                 {prefsSaving ? "Saving..." : "Save preferences"}

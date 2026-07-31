@@ -40,7 +40,18 @@ async function request(path, options = {}) {
     } catch {
       // ignore -- keep statusText
     }
-    throw new Error(`${res.status} ${detail}`);
+    // Backlog B3.1 -- some endpoints (meal-plan entry confirm) return a
+    // structured object as `detail` (message + allergen match lists),
+    // not just a string. The stringified message below stays a sane
+    // fallback for callers that just show e.message, but attach the raw
+    // status/detail too so a caller that needs the structure (e.g. an
+    // allergen-conflict dialog) doesn't have to re-parse a stringified
+    // "[object Object]".
+    const message = typeof detail === "string" ? detail : detail?.message || JSON.stringify(detail);
+    const err = new Error(`${res.status} ${message}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();

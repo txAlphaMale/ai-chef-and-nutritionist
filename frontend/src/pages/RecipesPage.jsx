@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
+import RestrictionWarnings from "../components/RestrictionWarnings";
 
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState([]);
@@ -14,6 +15,10 @@ export default function RecipesPage() {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState(null);
   const [importPreview, setImportPreview] = useState(null); // RecipeCreate-shaped
+  // Backlog B3.1 -- RecipeImportResponse carries these alongside the
+  // parsed recipe, computed against current household restrictions at
+  // import time so a conflict is visible before the recipe is ever saved.
+  const [importWarnings, setImportWarnings] = useState(null);
   const [importText, setImportText] = useState("");
   const [importUrl, setImportUrl] = useState("");
 
@@ -66,11 +71,13 @@ export default function RecipesPage() {
     setImportBusy(true);
     setImportError(null);
     setImportPreview(null);
+    setImportWarnings(null);
     try {
       const formData = new FormData();
       formData.append("text", importText);
       const result = await api.post("/recipes/import", formData);
       setImportPreview(result.recipe);
+      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
     } catch (e) {
       setImportError(e.message);
     } finally {
@@ -83,11 +90,13 @@ export default function RecipesPage() {
     setImportBusy(true);
     setImportError(null);
     setImportPreview(null);
+    setImportWarnings(null);
     try {
       const formData = new FormData();
       formData.append("url", importUrl.trim());
       const result = await api.post("/recipes/import", formData);
       setImportPreview(result.recipe);
+      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
     } catch (e) {
       setImportError(e.message);
     } finally {
@@ -101,11 +110,13 @@ export default function RecipesPage() {
     setImportBusy(true);
     setImportError(null);
     setImportPreview(null);
+    setImportWarnings(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       const result = await api.post("/recipes/import", formData);
       setImportPreview(result.recipe);
+      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
     } catch (err) {
       setImportError(err.message);
     } finally {
@@ -118,6 +129,7 @@ export default function RecipesPage() {
     const created = await api.post("/recipes", editedPayload);
     await uploadImageIfNeeded(created.id, imageFile);
     setImportPreview(null);
+    setImportWarnings(null);
     setImportText("");
     setImportUrl("");
     refresh();
@@ -184,7 +196,21 @@ export default function RecipesPage() {
       {importPreview && (
         <div className="card">
           <h3>Review imported recipe</h3>
-          <RecipeForm initial={importPreview} onSubmit={confirmImport} onCancel={() => setImportPreview(null)} />
+          {importWarnings && (
+            <RestrictionWarnings
+              matches={importWarnings.matches}
+              crossContactMatches={importWarnings.crossContactMatches}
+              title="This recipe's ingredients conflict with a household restriction"
+            />
+          )}
+          <RecipeForm
+            initial={importPreview}
+            onSubmit={confirmImport}
+            onCancel={() => {
+              setImportPreview(null);
+              setImportWarnings(null);
+            }}
+          />
         </div>
       )}
 

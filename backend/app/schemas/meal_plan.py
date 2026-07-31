@@ -7,6 +7,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.allergen import RestrictionMatchRead
 from app.schemas.recipe import RecipeIngredientBase
 
 
@@ -66,6 +67,28 @@ class MealPlanEntryCreate(MealPlanEntryBase):
     # Set when recipe_id is null and this slot should create a brand-new
     # recipe on plan confirmation (see routers/meal_plan.py's create_meal_plan).
     new_recipe: NewRecipeInput | None = None
+    # Backlog B3.1 -- informational only, attached during generation
+    # preview (meal_plan_service.attach_restriction_warnings) so a
+    # conflict is visible before the plan is ever saved. Harmless if
+    # echoed back on the actual POST /api/meal-plans create call --
+    # create_meal_plan doesn't read these fields, they're just along for
+    # the ride on the reviewed-and-resubmitted preview payload.
+    restriction_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
+    cross_contact_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
+
+
+class MealPlanEntryConfirmRequest(BaseModel):
+    """Backlog B3.1: confirming an entry runs the deterministic allergen
+    check against the actual recipe being confirmed (not just at
+    generation-preview time -- a plan can sit around for days before a
+    meal is actually made, during which household restrictions could
+    change). A hard match blocks the confirm with a 409 UNLESS this flag
+    is explicitly set, giving the household a real (not just cosmetic)
+    speed bump before deducting inventory for a meal that conflicts with
+    a stated restriction -- while still leaving a human able to say "I
+    know, do it anyway" for a false positive or a one-off exception."""
+
+    acknowledge_restriction_conflict: bool = False
 
 
 class MealPlanEntryUpdate(BaseModel):

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
+import RestrictionWarnings from "../components/RestrictionWarnings";
 
 // Backlog B1.3: friendlier labels for the shared nutrition key set (see
 // backend/app/services/food_data_service.py's NUTRITION_KEYS) -- falls
@@ -143,6 +144,8 @@ export default function RecipeDetailPage() {
         <img className="recipe-detail-image" src={`${backendOrigin}/api/recipes/${id}/image`} alt={recipe.title} />
       )}
       {recipe.description && <p>{recipe.description}</p>}
+
+      <RestrictionWarnings matches={recipe.restriction_warnings} crossContactMatches={recipe.cross_contact_warnings} />
 
       <div className="recipe-meta">
         <span className="tag">Prep: {recipe.prep_time_minutes ?? "?"} min</span>

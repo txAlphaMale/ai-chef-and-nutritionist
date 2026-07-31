@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
+import RestrictionWarnings from "../components/RestrictionWarnings";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -126,6 +127,11 @@ export default function MealPlanPage() {
           notes: e.notes || "",
           selection: e.recipe_id != null ? String(e.recipe_id) : e.new_recipe ? "new" : "",
           new_recipe: e.new_recipe,
+          // Backlog B3.1 -- attached during generation preview by
+          // meal_plan_service.attach_restriction_warnings, informational
+          // only at this stage (the entry isn't saved yet).
+          restriction_warnings: e.restriction_warnings || [],
+          cross_contact_warnings: e.cross_contact_warnings || [],
         })),
       });
     } catch (e) {
@@ -311,39 +317,42 @@ export default function MealPlanPage() {
             recipe as-is. Nothing is saved until you confirm below.
           </p>
           {preview.entries.map((entry, i) => (
-            <div className="form-row preview-entry-row" key={i}>
-              <span className="preview-entry-label">
-                {DAY_NAMES[entry.day_of_week]} <span className="tag">{entry.meal_type}</span>
-              </span>
-              <select value={entry.selection} onChange={(e) => updatePreviewEntry(i, "selection", e.target.value)}>
-                <option value="">-- no recipe --</option>
-                {entry.new_recipe && <option value="new">New: {entry.new_recipe.title}</option>}
-                {recipeCatalog.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.title}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="1"
-                value={entry.servings}
-                onChange={(e) => updatePreviewEntry(i, "servings", e.target.value)}
-                style={{ maxWidth: 70 }}
-              />
-              <input
-                placeholder="tags"
-                value={entry.requested_tags}
-                onChange={(e) => updatePreviewEntry(i, "requested_tags", e.target.value)}
-              />
-              <label className="checkbox-label inline">
+            <div key={i}>
+              <div className="form-row preview-entry-row">
+                <span className="preview-entry-label">
+                  {DAY_NAMES[entry.day_of_week]} <span className="tag">{entry.meal_type}</span>
+                </span>
+                <select value={entry.selection} onChange={(e) => updatePreviewEntry(i, "selection", e.target.value)}>
+                  <option value="">-- no recipe --</option>
+                  {entry.new_recipe && <option value="new">New: {entry.new_recipe.title}</option>}
+                  {recipeCatalog.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.title}
+                    </option>
+                  ))}
+                </select>
                 <input
-                  type="checkbox"
-                  checked={entry.is_indulgence}
-                  onChange={(e) => updatePreviewEntry(i, "is_indulgence", e.target.checked)}
+                  type="number"
+                  min="1"
+                  value={entry.servings}
+                  onChange={(e) => updatePreviewEntry(i, "servings", e.target.value)}
+                  style={{ maxWidth: 70 }}
                 />
-                indulgence
-              </label>
+                <input
+                  placeholder="tags"
+                  value={entry.requested_tags}
+                  onChange={(e) => updatePreviewEntry(i, "requested_tags", e.target.value)}
+                />
+                <label className="checkbox-label inline">
+                  <input
+                    type="checkbox"
+                    checked={entry.is_indulgence}
+                    onChange={(e) => updatePreviewEntry(i, "is_indulgence", e.target.checked)}
+                  />
+                  indulgence
+                </label>
+              </div>
+              <RestrictionWarnings matches={entry.restriction_warnings} crossContactMatches={entry.cross_contact_warnings} />
             </div>
           ))}
           <div className="form-actions">

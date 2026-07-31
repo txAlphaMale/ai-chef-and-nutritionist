@@ -15,7 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
-from app.services import health_service, inventory_service, recipe_service, unit_conversion_service
+from app.services import allergen_service, health_service, inventory_service, recipe_service, unit_conversion_service
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.recipe_service import _extract_json_object, _safe_int
 
@@ -330,6 +330,37 @@ def validate_entries_against_catalog(entries: list[dict], catalog_ids: set[int])
     for e in entries:
         if e["recipe_id"] is not None and e["recipe_id"] not in catalog_ids:
             e["recipe_id"] = None
+    return entries
+
+
+def attach_restriction_warnings(db: Session, entries: list[dict]) -> list[dict]:
+    """Backlog B3.1: runs the deterministic allergen check against each
+    generated entry's actual ingredients (the catalog recipe's, if one
+    was chosen, otherwise the proposed new_recipe's) and attaches
+    `restriction_warnings`/`cross_contact_warnings` to the entry dict, so
+    a conflict is visible in the generation review step -- the same
+    "verify what the model did, don't just trust its instructions"
+    discipline applied at recipe import (routers/recipes.py) and recipe
+    view (routers/recipes.py's _to_read). An entry with neither a
+    recipe_id nor a new_recipe (a slot the model left empty) gets an
+    empty result, not an error. Recipe rows are cached by id within one
+    call so a staple reused across several slots in the same week is
+    only loaded once."""
+    recipe_cache: dict[int, Recipe] = {}
+    for e in entries:
+        if e.get("new_recipe"):
+            ingredient_names = [i.get("ingredient_name", "") for i in e["new_recipe"].get("ingredients", [])]
+        elif e.get("recipe_id") is not None:
+            recipe_id = e["recipe_id"]
+            if recipe_id not in recipe_cache:
+                recipe_cache[recipe_id] = db.get(Recipe, recipe_id)
+            recipe = recipe_cache[recipe_id]
+            ingredient_names = [i.ingredient_name for i in recipe.ingredients] if recipe else []
+        else:
+            ingredient_names = []
+        check = allergen_service.check_household_restrictions(db, ingredient_names)
+        e["restriction_warnings"] = [vars(m) for m in check.matches]
+        e["cross_contact_warnings"] = [vars(m) for m in check.cross_contact_matches]
     return entries
 
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import RestrictionWarnings from "./RestrictionWarnings";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -11,6 +12,12 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
   const [servings, setServings] = useState(entry.servings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Backlog B3.1 -- confirm returns 409 with match details when the
+  // recipe conflicts with a restricted allergen; holding that here (not
+  // in `error`, which is a plain string) lets us render the actual
+  // matches plus an explicit "confirm anyway" override instead of just
+  // an error message.
+  const [conflict, setConflict] = useState(null);
 
   async function patch(payload) {
     setBusy(true);
@@ -25,14 +32,22 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
     }
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(acknowledgeConflict) {
     setBusy(true);
     setError(null);
+    if (!acknowledgeConflict) setConflict(null);
     try {
-      await api.post(`/meal-plans/${planId}/entries/${entry.id}/confirm`, {});
+      await api.post(`/meal-plans/${planId}/entries/${entry.id}/confirm`, {
+        acknowledge_restriction_conflict: !!acknowledgeConflict,
+      });
+      setConflict(null);
       onChanged();
     } catch (e) {
-      setError(e.message);
+      if (e.status === 409 && e.detail && typeof e.detail === "object") {
+        setConflict(e.detail);
+      } else {
+        setError(e.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -101,7 +116,7 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
       <div className="meal-entry-actions">
         {!entry.is_confirmed && !entry.is_skipped && (
           <>
-            <button className="btn btn-secondary btn-sm" onClick={handleConfirm} disabled={busy}>
+            <button className="btn btn-secondary btn-sm" onClick={() => handleConfirm(false)} disabled={busy}>
               We made this
             </button>
             <button className="btn-link" onClick={handleSkip} disabled={busy}>
@@ -111,6 +126,19 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
         )}
       </div>
       {error && <p className="error-text">{error}</p>}
+      {conflict && (
+        <div className="restriction-conflict-dialog">
+          <RestrictionWarnings matches={conflict.matches} crossContactMatches={conflict.cross_contact_matches} />
+          <div className="form-actions">
+            <button className="btn btn-secondary btn-sm" onClick={() => handleConfirm(true)} disabled={busy}>
+              Confirm anyway
+            </button>
+            <button className="btn-link" onClick={() => setConflict(null)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

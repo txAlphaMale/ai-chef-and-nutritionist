@@ -20,6 +20,7 @@ from app.schemas.meal_plan import (
     GroceryListItemRead,
     GroceryListItemUpdate,
     MealPlanCreate,
+    MealPlanEntryConfirmRequest,
     MealPlanEntryRead,
     MealPlanEntryRecipeSummary,
     MealPlanEntryUpdate,
@@ -28,7 +29,7 @@ from app.schemas.meal_plan import (
     MealPlanRead,
     MealPlanUpdate,
 )
-from app.services import inventory_service, meal_plan_service, ollama_client, recipe_service
+from app.services import allergen_service, inventory_service, meal_plan_service, ollama_client, recipe_service
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
 
@@ -125,6 +126,7 @@ def generate_meal_plan(payload: MealPlanGenerateRequest, db: Session = Depends(g
         raise HTTPException(status_code=422, detail="Could not extract a meal plan from the model's response")
     catalog_ids = {r["id"] for r in context["recipe_catalog"]}
     entries = meal_plan_service.validate_entries_against_catalog(entries, catalog_ids)
+    entries = meal_plan_service.attach_restriction_warnings(db, entries)
 
     plan = MealPlanCreate(
         week_start_date=payload.week_start_date,
@@ -234,12 +236,26 @@ def update_meal_plan_entry(plan_id: int, entry_id: int, payload: MealPlanEntryUp
 
 
 @router.post("/{plan_id}/entries/{entry_id}/confirm", response_model=MealPlanEntryRead)
-def confirm_meal_plan_entry(plan_id: int, entry_id: int, db: Session = Depends(get_db)):
+def confirm_meal_plan_entry(
+    plan_id: int,
+    entry_id: int,
+    payload: MealPlanEntryConfirmRequest = MealPlanEntryConfirmRequest(),
+    db: Session = Depends(get_db),
+):
     """Marks a meal as actually made and deducts its ingredients (scaled
     to the entry's servings) from inventory -- the same deduction
     primitive used elsewhere (inventory_service.deduct_by_name), applied
     once per ingredient. Best-effort: an ingredient with no inventory
-    match is simply skipped rather than failing the whole confirmation."""
+    match is simply skipped rather than failing the whole confirmation.
+
+    Backlog B3.1: re-runs the deterministic allergen check at confirm
+    time (not just at generation-preview time -- restrictions or the
+    plan itself may have changed in the days between generating a plan
+    and actually cooking from it). A hard allergen match 409s with the
+    match details instead of confirming, unless the caller explicitly
+    sets acknowledge_restriction_conflict=true on a follow-up request --
+    see MealPlanEntryConfirmRequest's docstring. Cross-contact warnings
+    never block on their own, only surfaced for the frontend to display."""
     entry = db.get(MealPlanEntry, entry_id)
     if entry is None or entry.meal_plan_id != plan_id:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
@@ -251,6 +267,19 @@ def confirm_meal_plan_entry(plan_id: int, entry_id: int, db: Session = Depends(g
     if entry.recipe_id is not None:
         recipe = db.get(Recipe, entry.recipe_id)
         if recipe is not None:
+            ingredient_names = [i.ingredient_name for i in recipe.ingredients]
+            restriction_check = allergen_service.check_household_restrictions(db, ingredient_names)
+            if restriction_check.has_conflict and not payload.acknowledge_restriction_conflict:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": (
+                            "This recipe contains a restricted allergen. Resend with "
+                            "acknowledge_restriction_conflict=true to confirm anyway."
+                        ),
+                        **restriction_check.to_dict(),
+                    },
+                )
             base_ingredients = [
                 {"ingredient_name": i.ingredient_name, "quantity": i.quantity, "unit": i.unit}
                 for i in recipe.ingredients

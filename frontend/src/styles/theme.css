@@ -370,6 +370,40 @@ tr.urgency-low td {
   color: var(--color-text-muted);
 }
 
+/* Backlog B3.1/B3.2 -- deterministic allergen/restriction check results.
+   .restriction-warning is a hard match against a restricted allergen
+   (blocking on meal-plan confirm unless overridden); .cross-contact-
+   warning is the softer, informational oats-type flag that never blocks
+   on its own. Danger red vs. accent amber mirrors the severity difference
+   the same way .provenance-* mirrors verified-vs-estimated above. */
+.restriction-warning {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.cross-contact-warning {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.restriction-warning ul,
+.cross-contact-warning ul {
+  margin: var(--spacing-1) 0 0;
+  padding-left: var(--spacing-3);
+}
+
+.restriction-conflict-dialog {
+  margin-top: var(--spacing-2);
+}
+
 /* Recipe form's nutrition fieldset -- 9 keys (backlog B1.3) need to wrap
    sensibly instead of the fixed 4-column .form-row used elsewhere. */
 .nutrition-field-grid {

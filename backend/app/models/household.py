@@ -20,12 +20,32 @@ class HouseholdPreferences(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     household_size: Mapped[int] = mapped_column(Integer, default=2)
-    # e.g. ["gluten_free", "celiac", "vegetarian", "low_sodium"]
+    # Free-text-ish goals/preferences, still fed to the LLM as prose --
+    # e.g. ["gluten_free", "celiac", "vegetarian", "low_sodium"]. Kept
+    # separate from restricted_allergens below: this field is
+    # interpretive (the model reads it), that one is deterministic (code
+    # checks it) -- see app/services/allergen_service.py's module
+    # docstring for why nothing before backlog B3.1 could structurally
+    # guarantee a generated plan or imported recipe avoided an allergen.
     dietary_restrictions: Mapped[list] = mapped_column(JSON, default=list)
     goals: Mapped[str | None] = mapped_column(Text, nullable=True)
     # how often an indulgent/treat meal is allowed in a generated plan
     indulgence_frequency: Mapped[str] = mapped_column(String(20), default="weekly")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Backlog B3.1 -- a fixed taxonomy (app/services/allergen_service.py's
+    # ALLERGEN_CHOICES) the app can deterministically check ingredient
+    # names against, rather than only ever trusting the LLM to have
+    # honored dietary_restrictions' free text. List of canonical keys,
+    # e.g. ["gluten", "milk"].
+    restricted_allergens: Mapped[list] = mapped_column(JSON, default=list)
+    # Backlog B3.2 -- None (no gluten restriction, or "gluten" isn't in
+    # restricted_allergens) | "flexible" | "strict_gluten_only" |
+    # "strict_no_cross_contact" (allergen_service.OBSERVANCE_LEVELS).
+    # Only "strict_no_cross_contact" additionally surfaces the oats/
+    # cross-contact warning -- the other two levels behave identically
+    # to just having "gluten" restricted with no observance level set.
+    gluten_observance_level: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
 class HouseholdMember(Base, TimestampMixin):

@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.allergen import RestrictionMatchRead
+
 
 class RecipeIngredientBase(BaseModel):
     ingredient_name: str
@@ -111,6 +113,16 @@ class RecipeRead(RecipeBase):
     # discipline as RecipeIngredientRead.resolution_source above. "computed"
     # / "partial" / "ai_estimated" / None (legacy row, never computed).
     nutrition_provenance: str | None = None
+    # Backlog B3.1/B3.2 -- computed fresh on every read against the
+    # household's CURRENT restricted_allergens/gluten_observance_level
+    # (see routers/recipes.py's _to_read), not persisted -- restrictions
+    # can change at any time and a recipe saved before that change should
+    # still show a warning, not a stale/missing one. `matches` are hard
+    # allergen hits; `cross_contact_warnings` are the softer B3.2 oats-
+    # style warning, only ever non-empty at the strict_no_cross_contact
+    # observance level.
+    restriction_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
+    cross_contact_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
     ingredients: list[RecipeIngredientRead]
     tags: list[str]
     servings_shown: int = Field(default=0, description="Servings these ingredient quantities are scaled to")
@@ -127,6 +139,11 @@ class RecipeRead(RecipeBase):
 class RecipeImportResponse(BaseModel):
     recipe: RecipeCreate
     raw_model_output: str
+    # Backlog B3.1 -- checked against the parsed-but-not-yet-saved
+    # ingredients so a conflict is visible in the review step, before the
+    # user ever confirms the import (see routers/recipes.py's import_recipe).
+    restriction_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
+    cross_contact_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
 
 
 class RecipeChatMessage(BaseModel):

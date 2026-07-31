@@ -17,8 +17,17 @@ from app.schemas.household import (
     HouseholdPreferencesRead,
     HouseholdPreferencesUpdate,
 )
+from app.services import allergen_service
 
 router = APIRouter(prefix="/api/household", tags=["household"])
+
+
+@router.get("/allergen-options")
+def get_allergen_options():
+    """Backlog B3.1/B3.2 -- the fixed taxonomy/labels, server-driven so
+    the frontend doesn't hardcode a second copy of allergen_service's
+    ALLERGEN_CHOICES/OBSERVANCE_LEVELS that could drift out of sync."""
+    return {"allergens": allergen_service.ALLERGEN_CHOICES, "observance_levels": allergen_service.OBSERVANCE_LEVELS}
 
 
 @router.get("/preferences", response_model=HouseholdPreferencesRead)
