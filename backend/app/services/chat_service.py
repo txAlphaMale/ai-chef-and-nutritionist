@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, MealPlan
+from app.services import health_service
 from app.services.recipe_service import _extract_json_object, _safe_float, _safe_int
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -48,7 +49,15 @@ def get_relevant_meal_plan(db: Session) -> MealPlan | None:
     return db.query(MealPlan).order_by(MealPlan.week_start_date.desc()).first()
 
 
-def build_chat_context(db: Session, inventory_limit: int = 80) -> dict:
+def build_chat_context(db: Session, query: str | None = None, inventory_limit: int = 80) -> dict:
+    """`query` -- when given (routers/chat.py passes the user's actual
+    message) -- grounds the reply in relevant knowledge-file content via
+    retrieval (health_service.build_knowledge_context /
+    knowledge_service.search_knowledge), added 2026-07-31. This is the
+    more natural fit for retrieval than meal-plan generation's synthetic
+    query: a real user question IS the query. Chat previously injected no
+    knowledge-file grounding at all -- this closes that gap, not just
+    upgrades an existing mechanism."""
     household = db.query(HouseholdPreferences).first()
     plan = get_relevant_meal_plan(db)
     inventory_items = db.query(InventoryItem).order_by(InventoryItem.name).limit(inventory_limit).all()
@@ -68,12 +77,15 @@ def build_chat_context(db: Session, inventory_limit: int = 80) -> dict:
                 }
             )
 
+    knowledge_context = health_service.build_knowledge_context(db, query) if query else ""
+
     return {
         "household_size": household.household_size if household else 2,
         "dietary_restrictions": (household.dietary_restrictions if household else []) or [],
         "meal_plan_id": plan.id if plan else None,
         "meal_plan_week_start": str(plan.week_start_date) if plan else None,
         "meal_plan_entries": plan_entries,
+        "knowledge_context": knowledge_context,
         "inventory_items": [
             {
                 "id": i.id,
@@ -125,7 +137,7 @@ of the reply. Actions are proposals only -- nothing happens until the user \
 confirms them in the UI, so it's fine to suggest something reasonable.
 
 Household: {household_size} people. Dietary restrictions: {dietary_restrictions}.
-
+{knowledge_section}
 Current meal plan{plan_label}:
 {plan_entries}
 
@@ -158,6 +170,18 @@ def _format_inventory(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_knowledge_section(knowledge_context: str | None) -> str:
+    if not knowledge_context:
+        return ""
+    return (
+        "\nRelevant reference material the household has provided (a nutritionist's "
+        "guidance, a specific diet plan, etc.), retrieved for this message -- follow it "
+        "where relevant and it doesn't conflict with the dietary restrictions above:\n"
+        + knowledge_context
+        + "\n"
+    )
+
+
 def build_chat_system_prompt(base_prompt: str, context: dict) -> str:
     dietary = ", ".join(context.get("dietary_restrictions") or []) or "none specified"
     plan_id = context.get("meal_plan_id")
@@ -166,6 +190,7 @@ def build_chat_system_prompt(base_prompt: str, context: dict) -> str:
     context_block = CHAT_CONTEXT_TEMPLATE.format(
         household_size=context.get("household_size", 2),
         dietary_restrictions=dietary,
+        knowledge_section=_format_knowledge_section(context.get("knowledge_context")),
         plan_label=plan_label,
         plan_entries=_format_plan_entries(context.get("meal_plan_entries") or []),
         priority_note="",

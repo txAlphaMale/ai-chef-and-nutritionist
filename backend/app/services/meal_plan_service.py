@@ -109,9 +109,31 @@ def gather_generation_context(
         # Phase 6: household health trends (BMI/cholesterol/weight) and
         # any imported nutritionist reference material -- both optional,
         # both empty strings when nothing's been logged/uploaded yet.
+        # knowledge_context is now retrieval-based (2026-07-31, see
+        # health_service.build_knowledge_context) rather than a fixed
+        # concatenation, so it needs a query -- there's no single natural
+        # user question during generation the way there is in chat, so a
+        # synthetic one is built from what generation itself most needs
+        # grounded: dietary restrictions and stated goals.
         "health_summary": health_service.build_health_context_summary(db),
-        "knowledge_context": health_service.build_knowledge_context(db),
+        "knowledge_context": health_service.build_knowledge_context(
+            db, _build_knowledge_query(household)
+        ),
     }
+
+
+def _build_knowledge_query(household) -> str:
+    """Synthetic retrieval query for meal-plan generation -- there's no
+    single user question to embed the way chat has one, so this stands
+    in for "what would make a reference document relevant to planning
+    this household's meals," built from their stated dietary
+    restrictions and goals."""
+    if household is None:
+        return ""
+    parts = list(household.dietary_restrictions or [])
+    if household.goals:
+        parts.append(household.goals)
+    return " ".join(parts).strip()
 
 
 # --- Prompt construction ---------------------------------------------------

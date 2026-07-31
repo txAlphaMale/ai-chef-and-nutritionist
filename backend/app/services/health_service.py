@@ -15,7 +15,8 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import HealthMetricEntry, HouseholdMember, KnowledgeFile
+from app.models import HealthMetricEntry, HouseholdMember
+from app.services import knowledge_service
 
 # --- BMI -----------------------------------------------------------------
 
@@ -129,30 +130,28 @@ def build_health_context_summary(db: Session) -> str:
     return "\n".join(lines)
 
 
-# --- Meal-plan grounding: nutritionist knowledge files ---------------------
+# --- Meal-plan/chat grounding: nutritionist knowledge files ----------------
 #
-# Deliberately simple for a first pass: every active knowledge file's
-# extracted text is truncated and concatenated into the prompt, rather
-# than chunked/embedded/semantically retrieved. Documented in
-# PROJECT-PLAN.md as a known simplification -- fine for a handful of
-# reference documents, but a real RAG layer would be needed to scale to
-# a large knowledge base.
+# Upgraded 2026-07-31 from "concatenate every active file, truncated to a
+# combined character budget" to real retrieval: knowledge_service.
+# search_knowledge embeds `query` and returns only the top-k most
+# relevant chunks across the knowledge base, so grounding scales past a
+# handful of short files instead of quietly truncating large/numerous
+# ones out. See knowledge_service.py's module docstring for the full
+# design writeup (chunking, embedding, retrieval, and what was
+# deliberately NOT ported from the Fiduciary project this was modeled
+# on). `query` should be whatever text best represents what the caller
+# actually needs grounded -- meal_plan_service builds one from household
+# dietary restrictions/goals; chat_service uses the user's actual
+# message, the more natural fit for per-turn retrieval.
 
 
-def _format_knowledge_excerpts(files: list[dict], max_chars: int = 3000) -> str:
-    chunks = []
-    remaining = max_chars
-    for f in files:
-        content = f.get("content")
-        if not content or remaining <= 0:
-            continue
-        excerpt = content[:remaining]
-        chunks.append(f"[{f['filename']}]\n{excerpt}")
-        remaining -= len(excerpt)
-    return "\n\n".join(chunks)
+def _format_knowledge_results(results: list[dict]) -> str:
+    if not results:
+        return ""
+    return "\n\n".join(f"[{r['source']}]\n{r['text']}" for r in results)
 
 
-def build_knowledge_context(db: Session, max_chars: int = 3000) -> str:
-    files = db.query(KnowledgeFile).filter_by(is_active=True).all()
-    file_dicts = [{"filename": f.filename, "content": f.content} for f in files]
-    return _format_knowledge_excerpts(file_dicts, max_chars)
+def build_knowledge_context(db: Session, query: str, k: int = 4) -> str:
+    results = knowledge_service.search_knowledge(db, query, k=k)
+    return _format_knowledge_results(results)

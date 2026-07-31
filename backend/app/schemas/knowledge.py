@@ -24,4 +24,5 @@ class KnowledgeFileRead(BaseModel):
     is_active: bool
     has_content: bool  # whether text extraction succeeded (grounds meal-plan generation)
     content_excerpt: str | None = None
+    chunk_count: int = 0  # embedded chunks currently indexed for retrieval (0 before first index)
     created_at: datetime

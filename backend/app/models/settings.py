@@ -4,8 +4,8 @@ user-customizable without a container rebuild, so they live in the DB
 rather than only in .env."""
 from __future__ import annotations
 
-from sqlalchemy import Boolean, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.models.base import TimestampMixin
@@ -45,3 +45,40 @@ class KnowledgeFile(Base, TimestampMixin):
     # blocking the upload itself.
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Which embedding model produced this file's current KnowledgeChunk
+    # rows, or null if it hasn't been chunked/embedded yet. Compared
+    # against the currently-configured ollama_embed_model setting
+    # (knowledge_service.ensure_indexed) to decide whether a (re)index is
+    # needed -- covers both "never indexed" (null) and "the embed model
+    # changed since this was last indexed" (mismatch) in one check,
+    # without needing a separate content-hash column: unlike Fiduciary's
+    # watched-folder design, a KnowledgeFile's content is set once at
+    # upload and never edited afterward, so the model is the only thing
+    # that can make a previously-good index stale.
+    indexed_embed_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    chunks: Mapped[list["KnowledgeChunk"]] = relationship(
+        back_populates="knowledge_file", cascade="all, delete-orphan"
+    )
+
+
+class KnowledgeChunk(Base, TimestampMixin):
+    """A chunked, embedded slice of a KnowledgeFile's extracted text --
+    the unit real retrieval (knowledge_service.search_knowledge) ranks
+    and returns, instead of injecting a whole file's text into every
+    prompt. See knowledge_service.py's module docstring for the full
+    RAG design writeup."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    knowledge_file_id: Mapped[int] = mapped_column(ForeignKey("knowledge_files.id"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    # list[float] -- SQLite has no native vector type at this corpus
+    # size a dedicated vector DB is overkill (per the backlog note this
+    # was scoped from); cosine similarity runs in pure Python over these
+    # JSON-decoded lists, same approach Fiduciary validated.
+    vector: Mapped[list] = mapped_column(JSON)
+
+    knowledge_file: Mapped["KnowledgeFile"] = relationship(back_populates="chunks")

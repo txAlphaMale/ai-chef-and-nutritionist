@@ -31,6 +31,7 @@ def _to_read(kf: KnowledgeFile) -> KnowledgeFileRead:
         is_active=kf.is_active,
         has_content=bool(kf.content),
         content_excerpt=(kf.content[:EXCERPT_LENGTH] if kf.content else None),
+        chunk_count=len(kf.chunks),
         created_at=kf.created_at,
     )
 
@@ -59,6 +60,19 @@ async def upload_knowledge_file(
     )
     db.add(kf)
     db.commit()
+    db.refresh(kf)
+
+    # Best-effort eager indexing so the upload response already reflects
+    # a usable chunk_count (nicer UX than waiting for the next meal-plan
+    # generation or chat message to trigger it lazily). Never blocks or
+    # fails the upload itself -- an unreachable Ollama just means this
+    # file gets indexed later, same as any other lazy-index path
+    # (knowledge_service.ensure_indexed retries automatically since
+    # indexed_embed_model stays null until a chunk actually succeeds).
+    try:
+        knowledge_service.ensure_indexed(db, knowledge_file=kf)
+    except Exception:  # noqa: BLE001
+        pass
     db.refresh(kf)
     return _to_read(kf)
 

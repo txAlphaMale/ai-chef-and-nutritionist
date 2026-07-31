@@ -62,8 +62,9 @@ export default function KnowledgeFilesPanel() {
     <div className="card">
       <h3>Nutritionist knowledge files</h3>
       <p className="hint">
-        Upload reference material (a doctor's guidance sheet, a specific diet plan, PDF/txt/md) to ground
-        meal-plan generation. Only active files are used.
+        Upload reference material (a doctor's guidance sheet, a specific diet plan, PDF/txt/md) to ground meal-plan
+        generation and chat. Only active files are used; only the most relevant excerpts are retrieved for a given
+        request, not the whole file every time.
       </p>
       {error && <p className="error-text">{error}</p>}
       {loading ? (
@@ -77,6 +78,9 @@ export default function KnowledgeFilesPanel() {
               <div>
                 <strong>{kf.filename}</strong>
                 {!kf.has_content && <span className="tag">text not extracted</span>}
+                {kf.has_content && (
+                  <span className="tag">{kf.chunk_count > 0 ? `${kf.chunk_count} chunk${kf.chunk_count === 1 ? "" : "s"} indexed` : "indexing..."}</span>
+                )}
                 {!kf.is_active && <span className="tag">inactive</span>}
                 {kf.description && <p className="hint">{kf.description}</p>}
                 {kf.content_excerpt && <p className="hint knowledge-excerpt">&ldquo;{kf.content_excerpt}&hellip;&rdquo;</p>}

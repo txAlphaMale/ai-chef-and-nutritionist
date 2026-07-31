@@ -109,7 +109,9 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
     )
 
     base_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
-    context = chat_service.build_chat_context(db)
+    # The user's own message doubles as the knowledge-retrieval query
+    # (2026-07-31) -- see chat_service.build_chat_context's docstring.
+    context = chat_service.build_chat_context(db, query=message_text)
     system_prompt = chat_service.build_chat_system_prompt(base_prompt, context)
 
     messages = [{"role": "system", "content": system_prompt}]

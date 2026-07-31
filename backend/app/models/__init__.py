@@ -7,7 +7,7 @@ from app.models.meal_plan import GroceryListItem, MealPlan, MealPlanEntry
 from app.models.household import HouseholdMember, HouseholdPreferences
 from app.models.health import HealthMetricEntry
 from app.models.chat import ChatMessage
-from app.models.settings import AppSetting, KnowledgeFile, SystemPrompt
+from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, SystemPrompt
 
 __all__ = [
     "InventoryItem",
@@ -24,5 +24,6 @@ __all__ = [
     "ChatMessage",
     "AppSetting",
     "KnowledgeFile",
+    "KnowledgeChunk",
     "SystemPrompt",
 ]

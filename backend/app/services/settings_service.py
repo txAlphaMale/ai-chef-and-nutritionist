@@ -58,6 +58,14 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="OLLAMA_VISION_MODEL",
     ),
     SettingSpec(
+        key="ollama_embed_model",
+        label="Ollama embedding model",
+        is_secret=False,
+        default="bge-m3",
+        description="Ollama embedding model used to chunk/embed knowledge files for retrieval-based grounding.",
+        env_fallback="OLLAMA_EMBED_MODEL",
+    ),
+    SettingSpec(
         key="tavily_api_key",
         label="Tavily API key",
         is_secret=True,

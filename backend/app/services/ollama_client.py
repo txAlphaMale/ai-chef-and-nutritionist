@@ -45,6 +45,21 @@ def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | No
     )
 
 
+def embed(db: Session, text: str, model: str | None = None) -> list[float]:
+    """Embedding vector for a single string of text, via Ollama's
+    /api/embeddings (the `ollama` package's Client.embeddings wraps this
+    directly). Used by knowledge_service.py to chunk/embed knowledge
+    files for real retrieval instead of always injecting a whole file's
+    text into every prompt. Connection errors propagate, same convention
+    as chat()/describe_image() -- callers decide how to degrade (e.g.
+    knowledge_service skips a chunk on failure rather than failing an
+    entire reindex pass)."""
+    client = _client(db)
+    embed_model = model or settings_service.get_setting(db, "ollama_embed_model")
+    response = client.embeddings(model=embed_model, prompt=text)
+    return list(response.get("embedding") or [])
+
+
 def ping(db: Session) -> bool:
     """Best-effort reachability check for the configured Ollama host."""
     try:
