@@ -50,9 +50,24 @@ class Recipe(Base, TimestampMixin):
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5
     is_staple: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # manual | import_file | import_image | import_text | ai_generated
+    # manual | import_file | import_image | import_text | import_url | ai_generated
     source: Mapped[str] = mapped_column(String(20), default="manual")
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Citation info, captured on import where available -- respects the
+    # original source rather than stripping attribution. source_url is
+    # only set for import_url; source_name/source_author may come from
+    # any import method that states them (e.g. a PDF's title page, a
+    # webpage's byline/site name).
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_author: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # Helpful extras worth keeping from an imported source that aren't
+    # part of the core recipe structure -- variations, substitution
+    # suggestions, optional modifications -- as opposed to the ads,
+    # stories, and other boilerplate that import parsing discards.
+    tips: Mapped[list] = mapped_column(JSON, default=list)
 
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(
         back_populates="recipe", cascade="all, delete-orphan"

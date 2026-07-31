@@ -15,6 +15,7 @@ export default function RecipesPage() {
   const [importError, setImportError] = useState(null);
   const [importPreview, setImportPreview] = useState(null); // RecipeCreate-shaped
   const [importText, setImportText] = useState("");
+  const [importUrl, setImportUrl] = useState("");
 
   async function refresh() {
     setLoading(true);
@@ -61,6 +62,23 @@ export default function RecipesPage() {
     }
   }
 
+  async function handleImportUrl() {
+    if (!importUrl.trim()) return;
+    setImportBusy(true);
+    setImportError(null);
+    setImportPreview(null);
+    try {
+      const formData = new FormData();
+      formData.append("url", importUrl.trim());
+      const result = await api.post("/recipes/import", formData);
+      setImportPreview(result.recipe);
+    } catch (e) {
+      setImportError(e.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   async function handleImportFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -84,6 +102,7 @@ export default function RecipesPage() {
     await api.post("/recipes", editedPayload);
     setImportPreview(null);
     setImportText("");
+    setImportUrl("");
     refresh();
   }
 
@@ -109,10 +128,25 @@ export default function RecipesPage() {
 
       <div className="card">
         <h3>Import a recipe</h3>
+        <p className="hint">
+          From a URL, pasted text, a photo, or a PDF. Ads, stories, and other boilerplate are
+          filtered out; useful substitutions/variations and the source citation are kept.
+        </p>
+        <div className="form-row">
+          <input
+            placeholder="https://example.com/some-recipe"
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-secondary" onClick={handleImportUrl} disabled={importBusy || !importUrl.trim()}>
+            {importBusy ? "Fetching..." : "Import from URL"}
+          </button>
+        </div>
         <div className="form-row">
           <textarea
             rows={3}
-            placeholder="Paste a recipe's text here..."
+            placeholder="...or paste a recipe's text here"
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
             style={{ flex: 1 }}

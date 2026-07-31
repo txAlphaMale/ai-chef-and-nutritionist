@@ -1,13 +1,14 @@
-"""Recipe business logic: servings scaling and AI-assisted import parsing
-(text, PDF, or photo -> structured recipe JSON)."""
+"""Recipe business logic: servings scaling, AI-assisted import parsing
+(text, PDF, photo, or URL -> structured recipe JSON), and building
+context for the recipe-scoped chat feature."""
 from __future__ import annotations
 
+import io
 import json
 import re
 
+import trafilatura
 from pypdf import PdfReader
-import io
-
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe
@@ -81,6 +82,17 @@ applicable: quick, portable, non_refrigerated, dutch_oven_only, \
 backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, \
 gluten_free (omit any that don't apply; you may also add a new tag if \
 clearly relevant)
+- "tips": array of short strings capturing any GENUINELY USEFUL asides \
+from the source that aren't part of the core recipe structure above -- \
+ingredient substitutions, optional variations, make-ahead/storage notes, \
+or equipment alternatives the source explicitly mentions. Each entry \
+should be a short paraphrase in your own words, not a long verbatim \
+quote. Omit this entirely (empty array) if there's nothing like that.
+
+Important: only extract factual/functional recipe information (what to \
+buy, what to do, timing, substitutions). Do NOT reproduce the source's \
+narrative prose, personal stories, advertisements, or other copyrightable \
+writing -- summarize functionally instead of quoting at length.
 
 Content to extract from:
 ---
@@ -111,6 +123,7 @@ def parse_recipe_response(raw_text: str) -> dict | None:
     nutrition_raw = data.get("nutrition") or {}
     nutrition = {k: _safe_float(v) for k, v in nutrition_raw.items() if _safe_float(v) is not None}
     tags = [str(t).strip().lower() for t in (data.get("tags") or []) if str(t).strip()]
+    tips = [str(t).strip() for t in (data.get("tips") or []) if str(t).strip()]
 
     return {
         "title": str(data["title"]).strip(),
@@ -122,13 +135,89 @@ def parse_recipe_response(raw_text: str) -> dict | None:
         "ingredients": ingredients,
         "nutrition": nutrition,
         "tags": tags,
-        "source": "import_text",
+        "tips": tips,
     }
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:
     reader = PdfReader(io.BytesIO(pdf_bytes))
     return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+# --- URL import -----------------------------------------------------
+#
+# Recipe pages are frequently mostly ads, life stories, and navigation
+# chrome around a small functional core. trafilatura is used specifically
+# because it does main-content extraction (strips boilerplate) AND pulls
+# byline/sitename metadata in one pass -- the metadata is what lets us
+# capture citation info per the project's copyright-respect requirement,
+# instead of just discarding where a recipe came from.
+#
+# Split into fetch (network) + extract (pure function over HTML) so the
+# extraction logic is unit-testable without a live network call.
+
+
+def fetch_html(url: str) -> str:
+    html = trafilatura.fetch_url(url)
+    if not html:
+        raise ValueError(f"Could not download content from {url}")
+    return html
+
+
+def extract_content_from_html(html: str, url: str | None = None) -> dict:
+    result = trafilatura.bare_extraction(html, url=url, with_metadata=True, favor_recall=True)
+    if not result:
+        return {"text": "", "title": None, "author": None, "sitename": None}
+    return {
+        "text": result.get("text") or "",
+        "title": result.get("title"),
+        "author": result.get("author"),
+        "sitename": result.get("sitename"),
+    }
+
+
+def extract_url_content(url: str) -> dict:
+    html = fetch_html(url)
+    return extract_content_from_html(html, url=url)
+
+
+# --- Recipe-scoped chat context ---------------------------------------
+#
+# Used by POST /api/recipes/{id}/chat (routers/recipes.py) to ground
+# substitution/adjustment suggestions in the actual recipe the user is
+# cooking, at the servings size they're actually making.
+
+
+def _format_ingredient_line(ing: dict) -> str:
+    line = f"- {ing['quantity'] or ''} {ing['unit'] or ''} {ing['ingredient_name']}".strip()
+    if ing.get("prep_note"):
+        line += f" ({ing['prep_note']})"
+    return line
+
+
+def build_recipe_chat_context(recipe_read: dict) -> str:
+    ingredients_lines = "\n".join(
+        _format_ingredient_line(ing) for ing in recipe_read.get("ingredients", [])
+    )
+    instructions_lines = "\n".join(
+        f"{i + 1}. {step}" for i, step in enumerate(recipe_read.get("instructions", []))
+    )
+    tips_block = ""
+    if recipe_read.get("tips"):
+        tips_lines = "\n".join(f"- {t}" for t in recipe_read["tips"])
+        tips_block = f"\n\nKnown tips/substitutions/variations for this recipe:\n{tips_lines}"
+
+    return (
+        f"The user is currently viewing/cooking this recipe, scaled to "
+        f"{recipe_read.get('servings_shown')} servings. Help with questions about it -- "
+        f"substitutions, technique, timing adjustments, or scaling -- grounded in what's "
+        f"actually in the recipe below. Suggestions are for this cooking session only; "
+        f"do not assume anything gets saved.\n\n"
+        f"Recipe: {recipe_read.get('title')}\n\n"
+        f"Ingredients ({recipe_read.get('servings_shown')} servings):\n{ingredients_lines}\n\n"
+        f"Instructions:\n{instructions_lines}"
+        f"{tips_block}"
+    )
 
 
 def _extract_json_object(raw_text: str) -> dict:

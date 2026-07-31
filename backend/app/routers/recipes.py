@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Recipe, RecipeIngredient
 from app.schemas.recipe import (
+    RecipeChatRequest,
+    RecipeChatResponse,
     RecipeCreate,
     RecipeImportResponse,
     RecipeIngredientRead,
@@ -48,6 +50,10 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
         nutrition=recipe.nutrition or {},
         is_staple=recipe.is_staple,
         image_path=recipe.image_path,
+        source_url=recipe.source_url,
+        source_name=recipe.source_name,
+        source_author=recipe.source_author,
+        tips=recipe.tips or [],
         rating=recipe.rating,
         source=recipe.source,
         ingredients=[RecipeIngredientRead(**ing) for ing in scaled]
@@ -96,14 +102,30 @@ async def import_recipe(
     db: Session = Depends(get_db),
     file: UploadFile | None = None,
     text: str | None = Form(None),
+    url: str | None = Form(None),
 ):
-    """Accepts EITHER a `text` form field OR an uploaded file (image, PDF,
-    or plain text), extracts a structured recipe preview via Ollama, and
-    returns it WITHOUT saving -- the frontend lets the user review/edit,
-    then POSTs the confirmed result to POST /api/recipes."""
-    if text:
-        content_text = text
-        raw_output = await _run_text_extraction(db, content_text)
+    """Accepts `text`, an uploaded `file` (image, PDF, or plain text), OR a
+    `url` -- exactly one -- extracts a structured recipe preview via
+    Ollama, and returns it WITHOUT saving so the frontend can let the
+    user review/edit before POSTing the confirmed result to
+    POST /api/recipes. Citation info (source_url/source_name/
+    source_author) is captured where available rather than discarded,
+    per the project's copyright-respect requirement -- see
+    recipe_service.RECIPE_IMPORT_PROMPT and extract_url_content()."""
+    citation: dict = {}
+    if url:
+        try:
+            page = recipe_service.extract_url_content(url)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Could not fetch or parse that URL: {exc}") from exc
+        if not page.get("text"):
+            raise HTTPException(status_code=422, detail="Could not extract readable content from that URL")
+        citation = {"source_url": url, "source_name": page.get("sitename"), "source_author": page.get("author")}
+        raw_output = await _run_text_extraction(db, page["text"])
+        default_source = "import_url"
+    elif text:
+        raw_output = await _run_text_extraction(db, text)
+        default_source = "import_text"
     elif file is not None:
         raw_bytes = await file.read()
         content_type = file.content_type or ""
@@ -115,21 +137,28 @@ async def import_recipe(
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(status_code=502, detail=f"Ollama vision request failed: {exc}") from exc
             raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            default_source = "import_image"
         elif content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
             pdf_text = recipe_service.extract_pdf_text(raw_bytes)
             raw_output = await _run_text_extraction(db, pdf_text)
+            default_source = "import_file"
         else:
             try:
                 text_content = raw_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 raise HTTPException(status_code=400, detail="Unsupported file type for recipe import")
             raw_output = await _run_text_extraction(db, text_content)
+            default_source = "import_file"
     else:
-        raise HTTPException(status_code=400, detail="Provide either `text` or `file`")
+        raise HTTPException(status_code=400, detail="Provide one of `text`, `file`, or `url`")
 
     parsed = recipe_service.parse_recipe_response(raw_output)
     if parsed is None:
         raise HTTPException(status_code=422, detail="Could not extract a recipe from that input")
+    parsed["source"] = default_source
+    for key, value in citation.items():
+        if value:
+            parsed[key] = value
     return RecipeImportResponse(recipe=RecipeCreate(**parsed), raw_model_output=raw_output)
 
 
@@ -178,6 +207,36 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, db: Session = Depends(g
     db.commit()
     db.refresh(recipe)
     return _to_read(recipe)
+
+
+@router.post("/{recipe_id}/chat", response_model=RecipeChatResponse)
+def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = Depends(get_db)):
+    """Ephemeral, recipe-scoped chat -- for things like "I'm out of buttermilk,
+    what can I use instead?" while actually cooking. Deliberately NOT
+    persisted to chat_messages (that's the Phase 7 persistent chat system,
+    a separate concern); the client resends `history` each turn. The
+    recipe's current ingredients/instructions/tips are injected as context
+    so suggestions are grounded in the actual recipe, not a generic answer."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    servings = payload.servings or recipe.default_servings
+    read_view = _to_read(recipe, servings_shown=servings)
+    system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
+    context = recipe_service.build_recipe_chat_context(read_view.model_dump())
+
+    messages = [{"role": "system", "content": f"{system_prompt}\n\n{context}"}]
+    for m in payload.history:
+        messages.append({"role": m.role, "content": m.content})
+    messages.append({"role": "user", "content": payload.message})
+
+    try:
+        response = ollama_client.chat(db, messages)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
+    reply = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    return RecipeChatResponse(reply=reply)
 
 
 @router.post("/{recipe_id}/rating", response_model=RecipeRead)

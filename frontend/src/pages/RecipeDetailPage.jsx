@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import RecipeForm from "../components/RecipeForm";
+import RecipeChat from "../components/RecipeChat";
 
 export default function RecipeDetailPage() {
   const { id } = useParams();
@@ -142,6 +143,31 @@ export default function RecipeDetailPage() {
         </>
       )}
 
+      {recipe.tips?.length > 0 && (
+        <>
+          <h3>Tips, substitutions &amp; variations</h3>
+          <ul>
+            {recipe.tips.map((tip, i) => (
+              <li key={i}>{tip}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {(recipe.source_url || recipe.source_name || recipe.source_author) && (
+        <p className="hint recipe-source">
+          Source:{" "}
+          {recipe.source_url ? (
+            <a href={recipe.source_url} target="_blank" rel="noreferrer">
+              {recipe.source_name || recipe.source_url}
+            </a>
+          ) : (
+            recipe.source_name
+          )}
+          {recipe.source_author ? ` — ${recipe.source_author}` : ""}
+        </p>
+      )}
+
       <div className="form-actions">
         <button className="btn btn-secondary" onClick={() => setEditing(true)}>
           Edit
@@ -150,6 +176,8 @@ export default function RecipeDetailPage() {
           Delete recipe
         </button>
       </div>
+
+      <RecipeChat recipeId={id} servings={recipe.servings_shown} />
     </div>
   );
 }

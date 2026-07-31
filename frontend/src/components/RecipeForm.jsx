@@ -11,6 +11,10 @@ const emptyForm = {
   instructions: [""],
   ingredients: [{ ...emptyIngredient }],
   tags: "",
+  tips: [],
+  source_url: "",
+  source_name: "",
+  source_author: "",
   nutrition_calories: "",
   nutrition_protein_g: "",
   nutrition_carbs_g: "",
@@ -32,6 +36,10 @@ export default function RecipeForm({ initial, onSubmit, onCancel }) {
         ? initial.ingredients.map((i) => ({ ...i, quantity: i.quantity ?? "" }))
         : [{ ...emptyIngredient }],
       tags: (initial.tags || []).join(", "),
+      tips: initial.tips?.length ? initial.tips : [],
+      source_url: initial.source_url || "",
+      source_name: initial.source_name || "",
+      source_author: initial.source_author || "",
       nutrition_calories: initial.nutrition?.calories ?? "",
       nutrition_protein_g: initial.nutrition?.protein_g ?? "",
       nutrition_carbs_g: initial.nutrition?.carbs_g ?? "",
@@ -70,6 +78,18 @@ export default function RecipeForm({ initial, onSubmit, onCancel }) {
     setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, idx) => idx !== i) }));
   }
 
+  function setTip(i, value) {
+    setForm((f) => ({ ...f, tips: f.tips.map((t, idx) => (idx === i ? value : t)) }));
+  }
+
+  function addTip() {
+    setForm((f) => ({ ...f, tips: [...f.tips, ""] }));
+  }
+
+  function removeTip(i) {
+    setForm((f) => ({ ...f, tips: f.tips.filter((_, idx) => idx !== i) }));
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     const nutrition = {};
@@ -97,6 +117,10 @@ export default function RecipeForm({ initial, onSubmit, onCancel }) {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
+      tips: form.tips.map((t) => t.trim()).filter(Boolean),
+      source_url: form.source_url || null,
+      source_name: form.source_name || null,
+      source_author: form.source_author || null,
       nutrition,
     };
     onSubmit(payload);
@@ -175,6 +199,39 @@ export default function RecipeForm({ initial, onSubmit, onCancel }) {
         <button type="button" className="btn btn-secondary btn-sm" onClick={addInstruction}>
           + Step
         </button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Tips, substitutions &amp; variations (optional)</legend>
+        {form.tips.map((tip, i) => (
+          <div className="form-row instruction-row" key={i}>
+            <input value={tip} onChange={(e) => setTip(i, e.target.value)} placeholder="e.g. swap butter for coconut oil" />
+            <button type="button" className="btn-link btn-link-danger" onClick={() => removeTip(i)}>
+              ✕
+            </button>
+          </div>
+        ))}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={addTip}>
+          + Tip
+        </button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Source (optional, auto-filled when imported)</legend>
+        <div className="form-row">
+          <label>
+            Source URL
+            <input value={form.source_url} onChange={(e) => set("source_url", e.target.value)} placeholder="https://..." />
+          </label>
+          <label>
+            Site / publication
+            <input value={form.source_name} onChange={(e) => set("source_name", e.target.value)} />
+          </label>
+          <label>
+            Author
+            <input value={form.source_author} onChange={(e) => set("source_author", e.target.value)} />
+          </label>
+        </div>
       </fieldset>
 
       <fieldset>
