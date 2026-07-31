@@ -71,7 +71,7 @@ Chef/
 ## Phased task list (priority order)
 
 - [x] **Phase 0 — Scaffolding.** Repo structure, docker-compose skeleton, backend/frontend hello-world, this plan doc. (2026-07-30)
-- [ ] **Phase 1 — Core data layer.** SQLAlchemy models: inventory items, recipes, meal plans, user/household preferences, body metrics + bloodwork trend entries, chat history, kitchen/equipment profiles. Alembic migrations. Seed defaults (household size = 2).
+- [x] **Phase 1 — Core data layer.** SQLAlchemy models, Alembic migrations, seed script. (2026-07-30)
 - [ ] **Phase 2 — AI integration.** Ollama client wrapper; editable main Chef system prompt (stored in DB, editable via GUI); follow-on dietary-preferences onboarding prompt/flow; Tavily web search integration; vision-capable model wiring for inventory photo intake.
 - [ ] **Phase 3 — Inventory management.** CRUD API + GUI for pantry/fridge/produce/spices with qty + expiration; image-upload vision parsing (detect items, estimate qty/expiration); expiration + "forgotten item" scoring; natural-language chat updates (deduct ingredients on confirmed meals, handle skipped meals).
 - [ ] **Phase 4 — Recipe management.** Recipe model (ingredients, steps, prep/cook time, nutrition, calories); servings-based scaling (default = household size); import from file/image/text; ratings + "staple" flag.
@@ -106,6 +106,23 @@ git push -u origin main
 ```
 After that succeeds, future commits just need `git push`.
 
+## Phase 1 schema notes
+
+15 tables, defined under `backend/app/models/` (one file per domain area) and imported through `app/models/__init__.py` so Alembic autogenerate and relationship string-lookups both see the full set:
+
+- **inventory.py** — `InventoryItem` (category, quantity/unit, location, purchased/expiration/last-used dates, `is_priority` flag + note for "use this up" boosting, source of entry: manual/vision/chat).
+- **kitchen.py** — `KitchenProfile` (name, JSON equipment list, `is_active`) for home vs. camping/RV/rental setups.
+- **recipe.py** — `Recipe` (default_servings for scaling, JSON instructions list, JSON nutrition dict, rating, `is_staple`, source), `RecipeIngredient`, `MealTag` + `recipe_tag_links` join table (seeded tags: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free).
+- **meal_plan.py** — `MealPlan`, `MealPlanEntry` (day/meal_type/recipe/servings, `is_confirmed` is the hook that should trigger inventory deduction in Phase 3, `is_skipped` for chat-driven skip handling), `GroceryListItem`.
+- **household.py** — `HouseholdPreferences` (singleton row, household_size default 2, dietary_restrictions JSON, goals, indulgence_frequency), `HouseholdMember` (age/height/sex/activity_level for BMI-aware planning in Phase 6).
+- **health.py** — `HealthMetricEntry` (weight, BMI, LDL/HDL/total cholesterol, triglycerides, blood pressure, glucose) tied to a household member, for Phase 6 trend charts.
+- **chat.py** — `ChatMessage` (session_id, role, content, timestamp) backing the persistent/background chat in Phase 7.
+- **settings.py** — `AppSetting` (key/value/is_secret, for the Settings GUI in Phase 8), `SystemPrompt` (prompt_key: `main_chef` / `dietary_onboarding`, editable content — Phase 2 wires these into the Ollama client), `KnowledgeFile` (imported nutritionist grounding docs, Phase 6).
+
+**Seed data is deliberately generic**, not the author's personal profile — `HouseholdPreferences` seeds with household_size=2 and no dietary restrictions pre-filled, since this repo is meant for other households to pull down and configure for themselves via onboarding/Settings. The `main_chef` and `dietary_onboarding` system prompts are seeded with real content per the project brief (nutritionist-chef persona, confirm-before-write, expiring/priority-ingredient bias, occasional indulgence).
+
+`backend/docker-entrypoint.sh` runs `alembic upgrade head` then `python -m app.seed` (both idempotent) before starting uvicorn, so the DB bootstraps itself on first `docker compose up` and stays current on every restart without manual steps.
+
 ## Session log
 
-- **2026-07-30**: Reviewed prior prototype bookmark file (now deleted, insights preserved here and in Claude's memory), confirmed architecture decisions (FastAPI + React + SQLite), created 11-phase task list, scaffolded Phase 0 (repo structure, docker-compose, backend/frontend skeletons). Created GitHub repo `txAlphaMale/chef` (public) via browser automation, configured local `origin` remote and `main` branch. Author still needs to run `git push -u origin main` locally to actually push the commit (Claude cannot authenticate git pushes from its sandbox).
+- **2026-07-30**: Reviewed prior prototype bookmark file (now deleted, insights preserved here and in Claude's memory), confirmed architecture decisions (FastAPI + React + SQLite), created 11-phase task list, scaffolded Phase 0 (repo structure, docker-compose, backend/frontend skeletons). Created GitHub repo (public) via browser automation, configured local `origin` remote and `main` branch, author pushed successfully. Renamed repo to `ai-chef-and-nutritionist` at author's request. Noted author's Docker host is WSL2 Debian, project folder reachable there at `/mnt/c/Users/JBentley/Claude/Projects/chef`. Completed Phase 1: 15-table SQLAlchemy schema across 8 model files, Alembic migration, idempotent seed script, wired into `docker-entrypoint.sh` so the DB bootstraps automatically on container start. Verified end-to-end locally (fresh DB → migrate → seed → tables confirmed) outside Docker since no Docker daemon is available in Claude's sandbox.
