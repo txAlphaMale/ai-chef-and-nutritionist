@@ -1,13 +1,17 @@
 """Chef app API entrypoint.
 
-Phase 0: health check only. Phase 1+ wires in the real routers
-(inventory, recipes, meal plans, chat, settings) as they're built --
-see PROJECT-PLAN.md for the phase order.
+Phase 1 added the data layer; Phase 2 adds DB-backed settings/secrets
+and the Ollama/Tavily service wrappers, surfaced here through the
+read-only /api/system/* router. Inventory, recipe, meal-plan, and chat
+routers land in their respective phases -- see PROJECT-PLAN.md.
 """
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.database import get_db
+from app.models import HouseholdPreferences
+from app.routers import system
 
 app = FastAPI(title="Chef", version="0.1.0")
 
@@ -19,11 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(system.router)
+
 
 @app.get("/health")
-def health():
+def health(db: Session = Depends(get_db)):
+    prefs = db.query(HouseholdPreferences).first()
     return {
         "status": "ok",
-        "household_size": settings.household_size,
-        "ollama_base_url": settings.ollama_base_url,
+        "household_size": prefs.household_size if prefs else None,
     }

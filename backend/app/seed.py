@@ -6,8 +6,18 @@ restrictions pre-filled) rather than the original author's specific
 gluten-free/cholesterol-focused profile. Each household configures its
 own preferences through the onboarding flow / Settings GUI (Phase 2/8).
 
+Settings (Ollama config, Tavily key) are stored in the DB via
+settings_service/AppSetting, not read from .env at runtime -- .env is
+only consulted here, once, as an OPTIONAL convenience so a value already
+present in a fresh .env doesn't have to be retyped into the Settings UI
+after first boot. Secret settings are encrypted before being written
+(see app/services/secrets_crypto.py). Re-running this script never
+overwrites a value the user has already set, in .env or in the UI.
+
 Run with: python -m app.seed
 """
+import os
+
 from app.database import Base, SessionLocal, engine
 from app.models import (
     AppSetting,
@@ -16,6 +26,7 @@ from app.models import (
     MealTag,
     SystemPrompt,
 )
+from app.services import settings_service
 
 MAIN_CHEF_PROMPT = """\
 You are a world-class culinary chef and nutritionist. You are responsible \
@@ -82,14 +93,6 @@ DEFAULT_KITCHEN_EQUIPMENT = [
     "blender",
 ]
 
-DEFAULT_APP_SETTINGS = [
-    ("ollama_base_url", "http://host.docker.internal:11434", False, "Base URL where Ollama is reachable"),
-    ("ollama_chat_model", "qwen2.5:14b", False, "Ollama model used for chat / meal planning"),
-    ("ollama_vision_model", "llava:13b", False, "Ollama vision-capable model for inventory photo intake"),
-    ("tavily_api_key", "", True, "Tavily API key for web-grounded recipe/nutrition search"),
-]
-
-
 def seed() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -122,11 +125,19 @@ def seed() -> None:
                 )
             )
 
-        for key, value, is_secret, description in DEFAULT_APP_SETTINGS:
-            if not db.query(AppSetting).filter_by(key=key).first():
-                db.add(AppSetting(key=key, value=value, is_secret=is_secret, description=description))
-
         db.commit()
+
+        # Settings: only create a row if one doesn't exist yet -- never
+        # clobber a value already set via .env or a previous Settings UI
+        # edit. Check row existence directly (not get_setting(), which
+        # falls back to the spec default and would look "already set").
+        # set_setting() handles encryption for secret specs.
+        for spec in settings_service.SETTING_SPECS:
+            if db.query(AppSetting).filter_by(key=spec.key).first():
+                continue
+            seed_value = os.environ.get(spec.env_fallback, "") if spec.env_fallback else ""
+            settings_service.set_setting(db, spec.key, seed_value or spec.default)
+
         print("Seed complete.")
     finally:
         db.close()

@@ -22,19 +22,30 @@ phase, and architecture notes.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in your values:
+Settings like the Ollama URL/models, Tavily key, and household preferences
+live in the database and are meant to be edited from the Settings UI
+(Phase 8) after first boot -- `.env` is only for infra bootstrap plus
+optional first-run convenience values.
+
+1. Copy `.env.example` to `.env`:
    ```
    cp .env.example .env
    ```
-2. Set `OLLAMA_BASE_URL` in `.env` to wherever Ollama is reachable from
-   inside a container (on Linux, your host's LAN IP; on Docker Desktop,
+2. (Optional) Fill in `OLLAMA_BASE_URL`/models and `TAVILY_API_KEY` in `.env`
+   so they're pre-filled on first boot instead of entered later in Settings.
+   `OLLAMA_BASE_URL` needs to be reachable from inside a container (on
+   Linux, your host's LAN IP; on Docker Desktop,
    `http://host.docker.internal:11434` usually works out of the box).
-3. Add your `TAVILY_API_KEY`.
-4. Build and start:
+3. Build and start:
    ```
    docker compose up --build
    ```
-5. Frontend: http://localhost:5173  Backend health check: http://localhost:8095/health
+4. Frontend: http://localhost:5173  Backend health check: http://localhost:8095/health
+
+Secrets (like the Tavily key) are encrypted at rest using a key file
+generated on first boot at `./data/secrets.key`. Back this up along with
+the rest of `./data` -- losing it makes every encrypted setting permanently
+unrecoverable.
 
 ## Development without Docker
 
