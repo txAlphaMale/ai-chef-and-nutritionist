@@ -11,6 +11,9 @@ export default function RecipeDetailPage() {
   const [servings, setServings] = useState(null);
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
+  // Variants (children of this recipe, via parent_recipe_id) -- fetched
+  // separately since RecipeRead only carries the count, not the list.
+  const [variants, setVariants] = useState([]);
 
   async function load(withServings) {
     setError(null);
@@ -19,6 +22,11 @@ export default function RecipeDetailPage() {
       const r = await api.get(`/recipes/${id}${qs}`);
       setRecipe(r);
       if (servings === null) setServings(r.default_servings);
+      if (r.variant_count > 0) {
+        api.get(`/recipes/${id}/variants`).then(setVariants).catch(() => setVariants([]));
+      } else {
+        setVariants([]);
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -75,7 +83,16 @@ export default function RecipeDetailPage() {
   return (
     <div>
       <Link to="/recipes">&larr; All recipes</Link>
-      <h2>{recipe.title}</h2>
+      <h2>
+        {recipe.title}
+        {recipe.variant_label && <span className="tag variant-tag"> {recipe.variant_label}</span>}
+      </h2>
+      {recipe.parent_recipe_id && (
+        <p className="hint">
+          Variant of{" "}
+          <Link to={`/recipes/${recipe.parent_recipe_id}`}>{recipe.parent_recipe_title || "the original recipe"}</Link>
+        </p>
+      )}
       {recipe.image_path && (
         <img className="recipe-detail-image" src={`${backendOrigin}/api/recipes/${id}/image`} alt={recipe.title} />
       )}
@@ -175,6 +192,20 @@ export default function RecipeDetailPage() {
         </p>
       )}
 
+      {variants.length > 0 && (
+        <>
+          <h3>Variants</h3>
+          <ul>
+            {variants.map((v) => (
+              <li key={v.id}>
+                <Link to={`/recipes/${v.id}`}>{v.title}</Link>
+                {v.variant_label ? ` — ${v.variant_label}` : ""}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <div className="form-actions">
         <button className="btn btn-secondary" onClick={() => setEditing(true)}>
           Edit
@@ -184,7 +215,7 @@ export default function RecipeDetailPage() {
         </button>
       </div>
 
-      <RecipeChat recipeId={id} servings={recipe.servings_shown} />
+      <RecipeChat recipeId={id} servings={recipe.servings_shown} onRecipeUpdated={() => load(servings)} />
     </div>
   );
 }

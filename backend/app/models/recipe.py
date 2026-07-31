@@ -3,7 +3,7 @@ filters (quick, portable, non-refrigerated, dutch-oven-only, etc.)."""
 from __future__ import annotations
 
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Table, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
 from app.models.base import TimestampMixin
@@ -69,10 +69,33 @@ class Recipe(Base, TimestampMixin):
     # stories, and other boilerplate that import parsing discards.
     tips: Mapped[list] = mapped_column(JSON, default=list)
 
+    # Recipe variants (added 2026-07-31, "commit an AI-modified recipe"
+    # backlog request): a variant is just a normal Recipe row that
+    # happens to point back at the recipe it was derived from -- e.g.
+    # asking chat to "make this gluten-free" and choosing "save as a new
+    # variant" creates a full, independent Recipe with this set, rather
+    # than mutating the original. Deliberately NOT cascade-deleted: a
+    # variant should survive its parent being deleted (it's a real,
+    # independent recipe by that point, not a diff/patch), so this is a
+    # plain nullable FK with no ORM delete cascade -- same "SQLite
+    # doesn't enforce FK constraints by default in this setup" tradeoff
+    # already accepted elsewhere (see health_service.py's known
+    # limitation on HealthMetricEntry.household_member_id).
+    parent_recipe_id: Mapped[int | None] = mapped_column(ForeignKey("recipes.id"), nullable=True)
+    # Short freeform label for what's different, e.g. "Gluten-Free",
+    # "Low-Sodium" -- shown next to the title, and by the AI when
+    # proposing a variant so the user can tell it apart from siblings.
+    variant_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(
         back_populates="recipe", cascade="all, delete-orphan"
     )
     tags: Mapped[list["MealTag"]] = relationship(secondary=recipe_tag_links)
+    variants: Mapped[list["Recipe"]] = relationship(
+        "Recipe",
+        backref=backref("parent_recipe", remote_side="Recipe.id"),
+        foreign_keys=[parent_recipe_id],
+    )
 
 
 class RecipeIngredient(Base):

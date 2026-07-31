@@ -41,6 +41,11 @@ class RecipeBase(BaseModel):
     # an imported source, distinct from the ads/stories/boilerplate that
     # import parsing discards.
     tips: list[str] = Field(default_factory=list)
+    # Recipe variants -- see the Recipe model for the full writeup. Set
+    # together when an AI-proposed edit is saved as "a new variant"
+    # rather than overwriting the recipe it came from.
+    parent_recipe_id: int | None = None
+    variant_label: str | None = None
 
 
 class RecipeCreate(RecipeBase):
@@ -66,6 +71,8 @@ class RecipeUpdate(BaseModel):
     source_name: str | None = None
     source_author: str | None = None
     tips: list[str] | None = None
+    parent_recipe_id: int | None = None
+    variant_label: str | None = None
     ingredients: list[RecipeIngredientBase] | None = None
     tags: list[str] | None = None
 
@@ -90,6 +97,12 @@ class RecipeRead(RecipeBase):
     ingredients: list[RecipeIngredientRead]
     tags: list[str]
     servings_shown: int = Field(default=0, description="Servings these ingredient quantities are scaled to")
+    # Computed in routers/recipes.py's _to_read() (a join / relationship
+    # length, not directly derivable via from_attributes) -- lets the
+    # detail page show "Variant of X" and a variants list without extra
+    # round-trips for the common case.
+    parent_recipe_title: str | None = None
+    variant_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -115,3 +128,12 @@ class RecipeChatRequest(BaseModel):
 
 class RecipeChatResponse(BaseModel):
     reply: str
+    # Set only when the user's message implied an edit (e.g. "make this
+    # gluten-free") rather than a question -- a full recipe reflecting
+    # the requested change, in the same shape recipe import returns, for
+    # the frontend to show in a review step (reusing RecipeForm) before
+    # anything is saved. variant_label is the AI's short suggested label
+    # (e.g. "Gluten-Free") for the "save as a new variant" path -- see
+    # recipe_service.RECIPE_CHAT_MODIFY_INSTRUCTIONS.
+    proposed_recipe: RecipeCreate | None = None
+    variant_label: str | None = None

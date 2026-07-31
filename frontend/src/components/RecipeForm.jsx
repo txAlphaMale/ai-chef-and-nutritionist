@@ -22,8 +22,11 @@ const emptyForm = {
   nutrition_fat_g: "",
 };
 
-/** Shared add/edit recipe form. `initial` (from RecipeRead) pre-fills for edit mode. */
-export default function RecipeForm({ initial, onSubmit, onCancel }) {
+/** Shared add/edit recipe form. `initial` (from RecipeRead, or a RecipeCreate-
+ * shaped chat/import proposal) pre-fills the fields. `submitLabel` lets a
+ * caller override the button text for non-"edit" submit flows (e.g.
+ * RecipeChat's "Save as new variant" / "Update this recipe" review step). */
+export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = "Save recipe" }) {
   const [form, setForm] = useState(() => {
     if (!initial) return emptyForm;
     return {
@@ -371,7 +374,7 @@ export default function RecipeForm({ initial, onSubmit, onCancel }) {
 
       <div className="form-actions">
         <button type="submit" className="btn btn-primary">
-          Save recipe
+          {submitLabel}
         </button>
         {onCancel && (
           <button type="button" className="btn btn-secondary" onClick={onCancel}>

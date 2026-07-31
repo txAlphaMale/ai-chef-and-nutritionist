@@ -64,6 +64,10 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
         else [RecipeIngredientRead.model_validate(ing) for ing in recipe.ingredients],
         tags=[t.name for t in recipe.tags],
         servings_shown=servings_shown,
+        parent_recipe_id=recipe.parent_recipe_id,
+        variant_label=recipe.variant_label,
+        parent_recipe_title=recipe.parent_recipe.title if recipe.parent_recipe else None,
+        variant_count=len(recipe.variants),
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
     )
@@ -210,6 +214,19 @@ def get_recipe(recipe_id: int, servings: int | None = None, db: Session = Depend
     return _to_read(recipe, servings_shown=servings)
 
 
+@router.get("/{recipe_id}/variants", response_model=list[RecipeRead])
+def list_recipe_variants(recipe_id: int, db: Session = Depends(get_db)):
+    """Children of this recipe (recipe.variants, via parent_recipe_id) --
+    used by the detail page to list e.g. "Gluten-Free" / "Double Batch"
+    siblings created from chat-proposed edits. Not the reverse direction
+    (this recipe's own parent, if any) -- that's just parent_recipe_title
+    on the recipe's own RecipeRead, no extra round-trip needed."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return [_to_read(v) for v in recipe.variants]
+
+
 @router.post("", response_model=RecipeRead, status_code=201)
 def create_recipe(payload: RecipeCreate, db: Session = Depends(get_db)):
     data = payload.model_dump(exclude={"ingredients", "tags"})
@@ -257,7 +274,17 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
     system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
     context = recipe_service.build_recipe_chat_context(read_view.model_dump())
 
-    messages = [{"role": "system", "content": f"{system_prompt}\n\n{context}"}]
+    # RECIPE_MODIFY_INSTRUCTIONS (added 2026-07-31) upgrades this chat
+    # from read-only Q&A to also being able to propose an edit -- e.g.
+    # "make this gluten-free" -- which the frontend shows as a reviewable
+    # RecipeForm, exactly like a recipe import preview, before anything
+    # is saved. See recipe_service.py for the full writeup.
+    messages = [
+        {
+            "role": "system",
+            "content": f"{system_prompt}\n\n{context}\n\n{recipe_service.RECIPE_MODIFY_INSTRUCTIONS}",
+        }
+    ]
     for m in payload.history:
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": payload.message})
@@ -266,8 +293,10 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
         response = ollama_client.chat(db, messages)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
-    reply = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-    return RecipeChatResponse(reply=reply)
+    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    parsed = recipe_service.parse_recipe_chat_response(raw_output)
+    proposed = RecipeCreate(**parsed["proposed_recipe"]) if parsed["proposed_recipe"] else None
+    return RecipeChatResponse(reply=parsed["reply"], proposed_recipe=proposed, variant_label=parsed["variant_label"])
 
 
 @router.post("/{recipe_id}/image", response_model=RecipeRead)

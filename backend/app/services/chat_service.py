@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models import HouseholdPreferences, InventoryItem, MealPlan
+from app.models import HouseholdPreferences, InventoryItem, MealPlan, Recipe
 from app.services import health_service
-from app.services.recipe_service import _extract_json_object, _safe_float, _safe_int
+from app.services.recipe_service import _extract_json_object, _safe_float, _safe_int, coerce_recipe_fields
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -30,7 +30,18 @@ ALLOWED_ACTION_TYPES = {
     "inventory_add",
     "meal_plan_confirm_entry",
     "meal_plan_skip_entry",
+    "recipe_update_proposal",
 }
+
+# recipe_update_proposal (added 2026-07-31, "commit an AI-modified recipe"
+# request) is deliberately variant-ONLY from this chat surface -- it always
+# creates a new Recipe row via parent_recipe_id rather than ever offering to
+# overwrite in place. The recipe-scoped chat (routers/recipes.py's /chat,
+# recipe_service.RECIPE_MODIFY_INSTRUCTIONS) DOES offer both save paths, but
+# it also shows a full RecipeForm review step before saving. This chat
+# widget's confirm is a single click with no review form, so the riskier
+# "overwrite" path -- which risks silently serving a recipe that no longer
+# matches dietary requirements -- is intentionally not reachable from here.
 
 CATEGORY_VALUES = {"pantry", "fridge", "freezer", "produce", "spice", "other"}
 
@@ -61,6 +72,11 @@ def build_chat_context(db: Session, query: str | None = None, inventory_limit: i
     household = db.query(HouseholdPreferences).first()
     plan = get_relevant_meal_plan(db)
     inventory_items = db.query(InventoryItem).order_by(InventoryItem.name).limit(inventory_limit).all()
+    # id+title only -- just enough for the model to reference an existing
+    # recipe by a real id in a recipe_update_proposal action (see
+    # ALLOWED_ACTION_TYPES above); the full recipe content isn't needed
+    # here since a proposal always supplies the complete post-edit recipe.
+    recipe_catalog = db.query(Recipe.id, Recipe.title).order_by(Recipe.title).limit(200).all()
 
     plan_entries = []
     if plan is not None:
@@ -86,6 +102,7 @@ def build_chat_context(db: Session, query: str | None = None, inventory_limit: i
         "meal_plan_week_start": str(plan.week_start_date) if plan else None,
         "meal_plan_entries": plan_entries,
         "knowledge_context": knowledge_context,
+        "recipe_catalog": [{"id": r.id, "title": r.title} for r in recipe_catalog],
         "inventory_items": [
             {
                 "id": i.id,
@@ -123,17 +140,32 @@ spice/other, "description": short string}}
 "entry_id": integer, "description": short string}}
   - {{"type": "meal_plan_skip_entry", "meal_plan_id": integer, "entry_id": \
 integer, "description": short string}}
+  - {{"type": "recipe_update_proposal", "target_recipe_id": integer (must \
+be an id from the recipe list below), "variant_label": short string (2-4 \
+words, e.g. "Gluten-Free", "Dairy-Free"), "recipe": the ENTIRE recipe as \
+it should look after the change, every field, in this exact shape: \
+{{"title": string, "description": string or null, "default_servings": \
+integer, "prep_time_minutes": integer or null, "cook_time_minutes": \
+integer or null, "instructions": array of strings, "ingredients": array \
+of objects with "ingredient_name", "quantity" (number or null), "unit" \
+(string or null), "prep_note" (string or null), "nutrition": object with \
+best-effort per-serving numeric estimates, "tags": array of short \
+lowercase tags, "tips": array of strings}}, "description": short string}}
 
 Only propose an action when the user's message clearly implies one -- e.g. \
 "we're out of milk" could be inventory_update (set quantity to 0) or \
 inventory_deduct; "we skipped taco night" is meal_plan_skip_entry for that \
 specific entry; "we made the lentil soup" is meal_plan_confirm_entry (and \
-usually also an inventory_deduct per ingredient, if you know the recipe). \
-NEVER invent an entry_id or meal_plan_id that isn't listed below -- if you \
-can't tell which entry the user means, ask a clarifying question in "reply" \
-instead of guessing. Each action's "description" is a short human-readable \
-label for a confirm button (e.g. "Mark milk as out of stock"), not a repeat \
-of the reply. Actions are proposals only -- nothing happens until the user \
+usually also an inventory_deduct per ingredient, if you know the recipe); \
+"make the lentil soup gluten-free" (a change to an EXISTING recipe, named \
+or clearly implied) is recipe_update_proposal -- this ALWAYS creates a new \
+variant of the recipe, never overwrites it, so it's fine to propose even \
+for a small change. NEVER invent an entry_id, meal_plan_id, or \
+target_recipe_id that isn't listed below -- if you can't tell which entry \
+or recipe the user means, ask a clarifying question in "reply" instead of \
+guessing. Each action's "description" is a short human-readable label for \
+a confirm button (e.g. "Mark milk as out of stock"), not a repeat of the \
+reply. Actions are proposals only -- nothing happens until the user \
 confirms them in the UI, so it's fine to suggest something reasonable.
 
 Household: {household_size} people. Dietary restrictions: {dietary_restrictions}.
@@ -143,6 +175,9 @@ Current meal plan{plan_label}:
 
 Current inventory (id, name, quantity, unit, category{priority_note}):
 {inventory_lines}
+
+Known recipes (id: title) -- reference these by id for recipe_update_proposal:
+{recipe_catalog_lines}
 """
 
 
@@ -170,6 +205,12 @@ def _format_inventory(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_recipe_catalog(recipes: list[dict]) -> str:
+    if not recipes:
+        return "(no recipes saved yet)"
+    return "\n".join(f"- {r['id']}: {r['title']}" for r in recipes)
+
+
 def _format_knowledge_section(knowledge_context: str | None) -> str:
     if not knowledge_context:
         return ""
@@ -195,6 +236,7 @@ def build_chat_system_prompt(base_prompt: str, context: dict) -> str:
         plan_entries=_format_plan_entries(context.get("meal_plan_entries") or []),
         priority_note="",
         inventory_lines=_format_inventory(context.get("inventory_items") or []),
+        recipe_catalog_lines=_format_recipe_catalog(context.get("recipe_catalog") or []),
     )
     return f"{base_prompt}\n{context_block}"
 
@@ -276,6 +318,21 @@ def _coerce_action(a) -> dict | None:
             "type": action_type,
             "meal_plan_id": meal_plan_id,
             "entry_id": entry_id,
+            "description": description,
+        }
+
+    if action_type == "recipe_update_proposal":
+        target_recipe_id = _safe_int(a.get("target_recipe_id"))
+        recipe_data = a.get("recipe")
+        if target_recipe_id is None or not isinstance(recipe_data, dict) or not recipe_data.get("title"):
+            return None
+        coerced_recipe = coerce_recipe_fields(recipe_data)
+        coerced_recipe["source"] = "chat_variant"
+        return {
+            "type": action_type,
+            "target_recipe_id": target_recipe_id,
+            "variant_label": str(a.get("variant_label") or "").strip() or "Chat Variant",
+            "recipe": coerced_recipe,
             "description": description,
         }
 

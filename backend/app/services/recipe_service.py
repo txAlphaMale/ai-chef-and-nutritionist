@@ -293,6 +293,74 @@ def build_recipe_chat_context(recipe_read: dict) -> str:
     )
 
 
+# --- Recipe-scoped chat: proposing an edit -----------------------------
+#
+# Added 2026-07-31 ("commit an AI-modified recipe" request): the
+# recipe-scoped chat was originally read-only (see build_recipe_chat_
+# context above), but a real use case -- "take this imported recipe and
+# make it gluten-free" -- needs the AI to actually propose new recipe
+# content the user can review and save, not just answer a question.
+# Every chat turn can still be a plain answer; this only adds an
+# additional, optional field to the response shape the model already
+# returns free text through, following the same preview-then-confirm
+# discipline as recipe import/vision intake/meal-plan generation:
+# nothing is ever saved by chat code itself, only proposed.
+
+RECIPE_MODIFY_INSTRUCTIONS = """\
+Respond with ONLY a JSON object (no other text, no markdown fences) with \
+these keys:
+- "reply": string, your natural conversational response (always \
+required -- a short summary of what you changed if proposing an edit, \
+or a direct answer if it's just a question)
+- "proposed_recipe": null, UNLESS the user's message clearly asks for a \
+change to the recipe itself (not just a question) -- e.g. "make this \
+gluten-free", "double the recipe", "remove the dairy", "cut back the \
+sugar". When proposing a change, include the ENTIRE recipe as it should \
+look after the change is applied -- every field, in this exact shape: \
+{"title": string, "description": string or null, "default_servings": \
+integer, "prep_time_minutes": integer or null, "cook_time_minutes": \
+integer or null, "instructions": array of strings, "ingredients": array \
+of objects with "ingredient_name", "quantity" (number or null), "unit" \
+(string or null), "prep_note" (string or null), "nutrition": object \
+with best-effort per-serving numeric estimates, "tags": array of short \
+lowercase tags, "tips": array of strings}. Keep every field the user \
+didn't ask to change the same as the current recipe below -- this is \
+the full recipe after your edit, not a list of just the changes. \
+Update nutrition estimates if the ingredient changes would meaningfully \
+affect them.
+- "variant_label": null, UNLESS proposed_recipe is set -- then a short \
+label (2-4 words, e.g. "Gluten-Free", "Dairy-Free", "Double Batch") \
+describing what's different about this version.
+
+Never silently modify the recipe -- only propose changes via \
+proposed_recipe. Nothing is saved until the user reviews and confirms \
+it themselves.
+"""
+
+
+def parse_recipe_chat_response(raw_text: str) -> dict:
+    """Defensively extracts {"reply", "proposed_recipe", "variant_label"}
+    from the model's response to the recipe-scoped chat. Like chat_
+    service.parse_chat_response, this is free-form conversation and far
+    more likely to break a strict-JSON instruction than a pure
+    extraction task is -- if no JSON object with a "reply" key is found
+    at all, the raw text is used as the reply verbatim with no proposed
+    change, rather than showing the user nothing."""
+    data = _extract_json_object(raw_text)
+    if not isinstance(data, dict) or "reply" not in data:
+        return {"reply": (raw_text or "").strip(), "proposed_recipe": None, "variant_label": None}
+
+    reply = str(data.get("reply") or "").strip() or (raw_text or "").strip()
+    proposed = data.get("proposed_recipe")
+    proposed_recipe = None
+    variant_label = None
+    if isinstance(proposed, dict) and proposed.get("title"):
+        proposed_recipe = coerce_recipe_fields(proposed)
+        proposed_recipe["source"] = "chat_modified"
+        variant_label = str(data.get("variant_label") or "").strip() or None
+    return {"reply": reply, "proposed_recipe": proposed_recipe, "variant_label": variant_label}
+
+
 def _extract_json_object(raw_text: str) -> dict:
     try:
         parsed = json.loads(raw_text)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 
 const SESSION_STORAGE_KEY = "chef.chat.session_id";
@@ -21,6 +22,7 @@ const ACTION_TYPE_LABELS = {
   inventory_add: "Inventory",
   meal_plan_confirm_entry: "Meal plan",
   meal_plan_skip_entry: "Meal plan",
+  recipe_update_proposal: "Recipe",
 };
 
 /** Confirming an action calls the SAME pre-existing endpoint the rest
@@ -58,12 +60,23 @@ async function executeAction(action) {
       return api.post(`/meal-plans/${action.meal_plan_id}/entries/${action.entry_id}/confirm`, {});
     case "meal_plan_skip_entry":
       return api.post(`/meal-plans/${action.meal_plan_id}/entries/${action.entry_id}/skip`, {});
+    case "recipe_update_proposal":
+      // Deliberately ALWAYS a new variant (parent_recipe_id set), never a
+      // PATCH -- see chat_service.py's ALLOWED_ACTION_TYPES comment. This
+      // widget's one-click confirm has no review form, so the riskier
+      // "overwrite the recipe in place" path is only reachable from the
+      // recipe-scoped chat's fuller review UI (RecipeChat.jsx).
+      return api.post("/recipes", {
+        ...action.recipe,
+        parent_recipe_id: action.target_recipe_id,
+        variant_label: action.variant_label,
+      });
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
 }
 
-function ActionCard({ action, actionKey, status, onConfirm }) {
+function ActionCard({ action, actionKey, status, result, onConfirm }) {
   const isDone = status === "done";
   const isError = typeof status === "string" && status.startsWith("error:");
   return (
@@ -71,6 +84,11 @@ function ActionCard({ action, actionKey, status, onConfirm }) {
       <div className="chat-action-label">{ACTION_TYPE_LABELS[action.type] || "Action"}</div>
       <div className="chat-action-description">{action.description}</div>
       {isError && <div className="error-text">{status.slice("error:".length)}</div>}
+      {isDone && action.type === "recipe_update_proposal" && result?.id && (
+        <div>
+          <Link to={`/recipes/${result.id}`}>View saved variant &rarr;</Link>
+        </div>
+      )}
       <button
         className="btn btn-sm btn-secondary"
         disabled={isDone || status === "pending"}
@@ -96,6 +114,7 @@ export default function ChatWidget() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [actionStatus, setActionStatus] = useState({}); // actionKey -> "pending"|"done"|"error:<msg>"
+  const [actionResults, setActionResults] = useState({}); // actionKey -> executeAction's resolved value
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef(null);
 
@@ -152,7 +171,8 @@ export default function ChatWidget() {
   async function handleConfirmAction(actionKey, action) {
     setActionStatus((prev) => ({ ...prev, [actionKey]: "pending" }));
     try {
-      await executeAction(action);
+      const result = await executeAction(action);
+      setActionResults((prev) => ({ ...prev, [actionKey]: result }));
       setActionStatus((prev) => ({ ...prev, [actionKey]: "done" }));
     } catch (e) {
       setActionStatus((prev) => ({ ...prev, [actionKey]: `error:${e.message}` }));
@@ -193,6 +213,7 @@ export default function ChatWidget() {
                           action={action}
                           actionKey={actionKey}
                           status={actionStatus[actionKey]}
+                          result={actionResults[actionKey]}
                           onConfirm={handleConfirmAction}
                         />
                       );
