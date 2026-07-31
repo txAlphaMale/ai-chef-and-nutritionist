@@ -36,15 +36,17 @@ AND persists the summed result via `compute_recipe_nutrition` below.
 
 `compute_recipe_nutrition` only sums an ingredient whose quantity
 converts to grams -- today that means a mass-family unit (g/kg/oz/lb)
-only. Volume-family units (cup, tbsp, ...) would need a per-ingredient
-density that nothing in this codebase sources yet (unit_conversion_
-service.convert() accepts an optional density but nothing here ever
-supplies one -- USDA FDC does publish portion/gram-weight data per food
-that could eventually fill this gap, it just isn't parsed here). A
-recipe with only volume/count-based quantities will therefore always
-come back "ai_estimated" even after every ingredient successfully
-resolves against USDA/OFF -- documented as a known limitation, not a
-bug, consistent with this layer's "never invent a conversion" rule.
+directly, OR a volume-family unit with a cached `density_g_per_ml`
+(backlog B10.5, added 2026-08-01 -- see `_parse_usda_density` below).
+Density is only ever sourced from USDA's `foodPortions` data (a food
+detail response's list of real-world measures with a gram weight per
+measure); Open Food Facts products don't get a density in this pass, and
+plenty of USDA foods never report a volume-unit portion either -- a
+resolved ingredient can have real nutrition data and still have no
+density. A recipe whose quantified ingredients are only volume/count-
+based AND have no density will still come back "ai_estimated" -- a
+known, honestly-reported limitation, not a bug, consistent with this
+layer's "never invent a conversion" rule.
 
 No live network access to api.nal.usda.gov or world.openfoodfacts.org
 exists in Claude's sandbox (same constraint noted for Ollama in every
@@ -151,6 +153,9 @@ class ResolvedFood:
     nutrition_per_100g: dict = field(default_factory=dict)
     fdc_id: int | None = None
     off_barcode: str | None = None
+    # Backlog B10.5 -- implied density (g/mL), USDA-sourced only. See
+    # _parse_usda_density below.
+    density_g_per_ml: float | None = None
 
 
 def is_usda_configured(db: Session) -> bool:
@@ -195,6 +200,40 @@ def _parse_off_nutrients(nutriments: dict) -> dict:
             value *= 1000
         result[our_key] = value
     return result
+
+
+def _parse_usda_density(food_portions: list[dict]) -> float | None:
+    """Pure function: USDA's `foodPortions` list (from a food DETAIL
+    response, e.g. GET /food/{fdcId} -- the bare search-result candidate
+    doesn't carry this) -> an implied density in g/mL, by finding the
+    FIRST portion whose measure unit is a recognized volume unit
+    (unit_conversion_service.normalize_unit/VOLUME_UNITS) and dividing
+    its gramWeight by that portion's volume. USDA lists portions in an
+    unspecified order and reports a mix of volume ("cup", "tbsp") and
+    non-volume ("medium", "slice", "package") measures depending on the
+    food -- taking the first volume match is a documented simplification
+    (no attempt to pick the "most representative" one), same spirit as
+    resolve_ingredient_name's own "first search result wins" choice.
+    Returns None (never guesses) if no portion uses a recognized volume
+    unit, or if amount/gramWeight is missing or non-positive."""
+    for portion in food_portions or []:
+        gram_weight = portion.get("gramWeight")
+        amount = portion.get("amount")
+        if not gram_weight or not amount:
+            continue
+        measure_unit = portion.get("measureUnit") or {}
+        unit_name = measure_unit.get("name") or measure_unit.get("abbreviation") or portion.get("modifier")
+        normalized = unit_conversion_service.normalize_unit(unit_name)
+        if normalized not in unit_conversion_service.VOLUME_UNITS:
+            continue
+        try:
+            volume_ml = float(amount) * unit_conversion_service.VOLUME_TO_ML[normalized]
+            if volume_ml <= 0:
+                continue
+            return round(float(gram_weight) / volume_ml, 5)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def search_usda(db: Session, query: str, page_size: int = 5) -> list[dict]:
@@ -287,11 +326,13 @@ def resolve_ingredient_name(db: Session, name: str) -> ResolvedFood | None:
         detail = get_usda_food(db, fdc_id) if fdc_id else None
         nutrients = _parse_usda_nutrients((detail or candidate).get("foodNutrients", []))
         if nutrients:
+            density = _parse_usda_density(detail.get("foodPortions", [])) if detail else None
             return ResolvedFood(
                 source="usda",
                 matched_name=candidate.get("description", name),
                 nutrition_per_100g=nutrients,
                 fdc_id=fdc_id,
+                density_g_per_ml=density,
             )
 
     off_candidates = search_off(name, page_size=1)
@@ -336,6 +377,7 @@ def resolve_and_cache_ingredient(db: Session, ingredient: RecipeIngredient, forc
     ingredient.resolved_food_name = result.matched_name
     ingredient.resolution_source = result.source
     ingredient.nutrition_per_100g = result.nutrition_per_100g
+    ingredient.density_g_per_ml = result.density_g_per_ml
     ingredient.resolved_at = datetime.now(timezone.utc)
     return True
 
@@ -355,17 +397,19 @@ def compute_ingredient_grams(ingredient: RecipeIngredient) -> float | None:
     nutrition_per_100g is denominated in. Returns None (never guesses)
     for: no stated quantity ("salt to taste"), a count-based unit ("2
     eggs", "1 can") which has no fixed weight this app can look up, or a
-    volume unit ("1 cup") -- the last case needs a per-ingredient density
-    that nothing in this codebase sources yet (see unit_conversion_
-    service's module docstring: B1.1 was meant to eventually supply it
-    from USDA's portion/gram-weight data, but that isn't parsed here --
-    only per-100g nutrients are). Only mass units (g/kg/oz/lb) convert
-    today; this is the same "never invent a conversion" discipline
-    unit_conversion_service.convert() itself already enforces -- this
-    function just doesn't have a density to hand it for the volume case."""
+    volume unit ("1 cup") whose ingredient has no cached
+    `density_g_per_ml` (backlog B10.5's `_parse_usda_density` is the only
+    source for that -- plenty of resolved ingredients still won't have
+    one). Mass units (g/kg/oz/lb) always convert; volume units convert
+    only when a density is available -- this is the same "never invent a
+    conversion" discipline unit_conversion_service.convert() itself
+    already enforces, this function just passes along whatever density
+    it actually has instead of none at all."""
     if ingredient.quantity is None:
         return None
-    result = unit_conversion_service.convert(ingredient.quantity, ingredient.unit, "g")
+    result = unit_conversion_service.convert(
+        ingredient.quantity, ingredient.unit, "g", density_g_per_ml=ingredient.density_g_per_ml
+    )
     if result is None:
         return None
     return result.quantity

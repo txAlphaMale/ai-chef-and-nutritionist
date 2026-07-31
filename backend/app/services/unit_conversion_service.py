@@ -199,6 +199,92 @@ def convert(
     return ConversionResult(quantity=round(result_qty, 4), unit=to_norm, used_density=True)
 
 
+# --- Display-unit conversion (backlog B10.5) --------------------------
+#
+# A per-view toggle on a recipe's ingredient list -- Imperial / Metric /
+# Weight -- deliberately NOT a stored per-recipe property (the recipe's
+# own units are never overwritten; this only affects how a `GET` request
+# chooses to render them). "Weight" always targets grams/kilograms
+# regardless of the Imperial/Metric choice, matching how a kitchen scale
+# is actually used (the entire point of weight mode, per the backlog
+# text, is GF-baking-grade precision that volume measures can't give).
+#
+# The "nicest" target unit for a given system/family is chosen by a
+# simple magnitude heuristic (pick the largest unit in that system's
+# ladder that keeps the quantity >= 1, falling back to the smallest
+# unit otherwise) -- NOT full culinary fraction-rounding (e.g. snapping
+# to 1/4 cup); that's a documented, deliberate scope cut, not a bug.
+
+IMPERIAL_VOLUME_LADDER = ("gal", "qt", "pt", "cup", "fl_oz", "tbsp", "tsp")  # descending size
+
+
+def _pick_volume_unit_metric(base_ml: float) -> str:
+    return "l" if base_ml >= 1000 else "ml"
+
+
+def _pick_mass_unit_metric(base_g: float) -> str:
+    return "kg" if base_g >= 1000 else "g"
+
+
+def _pick_volume_unit_imperial(base_ml: float) -> str:
+    for unit in IMPERIAL_VOLUME_LADDER:
+        if base_ml / VOLUME_TO_ML[unit] >= 1:
+            return unit
+    return "tsp"
+
+
+def _pick_mass_unit_imperial(base_g: float) -> str:
+    return "lb" if base_g >= MASS_TO_G["lb"] else "oz"
+
+
+def convert_for_display(
+    quantity: float,
+    unit: str | None,
+    system: str,
+    density_g_per_ml: float | None = None,
+) -> ConversionResult | None:
+    """Converts `quantity`/`unit` into the "nicest" unit for `system`
+    ("metric" | "imperial" | "weight" -- callers should skip this
+    function entirely for "original", there's nothing to do). Returns
+    None only when the request genuinely cannot be honored -- weight
+    mode on a volume-family ingredient with no `density_g_per_ml`
+    available; every other case returns a ConversionResult, including
+    count-family units (returned unchanged -- there is nothing to
+    convert a "2 cloves"/"1 can" into, and that's a legitimate state,
+    not a failure the caller should treat the same as a missing
+    density)."""
+    norm = normalize_unit(unit)
+    family = unit_family(norm)
+    if family == "count":
+        return ConversionResult(quantity=quantity, unit=unit or "", used_density=False)
+
+    if system == "weight":
+        if family == "mass":
+            base_g = quantity * MASS_TO_G[norm]
+            return convert(quantity, norm, _pick_mass_unit_metric(base_g))
+        # volume -> mass requires a density this layer never guesses.
+        if not density_g_per_ml or density_g_per_ml <= 0:
+            return None
+        base_g = quantity * VOLUME_TO_ML[norm] * density_g_per_ml
+        return convert(quantity, norm, _pick_mass_unit_metric(base_g), density_g_per_ml=density_g_per_ml)
+
+    if system == "metric":
+        if family == "volume":
+            target = _pick_volume_unit_metric(quantity * VOLUME_TO_ML[norm])
+        else:
+            target = _pick_mass_unit_metric(quantity * MASS_TO_G[norm])
+        return convert(quantity, norm, target)
+
+    if system == "imperial":
+        if family == "volume":
+            target = _pick_volume_unit_imperial(quantity * VOLUME_TO_ML[norm])
+        else:
+            target = _pick_mass_unit_imperial(quantity * MASS_TO_G[norm])
+        return convert(quantity, norm, target)
+
+    return None  # unrecognized system string -- never guess a fallback
+
+
 def units_are_comparable(unit_a: str | None, unit_b: str | None, have_density: bool = False) -> bool:
     """True if quantities in these two units could be reconciled by
     `convert()` -- same family always, or different families only if a

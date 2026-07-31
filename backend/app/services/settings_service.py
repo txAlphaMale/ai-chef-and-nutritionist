@@ -104,6 +104,21 @@ SETTING_SPECS: list[SettingSpec] = [
         ),
     ),
     SettingSpec(
+        key="default_unit_system",
+        label="Default unit system",
+        is_secret=False,
+        default="original",
+        description=(
+            "Backlog B10.5 -- how a recipe's ingredient quantities render by "
+            "default: 'original' (as entered/imported), 'metric' (ml/l, g/kg), "
+            "'imperial' (tsp/tbsp/cup/etc., oz/lb), or 'weight' (grams/kg for "
+            "everything, including volume-measured ingredients with a known "
+            "density -- the mode most useful for GF baking precision). Edited "
+            "via the unit selector on a recipe's detail page, which saves back "
+            "here the same way the Appearance theme picker does."
+        ),
+    ),
+    SettingSpec(
         key="usda_fdc_api_key",
         label="USDA FoodData Central API key",
         is_secret=True,

@@ -42,11 +42,20 @@ def test_compute_ingredient_grams_no_quantity_returns_none():
     assert fds.compute_ingredient_grams(ing) is None
 
 
-def test_compute_ingredient_grams_volume_unit_returns_none_no_density():
-    # No density source is wired in yet (documented limitation) -- volume
-    # units never convert to grams today, even with a resolved ingredient.
+def test_compute_ingredient_grams_volume_unit_returns_none_without_density():
+    # Backlog B10.5 -- density is now sourced from USDA foodPortions when
+    # available, but plenty of ingredients still won't have one (e.g.
+    # never resolved, or resolved against a food with no volume-unit
+    # portion) -- still None in that case, not a guess.
     ing = _ing(quantity=2, unit="cup")
     assert fds.compute_ingredient_grams(ing) is None
+
+
+def test_compute_ingredient_grams_volume_unit_converts_with_density():
+    # 2 cups (473.176 mL) at 0.529 g/mL (a realistic flour-ish density,
+    # matching test_food_data_service.py's density-parsing fixtures).
+    ing = _ing(quantity=2, unit="cup", density_g_per_ml=0.529)
+    assert fds.compute_ingredient_grams(ing) == round(2 * 236.588 * 0.529, 4)
 
 
 def test_compute_ingredient_grams_count_unit_returns_none():

@@ -17,9 +17,12 @@ class RecipeIngredientBase(BaseModel):
 
 class RecipeIngredientRead(RecipeIngredientBase):
     model_config = ConfigDict(from_attributes=True)
-    # None for a scaled (non-persisted) ingredient view -- see
-    # routers/recipes.py's _to_read(), which returns scaled quantities
-    # without corresponding DB rows when servings != default_servings.
+    # The underlying RecipeIngredient row's id -- present even when the
+    # displayed quantity/unit have been scaled (servings) or converted
+    # (B10.5 unit_system) for this view, since scaling/converting never
+    # creates or removes a row, only changes what's rendered. None only
+    # for a genuinely unpersisted ingredient (e.g. an AI-proposed new
+    # recipe in a not-yet-saved import/generation preview).
     id: int | None = None
     # Food-database resolution (B1.1) -- output-only, never accepted on
     # create/update (see RecipeIngredientBase). None/unset means "never
@@ -29,6 +32,14 @@ class RecipeIngredientRead(RecipeIngredientBase):
     fdc_id: int | None = None
     off_barcode: str | None = None
     nutrition_per_100g: dict | None = None
+    # Backlog B10.5 -- True when a requested `unit_system` (metric/
+    # imperial/weight) could NOT be honored for this specific ingredient
+    # (only possible for weight mode on a volume-quantity ingredient with
+    # no cached density) -- quantity/unit are left in the recipe's
+    # original values in that case, not a guess. Always False for
+    # unit_system="original" (nothing was attempted) and for count-based
+    # ingredients (nothing to convert, not a failure).
+    display_unavailable: bool = False
 
 
 class RecipeBase(BaseModel):

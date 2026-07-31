@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Table, Text
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
@@ -138,5 +138,16 @@ class RecipeIngredient(Base):
     # pass can use resolved_at to decide what's worth re-fetching.
     nutrition_per_100g: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Backlog B10.5 -- implied density (grams per mL), parsed from USDA's
+    # foodPortions data at the same resolution pass as nutrition_per_100g
+    # (see food_data_service._parse_usda_density). Lets unit_conversion_
+    # service.convert() bridge volume<->mass for THIS ingredient (the
+    # "weight mode" unit-system toggle) without ever guessing a generic
+    # density -- None means "unknown," which the display layer must
+    # treat as unavailable, not a missing food match (a resolved
+    # ingredient can have real nutrition data and still have no density,
+    # e.g. if USDA/OFF never reported a volume-unit portion for it).
+    density_g_per_ml: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     recipe: Mapped["Recipe"] = relationship(back_populates="ingredients")

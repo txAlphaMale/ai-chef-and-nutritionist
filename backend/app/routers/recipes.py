@@ -30,10 +30,13 @@ from app.services import allergen_service, food_data_service, ollama_client, rec
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
-def _to_read(recipe: Recipe, db: Session, servings_shown: int | None = None) -> RecipeRead:
+def _to_read(
+    recipe: Recipe, db: Session, servings_shown: int | None = None, unit_system: str = "original"
+) -> RecipeRead:
     servings_shown = servings_shown or recipe.default_servings
     ingredients = [
         {
+            "id": ing.id,
             "ingredient_name": ing.ingredient_name,
             "quantity": ing.quantity,
             "unit": ing.unit,
@@ -43,10 +46,19 @@ def _to_read(recipe: Recipe, db: Session, servings_shown: int | None = None) -> 
             "fdc_id": ing.fdc_id,
             "off_barcode": ing.off_barcode,
             "nutrition_per_100g": ing.nutrition_per_100g,
+            "density_g_per_ml": ing.density_g_per_ml,
         }
         for ing in recipe.ingredients
     ]
     scaled = recipe_service.scale_ingredients(ingredients, recipe.default_servings, servings_shown)
+    # Backlog B10.5 -- always routed through this same dict-based pipeline
+    # now, even when servings_shown == default_servings (previously that
+    # case validated straight from the ORM objects instead, which would
+    # have skipped unit-system conversion entirely for the common
+    # "viewing at default servings" case). `id` is threaded through
+    # explicitly (see the dict above) since RecipeIngredientRead.id used
+    # to come from the ORM object directly in that branch.
+    display_ingredients = recipe_service.apply_display_unit_system(scaled, unit_system)
     restriction_check = allergen_service.check_household_restrictions(
         db, [ing.ingredient_name for ing in recipe.ingredients]
     )
@@ -70,9 +82,7 @@ def _to_read(recipe: Recipe, db: Session, servings_shown: int | None = None) -> 
         tips=recipe.tips or [],
         rating=recipe.rating,
         source=recipe.source,
-        ingredients=[RecipeIngredientRead(**ing) for ing in scaled]
-        if servings_shown != recipe.default_servings
-        else [RecipeIngredientRead.model_validate(ing) for ing in recipe.ingredients],
+        ingredients=[RecipeIngredientRead(**ing) for ing in display_ingredients],
         tags=[t.name for t in recipe.tags],
         servings_shown=servings_shown,
         parent_recipe_id=recipe.parent_recipe_id,
@@ -231,11 +241,24 @@ async def _run_text_extraction(db: Session, content: str) -> str:
 
 
 @router.get("/{recipe_id}", response_model=RecipeRead)
-def get_recipe(recipe_id: int, servings: int | None = None, db: Session = Depends(get_db)):
+def get_recipe(
+    recipe_id: int,
+    servings: int | None = None,
+    unit_system: str = "original",
+    db: Session = Depends(get_db),
+):
+    """Backlog B10.5 -- `unit_system` ("original" | "metric" | "imperial"
+    | "weight") is a per-view display transform only, applied after
+    servings scaling; it never touches the persisted recipe. Weight mode
+    can leave some ingredients unconverted (RecipeIngredientRead.
+    display_unavailable=True) when no cached density is available for
+    that specific ingredient -- run nutrition resolution first
+    (POST /{recipe_id}/compute-nutrition or /resolve-nutrition) to
+    populate what density data is available."""
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    return _to_read(recipe, db, servings_shown=servings)
+    return _to_read(recipe, db, servings_shown=servings, unit_system=unit_system)
 
 
 @router.get("/{recipe_id}/variants", response_model=list[RecipeRead])

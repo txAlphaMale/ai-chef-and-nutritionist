@@ -34,6 +34,17 @@ const PROVENANCE_INFO = {
   ai_estimated: { label: "AI estimate -- not verified against a food database", className: "provenance-estimated" },
 };
 
+// Backlog B10.5 -- unit-system options for the display toggle. "weight"
+// is grams/kg for everything (including volume-measured ingredients
+// with a known density), not just already-mass ones -- see the backend's
+// unit_conversion_service.convert_for_display.
+const UNIT_SYSTEM_OPTIONS = [
+  { value: "original", label: "Original" },
+  { value: "metric", label: "Metric" },
+  { value: "imperial", label: "Imperial" },
+  { value: "weight", label: "Weight" },
+];
+
 export default function RecipeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -46,12 +57,22 @@ export default function RecipeDetailPage() {
   // Variants (children of this recipe, via parent_recipe_id) -- fetched
   // separately since RecipeRead only carries the count, not the list.
   const [variants, setVariants] = useState([]);
+  // Backlog B10.5 -- per-view display toggle, seeded from the DB-backed
+  // default_unit_system setting on first load (see the mount effect
+  // below) so it starts wherever the user last left it, same "instant
+  // apply, persist as the new default" pattern as the Appearance theme
+  // picker (SettingsPage.jsx).
+  const [unitSystem, setUnitSystem] = useState("original");
 
-  async function load(withServings) {
+  async function load(withServings, withUnitSystem) {
     setError(null);
     try {
-      const qs = withServings ? `?servings=${withServings}` : "";
-      const r = await api.get(`/recipes/${id}${qs}`);
+      const system = withUnitSystem ?? unitSystem;
+      const params = new URLSearchParams();
+      if (withServings) params.set("servings", withServings);
+      if (system && system !== "original") params.set("unit_system", system);
+      const qs = params.toString();
+      const r = await api.get(`/recipes/${id}${qs ? `?${qs}` : ""}`);
       setRecipe(r);
       if (servings === null) setServings(r.default_servings);
       if (r.variant_count > 0) {
@@ -65,13 +86,34 @@ export default function RecipeDetailPage() {
   }
 
   useEffect(() => {
-    load();
+    (async () => {
+      let initialSystem = "original";
+      try {
+        const settings = await api.get("/system/settings");
+        initialSystem = settings.find((s) => s.key === "default_unit_system")?.value || "original";
+        setUnitSystem(initialSystem);
+      } catch {
+        // Non-fatal -- falls back to "original" for this view.
+      }
+      load(undefined, initialSystem);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   function handleServingsChange(value) {
     setServings(value);
     load(value);
+  }
+
+  async function handleUnitSystemChange(value) {
+    setUnitSystem(value);
+    load(servings, value);
+    try {
+      await api.patch("/system/settings/default_unit_system", { value });
+    } catch {
+      // Non-fatal -- the view still switched, it just didn't persist as
+      // the new default for next time.
+    }
   }
 
   async function handleRate(value) {
@@ -168,6 +210,16 @@ export default function RecipeDetailPage() {
           />
         </label>
         <label>
+          Units
+          <select value={unitSystem} onChange={(e) => handleUnitSystemChange(e.target.value)}>
+            {UNIT_SYSTEM_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Rating
           <select value={recipe.rating ?? ""} onChange={(e) => handleRate(Number(e.target.value))}>
             <option value="">Not rated</option>
@@ -185,6 +237,12 @@ export default function RecipeDetailPage() {
       </div>
 
       <h3>Ingredients ({recipe.servings_shown} servings)</h3>
+      {unitSystem !== "original" && recipe.ingredients.some((i) => i.display_unavailable) && (
+        <p className="hint">
+          Some ingredients can't be shown in this unit yet -- run "Compute from ingredients" below to resolve them
+          against a food database first (weight mode needs a known density, which not every ingredient has).
+        </p>
+      )}
       <ul>
         {recipe.ingredients.map((ing, i) => (
           <li key={i}>
@@ -192,6 +250,7 @@ export default function RecipeDetailPage() {
             {ing.unit ? `${ing.unit} ` : ""}
             {ing.ingredient_name}
             {ing.prep_note ? `, ${ing.prep_note}` : ""}
+            {ing.display_unavailable && <span className="tag">not available in {unitSystem}</span>}
           </li>
         ))}
       </ul>

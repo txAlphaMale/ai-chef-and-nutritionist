@@ -13,6 +13,7 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
+from app.services import unit_conversion_service
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 
 # --- Servings scaling --------------------------------------------------
@@ -35,6 +36,50 @@ def scale_ingredients(ingredients: list[dict], from_servings: int, to_servings: 
             new_ing["quantity"] = round(new_ing["quantity"] * ratio, 3)
         scaled.append(new_ing)
     return scaled
+
+
+def apply_display_unit_system(ingredients: list[dict], unit_system: str) -> list[dict]:
+    """Backlog B10.5 -- re-renders each ingredient's quantity/unit for a
+    requested display system ("metric" | "imperial" | "weight"); a no-op
+    passthrough for "original" (or any other/unset value -- treated the
+    same as "original" rather than erroring on an unexpected query
+    param). Reads and then STRIPS each dict's `density_g_per_ml` key (an
+    internal availability signal, never part of the public ingredient
+    shape -- see RecipeIngredientRead) and sets `display_unavailable` to
+    True when the requested system couldn't be honored for that specific
+    ingredient (only possible for weight mode on a volume-quantity
+    ingredient with no cached density). Quantity/unit are left exactly
+    as `scale_ingredients` already produced in that case -- never a
+    guessed conversion."""
+    if unit_system not in ("metric", "imperial", "weight"):
+        cleaned = []
+        for ing in ingredients:
+            new_ing = dict(ing)
+            new_ing.pop("density_g_per_ml", None)
+            new_ing["display_unavailable"] = False
+            cleaned.append(new_ing)
+        return cleaned
+
+    result = []
+    for ing in ingredients:
+        new_ing = dict(ing)
+        density = new_ing.pop("density_g_per_ml", None)
+        quantity = new_ing.get("quantity")
+        if quantity is None:
+            new_ing["display_unavailable"] = False
+            result.append(new_ing)
+            continue
+        converted = unit_conversion_service.convert_for_display(
+            quantity, new_ing.get("unit"), unit_system, density_g_per_ml=density
+        )
+        if converted is None:
+            new_ing["display_unavailable"] = True
+        else:
+            new_ing["quantity"] = converted.quantity
+            new_ing["unit"] = converted.unit
+            new_ing["display_unavailable"] = False
+        result.append(new_ing)
+    return result
 
 
 # --- Tags: get-or-create by name ---------------------------------------

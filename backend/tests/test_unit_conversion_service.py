@@ -95,3 +95,83 @@ def test_units_are_comparable():
     assert ucs.units_are_comparable("cup", "g", have_density=True) is True
     assert ucs.units_are_comparable("clove", "cup") is False
     assert ucs.units_are_comparable("clove", "clove") is False  # count vs count -- still not comparable
+
+
+# --- Display-unit conversion (backlog B10.5) -----------------------------
+
+
+def test_pick_volume_unit_metric_switches_to_liters_at_1000ml():
+    assert ucs._pick_volume_unit_metric(999) == "ml"
+    assert ucs._pick_volume_unit_metric(1000) == "l"
+
+
+def test_pick_mass_unit_metric_switches_to_kg_at_1000g():
+    assert ucs._pick_mass_unit_metric(999) == "g"
+    assert ucs._pick_mass_unit_metric(1000) == "kg"
+
+
+def test_pick_volume_unit_imperial_picks_largest_unit_at_least_one():
+    assert ucs._pick_volume_unit_imperial(1) == "tsp"  # tiny amount -- smallest unit
+    assert ucs._pick_volume_unit_imperial(ucs.VOLUME_TO_ML["tbsp"]) == "tbsp"
+    assert ucs._pick_volume_unit_imperial(ucs.VOLUME_TO_ML["cup"]) == "cup"
+    assert ucs._pick_volume_unit_imperial(ucs.VOLUME_TO_ML["gal"] * 2) == "gal"
+
+
+def test_pick_mass_unit_imperial_switches_to_lb_at_one_pound():
+    assert ucs._pick_mass_unit_imperial(ucs.MASS_TO_G["lb"] - 1) == "oz"
+    assert ucs._pick_mass_unit_imperial(ucs.MASS_TO_G["lb"]) == "lb"
+
+
+def test_convert_for_display_count_unit_passthrough():
+    result = ucs.convert_for_display(2, "clove", "metric")
+    assert result.quantity == 2
+    assert result.unit == "clove"
+    assert result.used_density is False
+
+
+def test_convert_for_display_metric_volume_and_mass():
+    result = ucs.convert_for_display(1, "cup", "metric")
+    assert result.unit == "ml"
+    assert result.quantity == pytest.approx(236.588, abs=0.01)
+
+    result = ucs.convert_for_display(1, "lb", "metric")
+    assert result.unit == "g"
+    assert result.quantity == pytest.approx(453.592, abs=0.01)
+
+
+def test_convert_for_display_metric_large_quantity_uses_l_and_kg():
+    result = ucs.convert_for_display(5, "cup", "metric")
+    assert result.unit == "l"
+    result = ucs.convert_for_display(5, "lb", "metric")
+    assert result.unit == "kg"
+
+
+def test_convert_for_display_imperial_volume_and_mass():
+    result = ucs.convert_for_display(500, "ml", "imperial")
+    assert result.unit in ucs.IMPERIAL_VOLUME_LADDER
+
+    result = ucs.convert_for_display(500, "g", "imperial")
+    assert result.unit == "lb"
+
+
+def test_convert_for_display_weight_mode_mass_needs_no_density():
+    result = ucs.convert_for_display(1, "lb", "weight")
+    assert result.unit == "g"
+    assert result.used_density is False
+    assert result.quantity == pytest.approx(453.592, abs=0.01)
+
+
+def test_convert_for_display_weight_mode_volume_with_density():
+    result = ucs.convert_for_display(2, "cup", "weight", density_g_per_ml=0.529)
+    assert result.unit == "g"
+    assert result.used_density is True
+    assert result.quantity == pytest.approx(2 * 236.588 * 0.529, abs=0.5)
+
+
+def test_convert_for_display_weight_mode_volume_without_density_is_unavailable():
+    assert ucs.convert_for_display(2, "cup", "weight", density_g_per_ml=None) is None
+    assert ucs.convert_for_display(2, "cup", "weight", density_g_per_ml=0) is None
+
+
+def test_convert_for_display_unknown_system_returns_none():
+    assert ucs.convert_for_display(1, "cup", "bogus") is None

@@ -76,6 +76,46 @@ def test_parse_off_nutrients_skips_non_numeric_values():
     assert fds._parse_off_nutrients({"energy-kcal_100g": "unknown"}) == {}
 
 
+# --- _parse_usda_density (backlog B10.5) ---------------------------------
+
+
+def test_parse_usda_density_finds_volume_portion():
+    # 1 cup (236.588 mL) weighing 125g -> ~0.5284 g/mL, a realistic
+    # flour-ish density.
+    portions = [{"amount": 1, "gramWeight": 125, "measureUnit": {"name": "cup"}}]
+    assert fds._parse_usda_density(portions) == round(125 / 236.588, 5)
+
+
+def test_parse_usda_density_skips_non_volume_portions_first():
+    portions = [
+        {"amount": 1, "gramWeight": 148, "measureUnit": {"name": "medium"}, "modifier": "medium"},
+        {"amount": 1, "gramWeight": 236, "measureUnit": {"name": "cup"}},
+    ]
+    assert fds._parse_usda_density(portions) == round(236 / 236.588, 5)
+
+
+def test_parse_usda_density_uses_abbreviation_when_name_missing():
+    portions = [{"amount": 1, "gramWeight": 14.79, "measureUnit": {"abbreviation": "tbsp"}}]
+    assert fds._parse_usda_density(portions) == round(14.79 / 14.7868, 5)
+
+
+def test_parse_usda_density_uses_modifier_when_no_measure_unit():
+    portions = [{"amount": 1, "gramWeight": 4.93, "modifier": "tsp"}]
+    assert fds._parse_usda_density(portions) == round(4.93 / 4.92892, 5)
+
+
+def test_parse_usda_density_returns_none_when_no_volume_portion():
+    portions = [{"amount": 1, "gramWeight": 148, "measureUnit": {"name": "medium"}}]
+    assert fds._parse_usda_density(portions) is None
+
+
+def test_parse_usda_density_returns_none_for_empty_or_missing_fields():
+    assert fds._parse_usda_density([]) is None
+    assert fds._parse_usda_density(None) is None
+    assert fds._parse_usda_density([{"measureUnit": {"name": "cup"}}]) is None  # no gramWeight/amount
+    assert fds._parse_usda_density([{"amount": 1, "gramWeight": 0, "measureUnit": {"name": "cup"}}]) is None
+
+
 # --- Network-calling functions, httpx.get monkeypatched ------------------
 
 
@@ -177,6 +217,38 @@ def test_resolve_ingredient_name_prefers_usda_when_it_has_a_match(monkeypatch, d
     assert result.nutrition_per_100g == {"calories": 389.0}
 
 
+def test_resolve_ingredient_name_includes_density_from_usda_food_portions(monkeypatch, db_session):
+    settings_service.set_setting(db_session, "usda_fdc_api_key", "test-key")
+    monkeypatch.setattr(
+        fds, "search_usda", lambda db, name, page_size=1: [{"fdcId": 999, "description": "All-purpose flour"}]
+    )
+    monkeypatch.setattr(
+        fds,
+        "get_usda_food",
+        lambda db, fdc_id: {
+            "foodNutrients": [{"nutrientName": "Energy", "value": 364}],
+            "foodPortions": [{"amount": 1, "gramWeight": 125, "measureUnit": {"name": "cup"}}],
+        },
+    )
+    result = fds.resolve_ingredient_name(db_session, "flour")
+    assert result.density_g_per_ml == round(125 / 236.588, 5)
+
+
+def test_resolve_ingredient_name_density_none_when_no_volume_portion(monkeypatch, db_session):
+    settings_service.set_setting(db_session, "usda_fdc_api_key", "test-key")
+    monkeypatch.setattr(fds, "search_usda", lambda db, name, page_size=1: [{"fdcId": 1, "description": "Egg"}])
+    monkeypatch.setattr(
+        fds,
+        "get_usda_food",
+        lambda db, fdc_id: {
+            "foodNutrients": [{"nutrientName": "Energy", "value": 143}],
+            "foodPortions": [{"amount": 1, "gramWeight": 50, "measureUnit": {"name": "large"}}],
+        },
+    )
+    result = fds.resolve_ingredient_name(db_session, "egg")
+    assert result.density_g_per_ml is None
+
+
 def test_resolve_ingredient_name_falls_back_to_off_when_usda_has_no_match(monkeypatch, db_session):
     monkeypatch.setattr(fds, "search_usda", lambda db, name, page_size=1: [])
     monkeypatch.setattr(
@@ -240,6 +312,20 @@ def test_resolve_and_cache_ingredient_writes_fields_on_success(monkeypatch, db_s
     assert ingredient.resolved_food_name == "Chicken Breast"
     assert ingredient.nutrition_per_100g == {"calories": 165.0}
     assert ingredient.resolved_at is not None
+    assert ingredient.density_g_per_ml is None  # no density in this ResolvedFood
+
+
+def test_resolve_and_cache_ingredient_writes_density_when_present(monkeypatch, db_session):
+    monkeypatch.setattr(
+        fds,
+        "resolve_ingredient_name",
+        lambda db, name: fds.ResolvedFood(
+            source="usda", matched_name="Flour", nutrition_per_100g={"calories": 364.0}, density_g_per_ml=0.529
+        ),
+    )
+    ingredient = RecipeIngredient(recipe_id=1, ingredient_name="flour")
+    fds.resolve_and_cache_ingredient(db_session, ingredient)
+    assert ingredient.density_g_per_ml == 0.529
 
 
 def test_resolve_and_cache_ingredient_marks_unresolved_on_no_match(monkeypatch, db_session):
