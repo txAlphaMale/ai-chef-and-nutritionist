@@ -2,7 +2,9 @@
 filters (quick, portable, non-refrigerated, dutch-oven-only, etc.)."""
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Table, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Table, Text
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
@@ -107,5 +109,22 @@ class RecipeIngredient(Base):
     quantity: Mapped[float | None] = mapped_column(nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     prep_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # Food-database resolution (backlog B1.1, added 2026-07-31) -- see
+    # app/services/food_data_service.py's module docstring for the full
+    # design. Populated once, on demand (not automatically on save), by
+    # resolve_and_cache_ingredient(); resolution_source distinguishes
+    # "usda" / "off" / "unresolved" (tried, no match) from None (never
+    # attempted), so a caller can tell "we looked and found nothing" from
+    # "nobody's asked yet" without an extra round-trip.
+    fdc_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    off_barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resolved_food_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    resolution_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Cached per-100g snapshot at resolution time -- avoids re-hitting
+    # USDA/OFF on every recipe view; a future "refresh stale resolutions"
+    # pass can use resolved_at to decide what's worth re-fetching.
+    nutrition_per_100g: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     recipe: Mapped["Recipe"] = relationship(back_populates="ingredients")

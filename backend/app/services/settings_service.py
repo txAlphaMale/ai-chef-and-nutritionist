@@ -73,6 +73,20 @@ SETTING_SPECS: list[SettingSpec] = [
         description="API key for Tavily web search, used to ground recipe/nutrition lookups.",
         env_fallback="TAVILY_API_KEY",
     ),
+    SettingSpec(
+        key="usda_fdc_api_key",
+        label="USDA FoodData Central API key",
+        is_secret=True,
+        default="",
+        description=(
+            "Free API key from https://api.data.gov/signup/, used to resolve recipe "
+            "ingredients against USDA's authoritative food-composition database "
+            "instead of relying solely on AI-estimated nutrition. Optional -- "
+            "ingredient resolution falls back to Open Food Facts (no key needed) "
+            "and, failing that, recipes keep using AI-estimated nutrition as before."
+        ),
+        env_fallback="USDA_FDC_API_KEY",
+    ),
 ]
 
 _SPECS_BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SETTING_SPECS}

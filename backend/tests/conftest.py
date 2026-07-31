@@ -1,0 +1,47 @@
+"""Shared pytest fixtures for backend tests.
+
+Sets DATABASE_URL to a throwaway temp-file SQLite database BEFORE any
+`app.*` module is imported, so importing app.config/app.database never
+touches the real /app/data/chef.db path this repo's Docker volume uses.
+This has to happen at module import time (not inside a fixture), since
+pydantic-settings reads the environment once at `app.config.settings`
+construction, which happens as a side effect of the first `import app...`
+anywhere in the test session.
+
+A real temp file is used rather than `sqlite:///:memory:` because
+`:memory:` is connection-scoped -- it would create a fresh, empty database
+for every new connection SQLAlchemy's pool opens, which doesn't match how
+`app.database` is wired (a shared `engine`/`SessionLocal` at module scope).
+"""
+import os
+import tempfile
+
+_tmp_db_fd, _tmp_db_path = tempfile.mkstemp(prefix="chef-test-", suffix=".db")
+os.close(_tmp_db_fd)
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_tmp_db_path}")
+
+# secrets_crypto.py defaults to /app/data/... (the real container's volume
+# path), which doesn't exist -- and shouldn't be written to -- outside a
+# real deployment. Redirect both to a throwaway temp dir for tests.
+_tmp_secrets_dir = tempfile.mkdtemp(prefix="chef-test-secrets-")
+os.environ.setdefault("SECRETS_KEY_FILE", os.path.join(_tmp_secrets_dir, "secrets.key"))
+os.environ.setdefault("SECRETS_KEYRING_FILE", os.path.join(_tmp_secrets_dir, "secrets_keyring.json"))
+
+import pytest  # noqa: E402
+
+from app.database import Base, SessionLocal, engine  # noqa: E402
+import app.models  # noqa: E402,F401  -- import side effect: registers every model on Base.metadata
+
+
+@pytest.fixture()
+def db_session():
+    """A fresh set of tables per test, backed by the shared temp-file
+    SQLite database. Fine at this project's test volume/velocity; revisit
+    with per-test isolated databases if tests start interfering."""
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)

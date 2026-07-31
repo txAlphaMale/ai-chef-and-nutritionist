@@ -9,8 +9,12 @@ venv/
 
 # Node
 node_modules/
-frontend/dist/
+frontend/dist*/
 frontend/vite.config.js.timestamp-*.mjs
+
+# Stray FUSE-mount build/lock leftovers, renamed here rather than deleted
+# (see PROJECT-PLAN.md's FUSE operational note)
+.trash/
 
 # Data (persisted via volume, not committed)
 data/*

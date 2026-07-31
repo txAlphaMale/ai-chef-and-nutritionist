@@ -19,6 +19,14 @@ class RecipeIngredientRead(RecipeIngredientBase):
     # routers/recipes.py's _to_read(), which returns scaled quantities
     # without corresponding DB rows when servings != default_servings.
     id: int | None = None
+    # Food-database resolution (B1.1) -- output-only, never accepted on
+    # create/update (see RecipeIngredientBase). None/unset means "never
+    # attempted"; "unresolved" means "tried, no match in either source."
+    resolution_source: str | None = None  # usda | off | unresolved | None
+    resolved_food_name: str | None = None
+    fdc_id: int | None = None
+    off_barcode: str | None = None
+    nutrition_per_100g: dict | None = None
 
 
 class RecipeBase(BaseModel):

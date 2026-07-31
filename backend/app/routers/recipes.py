@@ -25,7 +25,7 @@ from app.schemas.recipe import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import ollama_client, recipe_image_service, recipe_service
+from app.services import food_data_service, ollama_client, recipe_image_service, recipe_service
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -38,6 +38,11 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
             "quantity": ing.quantity,
             "unit": ing.unit,
             "prep_note": ing.prep_note,
+            "resolution_source": ing.resolution_source,
+            "resolved_food_name": ing.resolved_food_name,
+            "fdc_id": ing.fdc_id,
+            "off_barcode": ing.off_barcode,
+            "nutrition_per_100g": ing.nutrition_per_100g,
         }
         for ing in recipe.ingredients
     ]
@@ -341,6 +346,29 @@ def get_recipe_image(recipe_id: int, db: Session = Depends(get_db)):
     if recipe is None or not recipe.image_path or not os.path.exists(recipe.image_path):
         raise HTTPException(status_code=404, detail="No image for this recipe")
     return FileResponse(recipe.image_path, media_type=recipe_image_service.guess_content_type(recipe.image_path))
+
+
+@router.post("/{recipe_id}/resolve-nutrition", response_model=RecipeRead)
+def resolve_recipe_nutrition(recipe_id: int, force: bool = False, db: Session = Depends(get_db)):
+    """Backlog B1.1: resolves every ingredient on this recipe against
+    USDA FoodData Central / Open Food Facts and caches the result on each
+    RecipeIngredient row. Explicit and on-demand (not triggered
+    automatically by create/update) so recipe creation stays fast and
+    doesn't depend on two external APIs being reachable. A previously
+    "unresolved" ingredient is always retried (not sticky); `force=true`
+    additionally re-resolves ingredients that already have a REAL cached
+    match, e.g. after configuring a USDA key you want to prefer over an
+    existing Open Food Facts match. Does NOT yet touch
+    `Recipe.nutrition` itself or mark it computed-vs-estimated -- that
+    summation-with-provenance step is B1.2, a separate pass."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    for ingredient in recipe.ingredients:
+        food_data_service.resolve_and_cache_ingredient(db, ingredient, force=force)
+    db.commit()
+    db.refresh(recipe)
+    return _to_read(recipe)
 
 
 @router.post("/{recipe_id}/rating", response_model=RecipeRead)
