@@ -1,0 +1,32 @@
+# Chef -- AI meal planning, inventory, and recipe management
+#
+# Assumes Ollama runs on the host (or elsewhere on your network) --
+# point OLLAMA_BASE_URL in .env at it. See PROJECT-PLAN.md if you'd
+# rather containerize Ollama itself (e.g. for GPU passthrough tuning).
+
+services:
+  backend:
+    build: ./backend
+    container_name: chef-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PORT:-8095}:8095"
+    volumes:
+      - chef-data:/app/data
+
+  frontend:
+    build: ./frontend
+    container_name: chef-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+
+volumes:
+  chef-data:
+    driver: local
