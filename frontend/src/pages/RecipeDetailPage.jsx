@@ -126,7 +126,9 @@ export default function RecipeDetailPage() {
 
   return (
     <div>
-      <Link to="/recipes">&larr; All recipes</Link>
+      <Link to="/recipes" className="no-print">
+        &larr; All recipes
+      </Link>
       <h2>
         {recipe.title}
         {recipe.variant_label && <span className="tag variant-tag"> {recipe.variant_label}</span>}
@@ -152,7 +154,7 @@ export default function RecipeDetailPage() {
         ))}
       </div>
 
-      <div className="form-row" style={{ alignItems: "center" }}>
+      <div className="form-row no-print" style={{ alignItems: "center" }}>
         <label>
           Servings
           <input
@@ -260,9 +262,12 @@ export default function RecipeDetailPage() {
         </>
       )}
 
-      <div className="form-actions">
+      <div className="form-actions no-print">
         <button className="btn btn-secondary" onClick={() => setEditing(true)}>
           Edit
+        </button>
+        <button className="btn btn-secondary" onClick={() => window.print()}>
+          Print recipe
         </button>
         <button className="btn-link btn-link-danger" onClick={handleDelete}>
           Delete recipe

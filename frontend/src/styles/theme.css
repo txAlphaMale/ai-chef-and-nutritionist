@@ -947,3 +947,43 @@ tr.urgency-low td {
     padding: var(--spacing-1) 0;
   }
 }
+
+/* --- Print (backlog B10.6) ---
+   A print stylesheet within this one centralized file, per the one-
+   source-CSS mandate, rather than a separate print view or a PDF-
+   generation dependency -- browser print-to-PDF covers the export case
+   for free once this exists. `.no-print` is a plain utility class
+   applied directly in JSX wherever app chrome/interactive controls
+   shouldn't appear on paper (see RecipeDetailPage.jsx's back link,
+   servings/rating/staple controls, and edit/delete/print button row);
+   the app-wide chrome (nav, chat widget) and the recipe-scoped "Ask the
+   Chef" widget are hidden unconditionally since nothing in this app has
+   a use case for printing them from any page. Deliberately does NOT try
+   to strip every background color/card border for a "cleaner" look --
+   modern browsers' print dialogs already offer a "background graphics"
+   toggle for that, and this app's palette isn't heavy enough on ink to
+   need it forced. What DOES matter for paper: full page width (the
+   960px .app-shell max-width exists to keep a screen line-length
+   readable, not for print), and links rendered in plain readable black
+   rather than the (screen-only-legible) primary-orange brand color. */
+@media print {
+  .no-print,
+  .app-header,
+  .chat-widget,
+  .recipe-chat {
+    display: none !important;
+  }
+
+  .app-shell {
+    max-width: none;
+    padding: 0;
+  }
+
+  body {
+    background: white;
+  }
+
+  a {
+    color: black;
+  }
+}
