@@ -91,6 +91,10 @@ Chef/
 - Weight loss not a core goal, but both household members ~20 lbs over ideal weight
 - Household size default: 2
 
+## Operational note: bash sandbox / native file coherence
+
+Claude's bash sandbox sees this folder through a FUSE mount that can cache stale file sizes -- if Claude edits a file with the Read/Write/Edit tools and then reads/git-adds/executes it via bash in the same session, the bash side can occasionally get truncated/stale content instead of the true file (documented and verified in the sibling Fiduciary project, `docs/COWORK-FUSE-COHERENCE.md`). Checked on 2026-07-30: every file that had been through this mixed edit pattern so far (`config.py`, `main.py`, `.gitignore`, `README.md`, `.env.example`, `seed.py`, this file) was verified intact -- Read tool content matched `git show HEAD:<path>` exactly, no corruption found. Going forward, prefer a single writer surface (bash heredoc/sed, or the Edit/Write tool) per file for its whole edit-test-commit cycle, and spot-check with the Read tool before trusting a bash-side commit of a file that was just edited natively.
+
 ## Notes / gotchas
 
 - Do not reintroduce a spreadsheet as the live datastore — caused file-lock issues in the prior prototype. SQLite file lives under `data/`, only the backend container writes to it.
