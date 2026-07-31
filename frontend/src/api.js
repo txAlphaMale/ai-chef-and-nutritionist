@@ -10,7 +10,16 @@
 // fall back to hitting the backend directly at BACKEND_PORT on the
 // same host. The backend's CORS is wide open (allow_origins=["*"])
 // specifically to make this work.
-const BACKEND_PORT = 8095; // must match .env's BACKEND_PORT default -- override there if you change it
+//
+// BACKEND_PORT itself is read at page load from window.__CHEF_CONFIG__,
+// written by docker-entrypoint.sh from the container's BACKEND_PORT env
+// var (sourced from .env via docker-compose's env_file) -- so changing
+// BACKEND_PORT in .env and restarting the container (`docker compose up`,
+// no `--build` needed) is enough; no rebuild, no editing this file. The
+// literal 8095 below is only a fallback for when that script hasn't run
+// (e.g. a raw `npm run dev`, which never reaches this branch anyway --
+// see the `import.meta.env.DEV` check below).
+const BACKEND_PORT = window.__CHEF_CONFIG__?.backendPort || 8095;
 
 export const backendOrigin = import.meta.env.DEV
   ? ""

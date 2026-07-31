@@ -194,15 +194,22 @@ export default function InventoryPage() {
                 </tr>
               ) : (
                 <tr key={item.id} className={urgencyClass(urgencyByItemId[item.id]?.score || 0)}>
-                  <td>{item.name}</td>
-                  <td>{item.category}</td>
-                  <td>
+                  {/* data-label feeds the responsive-table CSS below the
+                      mobile breakpoint (theme.css's .data-table rules) --
+                      it re-labels each cell as a stacked "Label: value"
+                      row via `content: attr(data-label)`, no JS needed for
+                      the actual layout switch, just this one attribute. */}
+                  <td data-label="Name">{item.name}</td>
+                  <td data-label="Category">{item.category}</td>
+                  <td data-label="Qty">
                     {item.quantity} {item.unit || ""}
                   </td>
-                  <td>{item.expiration_date || "—"}</td>
-                  <td>{item.is_priority ? "★" : ""}</td>
-                  <td className="reasons-cell">{(urgencyByItemId[item.id]?.reasons || []).join("; ")}</td>
-                  <td className="row-actions">
+                  <td data-label="Expires">{item.expiration_date || "—"}</td>
+                  <td data-label="Priority">{item.is_priority ? "★" : ""}</td>
+                  <td className="reasons-cell" data-label="Why it matters">
+                    {(urgencyByItemId[item.id]?.reasons || []).join("; ")}
+                  </td>
+                  <td className="row-actions" data-label="Actions">
                     <button className="btn-link" onClick={() => setEditingId(item.id)}>
                       Edit
                     </button>

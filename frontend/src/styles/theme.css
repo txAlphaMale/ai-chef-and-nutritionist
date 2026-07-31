@@ -165,13 +165,24 @@ body {
   color: var(--color-text);
 }
 
-.item-form .form-row {
+/* Generic, not scoped to .item-form -- backlog B10.4 found this rule had
+   accidentally only ever applied inside the two forms that happened to
+   wrap themselves in .item-form (RecipeForm/InventoryItemForm); every
+   other .form-row in the app (MealPlanPage's generate form and preview
+   rows, ChatWidget's input row, RecipeDetailPage's meta row) rendered
+   with no flex/gap at all -- functional by accident (input/select/button
+   are inline-block by default so they still sat roughly in a row) but
+   inconsistent, and impossible to cleanly collapse to a mobile column
+   below. Dropping the .item-form requirement is a pure improvement: it
+   only adds flex layout where there was none, never removes styling
+   from a row that already had it. */
+.form-row {
   display: flex;
   gap: var(--spacing-3);
   flex-wrap: wrap;
 }
 
-.item-form .form-row label {
+.form-row label {
   flex: 1;
   min-width: 140px;
 }
@@ -792,4 +803,147 @@ tr.urgency-low td {
 
 .status-bad {
   background: var(--color-danger);
+}
+
+/* --- Responsive layout (backlog B10.4) ---
+   Mobile-first per the project brief's one-source-CSS mandate: no second
+   stylesheet, no component library, just breakpoints on the existing
+   design tokens/classes already used everywhere. One breakpoint (640px,
+   roughly the phone/tablet line) is enough for this app's actual surface
+   area -- everything here is a targeted fix for a specific named problem
+   (see PROJECT-PLAN.md's B10.4 backlog text), not a blanket redesign:
+   the meal-plan weekly grid, the chat widget, the inventory table, and
+   every .form-row (see the generalized rule above this section). Pages
+   not mentioned here (Home, Health, Settings) already lay out
+   acceptably on a narrow viewport using the same .card/.form-row/.btn
+   primitives everything else uses -- nothing page-specific was needed
+   for them once those shared primitives behave, which is the whole
+   point of centralizing on one stylesheet. */
+@media (max-width: 640px) {
+  .app-shell {
+    padding: var(--spacing-2);
+  }
+
+  .app-nav {
+    gap: var(--spacing-2);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .app-nav a {
+    flex-shrink: 0;
+  }
+
+  /* Every .form-row (generalized above) becomes a single column instead
+     of wrapping multiple min-140px fields into an uneven multi-line
+     jumble -- covers RecipeForm/InventoryItemForm's rows, the meal-plan
+     generate form and its per-day guidance rows, and the recipe detail
+     page's servings/rating/staple row. */
+  .form-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .form-row label {
+    min-width: 0;
+  }
+
+  .nutrition-field-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  /* --- Inventory table -> stacked cards. No JS: each <td> carries a
+     data-label attribute (see InventoryPage.jsx) that ::before turns
+     into a visible "Label: " prefix once the table's row/cell display
+     is switched to block. */
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table tr {
+    margin-bottom: var(--spacing-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .data-table td {
+    border-bottom: none;
+    padding: var(--spacing-1) 0;
+  }
+
+  .data-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  /* The editing row's cell (colSpan across all columns, holding the full
+     InventoryItemForm) has no data-label -- nothing to prefix, and it
+     should keep its normal padding rather than the tight list spacing
+     above. */
+  .data-table td:not([data-label]) {
+    padding: 0;
+  }
+
+  /* --- Meal-plan weekly grid: each slot's fields stack full-width
+     instead of wrapping into a cramped multi-field row -- see the
+     backlog text's explicit call-out that this needs real attention,
+     not a width tweak. */
+  .meal-entry-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meal-entry-row select,
+  .meal-entry-row input {
+    width: 100%;
+  }
+
+  .meal-entry-actions {
+    justify-content: flex-end;
+  }
+
+  /* --- Chat widget: docked bottom-right panel becomes a full-screen
+     overlay -- a 360px-wide fixed panel is unusable on a phone, and
+     "chat while cooking" (this app's stated use case for the widget) is
+     specifically a phone-in-the-kitchen scenario. */
+  .chat-widget {
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+
+  .chat-widget-panel {
+    width: 100%;
+    max-width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .chat-widget-toggle {
+    align-self: flex-end;
+    margin: var(--spacing-2);
+  }
+
+  /* Touch targets -- buttons/links that were sized fine for a mouse
+     pointer get a bit more room to tap accurately. */
+  .btn {
+    padding: var(--spacing-2) var(--spacing-3);
+    min-height: 40px;
+  }
+
+  .btn-link {
+    padding: var(--spacing-1) 0;
+  }
 }

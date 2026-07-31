@@ -100,14 +100,20 @@ dedicate a specific card if you have more than one).
 
 The frontend and backend run as separate containers on separate ports
 (`5173` and `8095` by default) with no reverse proxy between them; the
-production frontend build talks to the backend directly using a
-hardcoded port that must match `BACKEND_PORT`, and the backend's CORS is
-wide open to make that work. This is fine for the common single-host,
-trusted-LAN case this app targets, but means changing `BACKEND_PORT`
-requires a frontend rebuild, and it isn't set up for exposing the app
-over HTTPS/a public domain as-is. A shared nginx/Caddy sidecar in front
-of both services is a reasonable improvement if you need that -- not
-included here to keep the default setup simple.
+production frontend build talks to the backend directly, and the
+backend's CORS is wide open to make that work. This is fine for the
+common single-host, trusted-LAN case this app targets, but it isn't set
+up for exposing the app over HTTPS/a public domain as-is. A shared
+nginx/Caddy sidecar in front of both services is a reasonable
+improvement if you need that -- not included here to keep the default
+setup simple.
+
+If either default port (`5173`/`8095`) conflicts with something already
+running on your machine, change `BACKEND_PORT`/`FRONTEND_PORT` in `.env`
+and run `docker compose up` again -- no `--build` needed. The frontend
+container reads the current `BACKEND_PORT` at startup (see
+`frontend/docker-entrypoint.sh`) rather than having it baked into the
+built bundle, so this just works on a restart.
 
 ## Development without Docker
 

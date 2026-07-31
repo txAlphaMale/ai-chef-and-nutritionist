@@ -7,6 +7,12 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Runtime config, written by docker-entrypoint.sh at container start
+         from the BACKEND_PORT env var -- see src/api.js. Only exists in
+         the production Docker build; harmless 404 in `npm run dev` (dev
+         mode doesn't need it, see api.js). Must load before the app
+         bundle below. -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
