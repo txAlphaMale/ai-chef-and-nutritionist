@@ -1,8 +1,12 @@
 # Chef -- AI meal planning, inventory, and recipe management
 #
 # Assumes Ollama runs on the host (or elsewhere on your network) --
-# point OLLAMA_BASE_URL in .env at it. See PROJECT-PLAN.md if you'd
-# rather containerize Ollama itself (e.g. for GPU passthrough tuning).
+# point OLLAMA_BASE_URL in .env, or edit it later from the app's
+# Settings page, to wherever it's reachable. If you'd rather run Ollama
+# as part of this stack (with NVIDIA GPU passthrough), see
+# docker-compose.ollama.yml -- an opt-in override, not enabled by
+# default:
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up --build
 
 services:
   backend:

@@ -1,0 +1,64 @@
+# Optional override: containerize Ollama itself instead of relying on a
+# host install, with NVIDIA GPU passthrough. Off by default -- the base
+# docker-compose.yml assumes an external Ollama (host-installed or
+# elsewhere on your network), per the project's original scaffolding
+# decision. Layer this file on top if you'd rather run Ollama as part of
+# this stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up --build
+#
+# Requirements on the Docker host:
+#   - An NVIDIA GPU + driver already working outside Docker (`nvidia-smi`
+#     succeeds on the host).
+#   - The NVIDIA Container Toolkit installed and Docker configured to use
+#     it (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+#     On Linux this is `nvidia-container-toolkit` + `sudo nvidia-ctk
+#     runtime configure --runtime=docker` + restart the Docker daemon.
+#     WSL2 (this project's documented Docker host) needs the WSL-specific
+#     NVIDIA driver on the Windows side; the toolkit install inside the
+#     WSL Debian distro is the same as native Linux.
+#
+# After bringing this up, point the app at the containerized Ollama:
+# easiest is to edit "Ollama base URL" on the Settings page (Phase 8) to
+# `http://chef-ollama:11434` -- takes effect immediately, no rebuild.
+# Alternatively set OLLAMA_BASE_URL=http://chef-ollama:11434 in .env
+# before the very first boot on a fresh database (it only seeds that
+# value once).
+#
+# Dual-GPU note (the author's environment: two GTX 1080 Tis, the second
+# card headless): `count: all` below hands both cards to Ollama, which
+# will use whichever fits/spreads a model across as needed -- fine for a
+# single-user local setup where nothing else contends for the primary
+# GPU. If you want to reserve the primary card (index 0) for a display
+# workload (ComfyUI, a desktop) and dedicate only the headless second
+# card to Ollama, replace `count: all` with:
+#   device_ids: ["1"]
+# (NVIDIA device indices as reported by `nvidia-smi -L` on the host --
+# confirm which index is actually the headless card before assuming it's
+# 1; a 2-GPU host isn't guaranteed to enumerate them in physical-slot
+# order.)
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: chef-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  backend:
+    depends_on:
+      - ollama
+
+volumes:
+  ollama-data:
+    driver: local
