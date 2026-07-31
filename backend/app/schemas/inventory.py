@@ -21,7 +21,7 @@ class InventoryItemBase(BaseModel):
 
 
 class InventoryItemCreate(InventoryItemBase):
-    source: str = "manual"  # manual|vision|chat
+    source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text
 
 
 class InventoryItemUpdate(BaseModel):
@@ -73,6 +73,27 @@ class VisionIntakeResponse(BaseModel):
 
 
 class VisionIntakeConfirmRequest(BaseModel):
+    items: list[InventoryItemCreate]
+
+
+class InventoryImportResponse(BaseModel):
+    """New intake source, added 2026-08-01 at the author's request:
+    parses a receipt (photo or PDF) or a plain-text/file list of
+    purchased items into the SAME preview shape vision-intake already
+    established (`VisionDetectedItem`) -- deliberately reused rather
+    than duplicated, since "one detected item, before the user reviews
+    and confirms it" means the same thing regardless of which source
+    produced it. Distinct from `/vision-intake` (a photo of what's
+    CURRENTLY sitting in the pantry/fridge, not a purchase record) --
+    both remain, serving genuinely different moments (a one-off pantry
+    snapshot vs. recording what was just bought)."""
+
+    detected_items: list[VisionDetectedItem]
+    raw_model_output: str = Field(..., description="Unparsed model response, for debugging/review")
+    source_type: str  # "photo" | "pdf" | "text" -- which input path produced this preview
+
+
+class InventoryImportConfirmRequest(BaseModel):
     items: list[InventoryItemCreate]
 
 
