@@ -331,6 +331,41 @@ tr.urgency-low td {
   columns: 2;
 }
 
+/* --- Recipe dish images --- */
+.recipe-list-item-with-image {
+  display: flex;
+  gap: var(--spacing-3);
+  align-items: flex-start;
+}
+
+.recipe-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.recipe-detail-image {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  margin-bottom: var(--spacing-3);
+}
+
+.recipe-image-preview img {
+  max-width: 240px;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  display: block;
+  margin-bottom: var(--spacing-2);
+}
+
 /* --- Recipe chat widget --- */
 .recipe-chat-header {
   display: flex;

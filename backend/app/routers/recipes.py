@@ -7,7 +7,10 @@ swallow them.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,7 +25,7 @@ from app.schemas.recipe import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import ollama_client, recipe_service
+from app.services import ollama_client, recipe_image_service, recipe_service
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -111,8 +114,22 @@ async def import_recipe(
     POST /api/recipes. Citation info (source_url/source_name/
     source_author) is captured where available rather than discarded,
     per the project's copyright-respect requirement -- see
-    recipe_service.RECIPE_IMPORT_PROMPT and extract_url_content()."""
+    recipe_service.RECIPE_IMPORT_PROMPT and extract_url_content().
+
+    Also best-effort auto-captures a dish photo where the source plausibly
+    has one: the uploaded photo itself for an image import, or a fetched
+    og:image for a URL import (PDF/text imports have no plausible photo
+    source, so this is skipped for those). The image is written to disk
+    immediately (recipe_image_service.save_image) even though the recipe
+    row itself doesn't exist until the user confirms via POST
+    /api/recipes -- its storage path just rides along in the preview's
+    `image_path` field, same as any other parsed field. A cancelled
+    import leaves an orphaned file on disk; consistent with this app's
+    existing local-single-user pragmatism elsewhere (e.g. inventory/
+    knowledge-file deletes are best-effort too) rather than adding
+    preview-session cleanup machinery for a low-stakes, low-volume case."""
     citation: dict = {}
+    image_path: str | None = None
     if url:
         try:
             page = recipe_service.extract_url_content(url)
@@ -121,6 +138,14 @@ async def import_recipe(
         if not page.get("text"):
             raise HTTPException(status_code=422, detail="Could not extract readable content from that URL")
         citation = {"source_url": url, "source_name": page.get("sitename"), "source_author": page.get("author")}
+        if page.get("image"):
+            fetched = recipe_service.fetch_image_bytes(page["image"])
+            if fetched:
+                raw_image_bytes, image_content_type = fetched
+                try:
+                    image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+                except ValueError:
+                    pass  # unsupported content type -- skip, not fatal to the import
         raw_output = await _run_text_extraction(db, page["text"])
         default_source = "import_url"
     elif text:
@@ -138,6 +163,10 @@ async def import_recipe(
                 raise HTTPException(status_code=502, detail=f"Ollama vision request failed: {exc}") from exc
             raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
             default_source = "import_image"
+            try:
+                image_path = recipe_image_service.save_image(content_type, raw_bytes)
+            except ValueError:
+                pass  # unsupported content type -- skip, not fatal to the import
         elif content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
             pdf_text = recipe_service.extract_pdf_text(raw_bytes)
             raw_output = await _run_text_extraction(db, pdf_text)
@@ -159,6 +188,8 @@ async def import_recipe(
     for key, value in citation.items():
         if value:
             parsed[key] = value
+    if image_path:
+        parsed["image_path"] = image_path
     return RecipeImportResponse(recipe=RecipeCreate(**parsed), raw_model_output=raw_output)
 
 
@@ -239,6 +270,50 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
     return RecipeChatResponse(reply=reply)
 
 
+@router.post("/{recipe_id}/image", response_model=RecipeRead)
+async def upload_recipe_image(recipe_id: int, file: UploadFile, db: Session = Depends(get_db)):
+    """Manual "upload a photo of the dish" -- used from the recipe form
+    for both add and edit. Replaces any existing image (old file deleted
+    after the new one is safely written and the DB row updated, so a
+    failure partway through never leaves the recipe pointing at a
+    half-written file)."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    raw_bytes = await file.read()
+    try:
+        new_path = recipe_image_service.save_image(file.content_type, raw_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    old_path = recipe.image_path
+    recipe.image_path = new_path
+    db.commit()
+    db.refresh(recipe)
+    if old_path and old_path != new_path:
+        recipe_image_service.delete_image(old_path)
+    return _to_read(recipe)
+
+
+@router.delete("/{recipe_id}/image", response_model=RecipeRead)
+def delete_recipe_image(recipe_id: int, db: Session = Depends(get_db)):
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    recipe_image_service.delete_image(recipe.image_path)
+    recipe.image_path = None
+    db.commit()
+    db.refresh(recipe)
+    return _to_read(recipe)
+
+
+@router.get("/{recipe_id}/image")
+def get_recipe_image(recipe_id: int, db: Session = Depends(get_db)):
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None or not recipe.image_path or not os.path.exists(recipe.image_path):
+        raise HTTPException(status_code=404, detail="No image for this recipe")
+    return FileResponse(recipe.image_path, media_type=recipe_image_service.guess_content_type(recipe.image_path))
+
+
 @router.post("/{recipe_id}/rating", response_model=RecipeRead)
 def rate_recipe(recipe_id: int, payload: RecipeRatingUpdate, db: Session = Depends(get_db)):
     recipe = db.get(Recipe, recipe_id)
@@ -255,6 +330,8 @@ def delete_recipe(recipe_id: int, db: Session = Depends(get_db)):
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    image_path = recipe.image_path
     db.delete(recipe)
     db.commit()
+    recipe_image_service.delete_image(image_path)
     return None

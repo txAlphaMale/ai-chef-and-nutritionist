@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 
 export default function RecipesPage() {
@@ -39,8 +39,24 @@ export default function RecipesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stapleOnly, search]);
 
-  async function handleCreate(payload) {
-    await api.post("/recipes", payload);
+  async function uploadImageIfNeeded(recipeId, imageFile) {
+    if (!imageFile) return;
+    const formData = new FormData();
+    formData.append("file", imageFile);
+    // Best-effort -- the recipe itself is already saved at this point, so
+    // an image upload failure shouldn't be treated as the whole save
+    // having failed. Surfaced via the page-level error banner instead of
+    // blocking navigation/refresh.
+    try {
+      await api.post(`/recipes/${recipeId}/image`, formData);
+    } catch (e) {
+      setError(`Recipe saved, but the photo upload failed: ${e.message}`);
+    }
+  }
+
+  async function handleCreate(payload, imageFile) {
+    const created = await api.post("/recipes", payload);
+    await uploadImageIfNeeded(created.id, imageFile);
     setShowAddForm(false);
     refresh();
   }
@@ -98,8 +114,9 @@ export default function RecipesPage() {
     }
   }
 
-  async function confirmImport(editedPayload) {
-    await api.post("/recipes", editedPayload);
+  async function confirmImport(editedPayload, imageFile) {
+    const created = await api.post("/recipes", editedPayload);
+    await uploadImageIfNeeded(created.id, imageFile);
     setImportPreview(null);
     setImportText("");
     setImportUrl("");
@@ -179,18 +196,23 @@ export default function RecipesPage() {
       ) : (
         <ul className="recipe-list">
           {recipes.map((r) => (
-            <li key={r.id} className="recipe-list-item">
-              <Link to={`/recipes/${r.id}`}>
-                <strong>{r.title}</strong>
-              </Link>
-              {r.is_staple && <span className="tag">★ staple</span>}
-              {r.rating != null && <span className="tag">{"★".repeat(r.rating)}</span>}
-              <span className="tag">{r.default_servings} servings</span>
-              {(r.tags || []).map((t) => (
-                <span className="tag" key={t}>
-                  {t}
-                </span>
-              ))}
+            <li key={r.id} className="recipe-list-item recipe-list-item-with-image">
+              {r.image_path && (
+                <img className="recipe-thumb" src={`${backendOrigin}/api/recipes/${r.id}/image`} alt="" />
+              )}
+              <div>
+                <Link to={`/recipes/${r.id}`}>
+                  <strong>{r.title}</strong>
+                </Link>
+                {r.is_staple && <span className="tag">★ staple</span>}
+                {r.rating != null && <span className="tag">{"★".repeat(r.rating)}</span>}
+                <span className="tag">{r.default_servings} servings</span>
+                {(r.tags || []).map((t) => (
+                  <span className="tag" key={t}>
+                    {t}
+                  </span>
+                ))}
+              </div>
             </li>
           ))}
         </ul>

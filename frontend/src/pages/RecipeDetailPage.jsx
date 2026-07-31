@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api } from "../api";
+import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
 
@@ -45,6 +45,10 @@ export default function RecipeDetailPage() {
   }
 
   async function handleUpdate(payload) {
+    // RecipeForm uploads/removes the dish photo immediately through its
+    // own endpoints in edit mode (it has recipe.id to target), so the
+    // second (image file) argument onSubmit receives here is always null
+    // -- nothing extra to do with it.
     await api.patch(`/recipes/${id}`, payload);
     setEditing(false);
     load(servings);
@@ -72,6 +76,9 @@ export default function RecipeDetailPage() {
     <div>
       <Link to="/recipes">&larr; All recipes</Link>
       <h2>{recipe.title}</h2>
+      {recipe.image_path && (
+        <img className="recipe-detail-image" src={`${backendOrigin}/api/recipes/${id}/image`} alt={recipe.title} />
+      )}
       {recipe.description && <p>{recipe.description}</p>}
 
       <div className="recipe-meta">

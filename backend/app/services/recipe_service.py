@@ -7,6 +7,7 @@ import io
 import json
 import re
 
+import httpx
 import trafilatura
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
@@ -213,18 +214,44 @@ def fetch_html(url: str) -> str:
 def extract_content_from_html(html: str, url: str | None = None) -> dict:
     result = trafilatura.bare_extraction(html, url=url, with_metadata=True, favor_recall=True)
     if not result:
-        return {"text": "", "title": None, "author": None, "sitename": None}
+        return {"text": "", "title": None, "author": None, "sitename": None, "image": None}
     return {
         "text": result.get("text") or "",
         "title": result.get("title"),
         "author": result.get("author"),
         "sitename": result.get("sitename"),
+        # trafilatura populates this from og:image/twitter:image when
+        # present -- a plausible "hero" photo for a recipe page, used for
+        # best-effort dish-image auto-capture on URL import. Often None;
+        # that's expected, not an error.
+        "image": result.get("image"),
     }
 
 
 def extract_url_content(url: str) -> dict:
     html = fetch_html(url)
     return extract_content_from_html(html, url=url)
+
+
+def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes, str] | None:
+    """Best-effort download of a candidate dish image (e.g. a URL
+    import's og:image) for auto-capture. Returns (raw_bytes, content_type)
+    or None on any failure/mismatch -- this is a nice-to-have, never
+    something that should block or fail a recipe import. Caps response
+    size so a misbehaving/huge URL can't be used to balloon memory or
+    disk usage."""
+    try:
+        with httpx.Client(follow_redirects=True, timeout=10.0) as client:
+            resp = client.get(image_url)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            if not content_type.startswith("image/"):
+                return None
+            if len(resp.content) > max_bytes:
+                return None
+            return resp.content, content_type
+    except Exception:  # noqa: BLE001 -- network/parsing failure here is never fatal to the import
+        return None
 
 
 # --- Recipe-scoped chat context ---------------------------------------
