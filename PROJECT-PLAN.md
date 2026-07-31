@@ -91,6 +91,16 @@ Chef/
 - Keep secrets (Tavily key, etc.) out of version control — `.env` is gitignored, `.env.example` documents required vars.
 - Fiduciary Project (a sibling app the author built) may hold reusable patterns, especially for persistent background chat — not accessible in this workspace yet. Ask the author to share it if deeper inspiration is wanted.
 
+## GitHub repository
+
+https://github.com/txAlphaMale/chef (public, empty as of creation — see session log for push status)
+
+No GitHub MCP connector is installed in this workspace, and Claude's sandbox has no route to push authenticated git operations (no `gh` CLI available, no credentials, and Claude does not handle GitHub tokens/passwords on the user's behalf). Claude created the empty repo via browser automation (Chrome, already-authenticated session, no credentials entered) and configured the local `origin` remote + `main` branch. **The author must run the actual `git push` locally** — local git/credential manager handles auth, Claude never sees a token. Command, run from the `Chef` folder:
+```
+git push -u origin main
+```
+After that succeeds, future commits just need `git push`.
+
 ## Session log
 
-- **2026-07-30**: Reviewed prior prototype bookmark file (now deleted, insights preserved here and in Claude's memory), confirmed architecture decisions (FastAPI + React + SQLite), created 11-phase task list, scaffolded Phase 0 (repo structure, docker-compose, backend/frontend skeletons).
+- **2026-07-30**: Reviewed prior prototype bookmark file (now deleted, insights preserved here and in Claude's memory), confirmed architecture decisions (FastAPI + React + SQLite), created 11-phase task list, scaffolded Phase 0 (repo structure, docker-compose, backend/frontend skeletons). Created GitHub repo `txAlphaMale/chef` (public) via browser automation, configured local `origin` remote and `main` branch. Author still needs to run `git push -u origin main` locally to actually push the commit (Claude cannot authenticate git pushes from its sandbox).
