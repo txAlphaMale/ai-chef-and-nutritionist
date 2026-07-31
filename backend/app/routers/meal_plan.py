@@ -257,7 +257,7 @@ def confirm_meal_plan_entry(plan_id: int, entry_id: int, db: Session = Depends(g
             ]
             scaled = recipe_service.scale_ingredients(base_ingredients, recipe.default_servings, entry.servings)
             for ing in scaled:
-                inventory_service.deduct_by_name(db, ing["ingredient_name"], ing.get("quantity"))
+                inventory_service.deduct_by_name(db, ing["ingredient_name"], ing.get("quantity"), ing.get("unit"))
 
     entry.is_confirmed = True
     db.commit()

@@ -15,7 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
-from app.services import health_service, inventory_service, recipe_service
+from app.services import health_service, inventory_service, recipe_service, unit_conversion_service
 from app.services.recipe_service import _extract_json_object, _safe_int
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -340,27 +340,74 @@ def _ingredient_key(name: str, unit: str | None) -> tuple[str, str]:
     return (name.strip().lower(), (unit or "").strip().lower())
 
 
+def _same_unit(unit_a: str | None, unit_b: str | None) -> bool:
+    return unit_conversion_service.normalize_unit(unit_a) == unit_conversion_service.normalize_unit(unit_b)
+
+
+def _merge_same_name_group(ingredients: list[dict]) -> list[dict]:
+    """Merges ingredient lines that share a name (case-insensitive) into
+    as few unit-buckets as possible: an exact (post-normalization) unit
+    match always merges; a different-but-convertible unit (e.g. tbsp
+    into an existing cup bucket, backlog B5.3) converts and merges into
+    whichever bucket it matches first; anything left over (count units,
+    or a volume<->mass gap with no density -- see
+    unit_conversion_service's module docstring for why that's not
+    attempted here) stays as its own separate line, same as before this
+    layer existed."""
+    buckets: list[dict] = []
+    for ing in ingredients:
+        unit = ing.get("unit")
+        quantity = ing.get("quantity")
+        target = None
+        for bucket in buckets:
+            if _same_unit(unit, bucket["unit"]):
+                target = bucket
+                break
+            if (
+                quantity is not None
+                and bucket["quantity"] is not None
+                and unit_conversion_service.units_are_comparable(unit, bucket["unit"])
+            ):
+                converted = unit_conversion_service.convert(quantity, unit, bucket["unit"])
+                if converted is not None:
+                    target = bucket
+                    quantity = converted.quantity  # now expressed in the bucket's unit
+                    break
+        if target is not None:
+            if quantity is not None:
+                target["quantity"] = round((target["quantity"] or 0) + quantity, 3)
+        else:
+            buckets.append({"ingredient_name": ing["ingredient_name"], "unit": unit, "quantity": quantity})
+    return buckets
+
+
 def aggregate_ingredients(ingredient_lists: list[list[dict]]) -> list[dict]:
     """Merges scaled ingredient dicts (ingredient_name/quantity/unit)
-    across multiple recipes into one summed list, keyed by (name, unit)
-    so '2 cup flour' + '1 cup flour' -> '3 cup flour'. Differing units
-    for the same ingredient stay as separate lines -- unit conversion is
-    a documented future improvement, not attempted here."""
-    merged: dict[tuple[str, str], dict] = {}
+    across multiple recipes into one summed list. Two ingredient lines
+    with the same name merge if their units are identical OR convertible
+    into each other (backlog B5.3, added 2026-07-31 via
+    unit_conversion_service) -- e.g. "2 cup flour" + "8 tbsp flour" now
+    merges into one cup-denominated line instead of staying as two.
+    Genuinely incompatible units for the same ingredient (a count unit,
+    or volume vs. mass with no known density) still stay as separate
+    lines -- this deliberately never guesses a conversion."""
+    by_name: dict[str, list[dict]] = {}
+    order: list[str] = []
     for ingredients in ingredient_lists:
         for ing in ingredients:
             name = str(ing.get("ingredient_name") or "").strip()
             if not name:
                 continue
-            unit = ing.get("unit")
-            key = _ingredient_key(name, unit)
-            quantity = ing.get("quantity")
-            if key not in merged:
-                merged[key] = {"ingredient_name": name, "quantity": quantity, "unit": unit}
-            elif quantity is not None:
-                existing = merged[key]
-                existing["quantity"] = round((existing["quantity"] or 0) + quantity, 3)
-    return list(merged.values())
+            key = name.lower()
+            if key not in by_name:
+                by_name[key] = []
+                order.append(key)
+            by_name[key].append({"ingredient_name": name, "quantity": ing.get("quantity"), "unit": ing.get("unit")})
+
+    merged: list[dict] = []
+    for key in order:
+        merged.extend(_merge_same_name_group(by_name[key]))
+    return merged
 
 
 def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryItem]) -> list[dict]:
@@ -369,7 +416,18 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
     approach as inventory_service.deduct_by_name) and returns only what's
     still needed to buy. An ingredient with no stated quantity (e.g.
     "salt to taste") is only listed if nothing matching is already in
-    inventory at all."""
+    inventory at all.
+
+    Unit-aware as of backlog B5.3 (2026-07-31): previously this compared
+    `ing["quantity"]` directly against `match.quantity` regardless of
+    unit -- a real bug where e.g. a grocery line needing "2 lb chicken"
+    against an inventory row logged as "500 g" would compare 2 vs. 500
+    as raw numbers. Now the on-hand quantity is converted into the
+    grocery line's unit first when the two differ and a conversion is
+    available; when it isn't (count units, or a volume<->mass gap with
+    no density), this falls back to the previous raw-number comparison
+    rather than refusing to reconcile the line at all -- a known,
+    unchanged imprecision for that remaining case."""
     remaining = []
     for ing in aggregated:
         name_lower = ing["ingredient_name"].lower()
@@ -385,7 +443,14 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
                 remaining.append(dict(ing))
             continue
 
-        on_hand = match.quantity if match else 0.0
+        on_hand = 0.0
+        if match is not None:
+            on_hand = match.quantity or 0.0
+            if not _same_unit(match.unit, ing["unit"]):
+                converted = unit_conversion_service.convert(on_hand, match.unit, ing["unit"])
+                if converted is not None:
+                    on_hand = converted.quantity
+
         needed = round(ing["quantity"] - on_hand, 3)
         if needed > 0:
             item = dict(ing)

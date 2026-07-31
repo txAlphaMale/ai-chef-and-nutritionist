@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem
+from app.services import unit_conversion_service
 
 # --- Urgency scoring -------------------------------------------------
 #
@@ -163,18 +164,36 @@ def find_by_name(db: Session, name: str) -> InventoryItem | None:
     return item
 
 
-def deduct_by_name(db: Session, ingredient_name: str, quantity: float | None = None) -> InventoryItem | None:
+def deduct_by_name(
+    db: Session, ingredient_name: str, quantity: float | None = None, unit: str | None = None
+) -> InventoryItem | None:
     """Best-effort: finds the closest-matching inventory item by name and
     decrements its quantity (floored at 0), marking it as just used.
     Returns the affected item, or None if nothing matched. Does not
     delete zeroed-out items -- an empty-but-known item is still useful
-    context (e.g. "we're out of X") rather than disappearing silently."""
+    context (e.g. "we're out of X") rather than disappearing silently.
+
+    `unit` (backlog B5.3, added 2026-07-31) is the unit `quantity` is
+    expressed in -- e.g. a recipe calling for "2 cup flour" while the
+    inventory row is logged in pounds. When both `unit` and the item's
+    own `item.unit` are known and differ, the quantity is converted into
+    the item's unit via unit_conversion_service before subtracting,
+    fixing a real bug where the two were previously subtracted as raw
+    numbers regardless of unit. When conversion isn't possible (a count
+    unit, an unknown unit, or a volume<->mass gap with no density) this
+    falls back to the previous behavior -- treating quantity as already
+    in the item's unit -- rather than refusing to deduct at all."""
     item = find_by_name(db, ingredient_name)
     if item is None:
         return None
 
     if quantity is not None:
-        item.quantity = max(0.0, item.quantity - quantity)
+        amount = quantity
+        if unit and item.unit and unit_conversion_service.normalize_unit(unit) != unit_conversion_service.normalize_unit(item.unit):
+            converted = unit_conversion_service.convert(quantity, unit, item.unit)
+            if converted is not None:
+                amount = converted.quantity
+        item.quantity = max(0.0, item.quantity - amount)
     else:
         item.quantity = max(0.0, item.quantity - 1)
     item.last_used_date = date.today()

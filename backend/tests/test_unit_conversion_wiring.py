@@ -1,0 +1,164 @@
+"""Tests for the B5.3 wiring of unit_conversion_service into
+meal_plan_service's grocery-list math and inventory_service's name-based
+deduction -- the actual behavior change, not just the standalone
+conversion table (see test_unit_conversion_service.py for that).
+"""
+from __future__ import annotations
+
+from app.models import InventoryItem
+from app.services import inventory_service, meal_plan_service
+
+
+# --- aggregate_ingredients: cross-unit merging --------------------------
+
+
+def test_aggregate_merges_convertible_units_for_same_ingredient():
+    lists = [
+        [{"ingredient_name": "flour", "quantity": 2, "unit": "cup"}],
+        [{"ingredient_name": "flour", "quantity": 8, "unit": "tbsp"}],  # = 0.5 cup
+    ]
+    result = meal_plan_service.aggregate_ingredients(lists)
+    assert len(result) == 1
+    assert result[0]["ingredient_name"] == "flour"
+    assert result[0]["unit"] == "cup"
+    assert result[0]["quantity"] == pytest_approx(2.5)
+
+
+def test_aggregate_keeps_incompatible_units_as_separate_lines():
+    lists = [
+        [{"ingredient_name": "chicken", "quantity": 2, "unit": "cup"}],
+        [{"ingredient_name": "chicken", "quantity": 1, "unit": "lb"}],  # no density -> not mergeable
+    ]
+    result = meal_plan_service.aggregate_ingredients(lists)
+    assert len(result) == 2
+    units = {r["unit"] for r in result}
+    assert units == {"cup", "lb"}
+
+
+def test_aggregate_exact_same_unit_still_merges_as_before():
+    lists = [
+        [{"ingredient_name": "rice", "quantity": 1, "unit": "cup"}],
+        [{"ingredient_name": "rice", "quantity": 2, "unit": "cup"}],
+    ]
+    result = meal_plan_service.aggregate_ingredients(lists)
+    assert len(result) == 1
+    assert result[0]["quantity"] == 3
+
+
+def test_aggregate_count_units_still_merge_when_identical():
+    lists = [
+        [{"ingredient_name": "eggs", "quantity": 2, "unit": "whole"}],
+        [{"ingredient_name": "eggs", "quantity": 3, "unit": "whole"}],
+    ]
+    result = meal_plan_service.aggregate_ingredients(lists)
+    assert len(result) == 1
+    assert result[0]["quantity"] == 5
+
+
+def test_aggregate_no_quantity_ingredient_unchanged():
+    lists = [[{"ingredient_name": "salt", "quantity": None, "unit": None}]]
+    result = meal_plan_service.aggregate_ingredients(lists)
+    assert result == [{"ingredient_name": "salt", "unit": None, "quantity": None}]
+
+
+# --- subtract_inventory: unit-aware on-hand comparison -------------------
+
+
+def _item(name, quantity, unit):
+    return InventoryItem(name=name, quantity=quantity, unit=unit, category="pantry")
+
+
+def test_subtract_inventory_converts_on_hand_into_grocery_units():
+    aggregated = [{"ingredient_name": "chicken", "quantity": 2, "unit": "lb"}]
+    inventory = [_item("chicken", 500, "g")]  # ~1.10231 lb on hand
+    result = meal_plan_service.subtract_inventory(aggregated, inventory)
+    assert len(result) == 1
+    assert result[0]["unit"] == "lb"
+    assert result[0]["quantity"] == pytest_approx(2 - 500 / 453.592, tol=0.01)
+
+
+def test_subtract_inventory_fully_covered_by_converted_on_hand():
+    # Volume<->volume conversion (no density needed): 32 tbsp = 2 cups on
+    # hand, which fully covers a 1-cup grocery need.
+    aggregated = [{"ingredient_name": "milk", "quantity": 1, "unit": "cup"}]
+    inventory = [_item("milk", 32, "tbsp")]
+    result = meal_plan_service.subtract_inventory(aggregated, inventory)
+    assert result == []  # fully covered, nothing left to buy
+
+
+def test_subtract_inventory_falls_back_to_raw_comparison_when_unconvertible():
+    # Inventory logged in a count unit against a volume-needed grocery line --
+    # not convertible, so this preserves the old (imprecise) raw-number
+    # comparison rather than crashing: 2 - 3 = -1, which is <= 0 so the
+    # line is (quirkily, but exactly as before this layer existed) treated
+    # as fully covered.
+    aggregated = [{"ingredient_name": "onion", "quantity": 2, "unit": "cup"}]
+    inventory = [_item("onion", 3, "whole")]
+    result = meal_plan_service.subtract_inventory(aggregated, inventory)
+    assert result == []
+
+
+def test_subtract_inventory_same_unit_unchanged_behavior():
+    aggregated = [{"ingredient_name": "rice", "quantity": 3, "unit": "cup"}]
+    inventory = [_item("rice", 1, "cup")]
+    result = meal_plan_service.subtract_inventory(aggregated, inventory)
+    assert result == [{"ingredient_name": "rice", "quantity": 2, "unit": "cup"}]
+
+
+def test_subtract_inventory_no_match_uses_full_quantity():
+    aggregated = [{"ingredient_name": "saffron", "quantity": 1, "unit": "tsp"}]
+    result = meal_plan_service.subtract_inventory(aggregated, [])
+    assert result == [{"ingredient_name": "saffron", "quantity": 1, "unit": "tsp"}]
+
+
+# --- inventory_service.deduct_by_name: unit-aware deduction --------------
+
+
+def test_deduct_by_name_converts_quantity_into_item_unit(db_session):
+    item = InventoryItem(name="butter", quantity=1, unit="lb", category="pantry")
+    db_session.add(item)
+    db_session.commit()
+
+    # Recipe calls for 8 oz of butter -- item is logged in lb.
+    updated = inventory_service.deduct_by_name(db_session, "butter", 8, "oz")
+    assert updated is not None
+    assert updated.quantity == pytest_approx(1 - 8 / 16, tol=0.01)
+
+
+def test_deduct_by_name_same_unit_unchanged_behavior(db_session):
+    item = InventoryItem(name="rice", quantity=5, unit="cup", category="pantry")
+    db_session.add(item)
+    db_session.commit()
+    updated = inventory_service.deduct_by_name(db_session, "rice", 2, "cup")
+    assert updated.quantity == 3
+
+
+def test_deduct_by_name_falls_back_when_unit_missing_or_unconvertible(db_session):
+    item = InventoryItem(name="onion", quantity=5, unit="whole", category="pantry")
+    db_session.add(item)
+    db_session.commit()
+    # No unit passed at all -- old behavior (subtract raw quantity as-is).
+    updated = inventory_service.deduct_by_name(db_session, "onion", 2, None)
+    assert updated.quantity == 3
+
+    item2 = InventoryItem(name="pepper", quantity=5, unit="whole", category="pantry")
+    db_session.add(item2)
+    db_session.commit()
+    # Unit given but not convertible against item's count unit -- falls
+    # back to raw-number subtraction, same as before this layer existed.
+    updated2 = inventory_service.deduct_by_name(db_session, "pepper", 2, "cup")
+    assert updated2.quantity == 3
+
+
+def test_deduct_by_name_no_quantity_still_decrements_by_one(db_session):
+    item = InventoryItem(name="lemon", quantity=3, unit="whole", category="pantry")
+    db_session.add(item)
+    db_session.commit()
+    updated = inventory_service.deduct_by_name(db_session, "lemon")
+    assert updated.quantity == 2
+
+
+def pytest_approx(value, tol=0.001):
+    import pytest
+
+    return pytest.approx(value, abs=tol)

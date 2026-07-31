@@ -110,7 +110,7 @@ def deduct_inventory(payload: InventoryDeductRequest, db: Session = Depends(get_
     inventory_deduct action (Phase 7), or anywhere else a natural-
     language ingredient name needs to resolve to a row. 404 if nothing
     matches closely enough (see inventory_service.find_by_name)."""
-    item = inventory_service.deduct_by_name(db, payload.ingredient_name, payload.quantity)
+    item = inventory_service.deduct_by_name(db, payload.ingredient_name, payload.quantity, payload.unit)
     if item is None:
         raise HTTPException(status_code=404, detail=f'No inventory item matching "{payload.ingredient_name}"')
     return item

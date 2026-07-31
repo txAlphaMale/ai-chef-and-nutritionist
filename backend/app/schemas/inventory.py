@@ -84,6 +84,11 @@ class InventoryDeductRequest(BaseModel):
 
     ingredient_name: str
     quantity: float | None = None  # None means "deduct one unit"
+    # Unit `quantity` is expressed in (backlog B5.3) -- converted against
+    # the matched item's own unit before subtracting when both are known
+    # and differ. Optional and backward compatible: omitting it keeps the
+    # previous same-unit-assumed behavior.
+    unit: str | None = None
 
 
 class InventoryUpdateByNameRequest(BaseModel):
