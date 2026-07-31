@@ -369,3 +369,100 @@ tr.urgency-low td {
 .recipe-source {
   font-style: italic;
 }
+
+/* --- Meal plan grid --- */
+.meal-entry-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.meal-entry-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.meal-entry-row select,
+.meal-entry-row input {
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  font-family: inherit;
+}
+
+.meal-entry-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-width: 150px;
+}
+
+.meal-entry-recipe {
+  flex: 1;
+  min-width: 160px;
+}
+
+.meal-entry-recipe a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.meal-entry-actions {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: center;
+}
+
+.meal-entry-made {
+  background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+}
+
+.meal-entry-skipped {
+  opacity: 0.6;
+}
+
+.indulgence-tag {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* --- Meal plan generation preview --- */
+.preview-entry-row {
+  align-items: center;
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.preview-entry-label {
+  min-width: 140px;
+  font-size: 0.9em;
+}
+
+.day-guidance-label {
+  min-width: 90px;
+  font-size: 0.9em;
+  color: var(--color-text-muted);
+}
+
+/* --- Grocery list --- */
+.grocery-list {
+  list-style: none;
+  padding: 0;
+}
+
+.grocery-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.grocery-item.purchased span {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}

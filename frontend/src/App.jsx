@@ -3,6 +3,7 @@ import HomePage from "./pages/HomePage";
 import InventoryPage from "./pages/InventoryPage";
 import RecipesPage from "./pages/RecipesPage";
 import RecipeDetailPage from "./pages/RecipeDetailPage";
+import MealPlanPage from "./pages/MealPlanPage";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
 // built SPA with `serve -s`, and keeping routing hash-based avoids
@@ -20,6 +21,7 @@ export default function App() {
             </NavLink>
             <NavLink to="/inventory">Inventory</NavLink>
             <NavLink to="/recipes">Recipes</NavLink>
+            <NavLink to="/meal-plan">Meal Plan</NavLink>
           </nav>
         </header>
         <main>
@@ -28,6 +30,7 @@ export default function App() {
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/recipes" element={<RecipesPage />} />
             <Route path="/recipes/:id" element={<RecipeDetailPage />} />
+            <Route path="/meal-plan" element={<MealPlanPage />} />
           </Routes>
         </main>
       </div>

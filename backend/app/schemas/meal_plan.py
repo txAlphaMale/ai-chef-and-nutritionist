@@ -1,0 +1,166 @@
+"""Pydantic request/response models for the meal-plan API: AI-assisted
+weekly generation (preview-then-confirm, same pattern as recipe import),
+manual plan/entry CRUD, and the derived grocery list."""
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.recipe import RecipeIngredientBase
+
+
+class EntryGuidance(BaseModel):
+    """Optional per-slot steering before generation, e.g. "Saturday
+    lunch needs to be portable for a picnic" or "Wednesday dinner
+    should be quick"."""
+
+    day_of_week: int = Field(ge=0, le=6)
+    meal_type: str = "dinner"
+    tags: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class MealPlanGenerateRequest(BaseModel):
+    week_start_date: date
+    household_size: int | None = None
+    # Which meal slots to plan per day -- defaults to dinner-only, the
+    # core "weekly meal plan" ask; add "breakfast"/"lunch"/"snack" to
+    # plan those too.
+    meal_types: list[str] = Field(default_factory=lambda: ["dinner"])
+    kitchen_profile_id: int | None = None
+    entry_guidance: list[EntryGuidance] = Field(default_factory=list)
+    notes: str | None = None  # free-text steering, e.g. "going camping this weekend"
+
+
+class NewRecipeInput(BaseModel):
+    """Shape of an AI-proposed brand-new recipe for a meal-plan slot the
+    existing catalog can't fill -- mirrors recipe_service.coerce_recipe_
+    fields()'s output. Narrower than RecipeCreate: no source citation or
+    staple/photo fields, since those aren't meaningful for a recipe with
+    no external source that hasn't been reviewed/rated yet."""
+
+    title: str
+    description: str | None = None
+    default_servings: int = 2
+    prep_time_minutes: int | None = None
+    cook_time_minutes: int | None = None
+    instructions: list[str] = Field(default_factory=list)
+    ingredients: list[RecipeIngredientBase] = Field(default_factory=list)
+    nutrition: dict = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    tips: list[str] = Field(default_factory=list)
+
+
+class MealPlanEntryBase(BaseModel):
+    day_of_week: int = Field(ge=0, le=6)
+    meal_type: str = "dinner"
+    servings: int = 2
+    requested_tags: list[str] = Field(default_factory=list)
+    is_indulgence: bool = False
+    notes: str | None = None
+
+
+class MealPlanEntryCreate(MealPlanEntryBase):
+    recipe_id: int | None = None
+    # Set when recipe_id is null and this slot should create a brand-new
+    # recipe on plan confirmation (see routers/meal_plan.py's create_meal_plan).
+    new_recipe: NewRecipeInput | None = None
+
+
+class MealPlanEntryUpdate(BaseModel):
+    """PATCH semantics -- all optional. Confirming/skipping a meal goes
+    through the dedicated /confirm and /skip actions instead, since
+    confirming has the side effect of deducting inventory."""
+
+    meal_type: str | None = None
+    recipe_id: int | None = None
+    servings: int | None = None
+    requested_tags: list[str] | None = None
+    is_indulgence: bool | None = None
+    notes: str | None = None
+
+
+class MealPlanEntryRecipeSummary(BaseModel):
+    """Lightweight nested recipe info on a meal-plan entry -- enough for
+    the weekly grid UI without a second round-trip per slot."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    default_servings: int
+    is_staple: bool
+    tags: list[str] = Field(default_factory=list)
+
+
+class MealPlanEntryRead(MealPlanEntryBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    meal_plan_id: int
+    recipe_id: int | None = None
+    recipe: MealPlanEntryRecipeSummary | None = None
+    is_confirmed: bool
+    is_skipped: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class MealPlanBase(BaseModel):
+    week_start_date: date
+    household_size_snapshot: int = 2
+    kitchen_profile_id: int | None = None
+
+
+class MealPlanCreate(MealPlanBase):
+    status: str = "draft"  # draft|active|archived
+    entries: list[MealPlanEntryCreate] = Field(default_factory=list)
+
+
+class MealPlanUpdate(BaseModel):
+    status: str | None = None
+    kitchen_profile_id: int | None = None
+
+
+class MealPlanRead(MealPlanBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    entries: list[MealPlanEntryRead]
+    created_at: datetime
+    updated_at: datetime
+
+
+class MealPlanGenerateResponse(BaseModel):
+    plan: MealPlanCreate
+    raw_model_output: str
+
+
+class GroceryListItemBase(BaseModel):
+    ingredient_name: str
+    quantity: float | None = None
+    unit: str | None = None
+    category: str | None = None
+
+
+class GroceryListItemCreate(GroceryListItemBase):
+    pass
+
+
+class GroceryListItemUpdate(BaseModel):
+    ingredient_name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    category: str | None = None
+    is_purchased: bool | None = None
+
+
+class GroceryListItemRead(GroceryListItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    meal_plan_id: int | None = None
+    is_purchased: bool
+    source: str  # auto|manual

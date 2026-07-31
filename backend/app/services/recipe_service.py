@@ -11,7 +11,7 @@ import trafilatura
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
-from app.models import MealTag, Recipe
+from app.models import MealTag, Recipe, RecipeIngredient
 
 # --- Servings scaling --------------------------------------------------
 #
@@ -51,6 +51,42 @@ def resolve_tags(db: Session, tag_names: list[str]) -> list[MealTag]:
             db.flush()  # get an id without a full commit
         resolved.append(tag)
     return resolved
+
+
+def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_generated") -> Recipe:
+    """Creates a Recipe (+ ingredients + tags) from a dict shaped like
+    coerce_recipe_fields()'s output -- used when meal-plan generation
+    (meal_plan_service.py) proposes a brand-new recipe for a slot the
+    existing catalog can't fill. Mirrors routers/recipes.py's
+    create_recipe wiring without duplicating it wholesale: the input
+    shape here is narrower (no source_url/is_staple/image_path -- those
+    aren't meaningful for an AI-authored recipe with no external source
+    and no explicit staple/photo yet)."""
+    recipe = Recipe(
+        title=parsed["title"],
+        description=parsed.get("description"),
+        default_servings=parsed.get("default_servings") or 2,
+        prep_time_minutes=parsed.get("prep_time_minutes"),
+        cook_time_minutes=parsed.get("cook_time_minutes"),
+        instructions=parsed.get("instructions") or [],
+        nutrition=parsed.get("nutrition") or {},
+        tips=parsed.get("tips") or [],
+        source=source,
+    )
+    db.add(recipe)
+    db.flush()
+    for ing in parsed.get("ingredients") or []:
+        recipe.ingredients.append(
+            RecipeIngredient(
+                ingredient_name=ing["ingredient_name"],
+                quantity=ing.get("quantity"),
+                unit=ing.get("unit"),
+                prep_note=ing.get("prep_note"),
+            )
+        )
+    recipe.tags = resolve_tags(db, parsed.get("tags") or [])
+    db.flush()
+    return recipe
 
 
 # --- AI-assisted import -------------------------------------------------
@@ -105,7 +141,17 @@ def parse_recipe_response(raw_text: str) -> dict | None:
     data = _extract_json_object(raw_text)
     if not data or not data.get("title"):
         return None
+    return coerce_recipe_fields(data)
 
+
+def coerce_recipe_fields(data: dict) -> dict:
+    """Field coercion shared by recipe import (parse_recipe_response,
+    above) and meal-plan generation (meal_plan_service.parse_meal_plan_
+    response, which calls this for any AI-proposed "new_recipe" a
+    generated meal-plan slot doesn't have a catalog match for) -- both
+    consume the same JSON recipe shape from the model, so the
+    ingredient/instruction/nutrition/tag/tip coercion logic lives here
+    once rather than twice."""
     ingredients = []
     for ing in data.get("ingredients") or []:
         if not isinstance(ing, dict) or not ing.get("ingredient_name"):
