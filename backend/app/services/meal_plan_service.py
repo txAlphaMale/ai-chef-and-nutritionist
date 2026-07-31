@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
 from app.services import health_service, inventory_service, recipe_service, unit_conversion_service
+from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.recipe_service import _extract_json_object, _safe_int
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -152,9 +153,9 @@ object with keys "title", "description", "default_servings", \
 "prep_time_minutes", "cook_time_minutes", "instructions" (array of \
 strings), "ingredients" (array of objects with "ingredient_name", \
 "quantity", "unit", "prep_note"), "nutrition" (object with best-effort \
-per-serving numbers: calories, protein_g, carbs_g, fat_g), "tags" \
-(array of short lowercase strings), "tips" (array of short strings, may \
-be empty). Otherwise null.
+per-serving numbers or null for these keys: {NUTRITION_PROMPT_HINT}), \
+"tags" (array of short lowercase strings), "tips" (array of short \
+strings, may be empty). Otherwise null.
 - "servings": integer, defaulting to the household size below unless a \
 different serving count makes more sense for this slot
 - "requested_tags": array of short lowercase tag strings this slot \
@@ -185,7 +186,11 @@ proposing a new recipe for every slot:
 {health_section}{knowledge_section}
 Meal slots to plan, with any specific guidance for that slot:
 {slots}
-{extra_notes}"""
+{extra_notes}""".replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
+# ^ plain str.replace (not part of the .format(...) call build_generation_
+# prompt() below makes with household_size/dietary_restrictions/etc.) --
+# see recipe_service.RECIPE_IMPORT_PROMPT for why this has to be a
+# separate substitution pass rather than an extra .format() kwarg.
 
 
 def _format_priority_ingredients(items: list[dict]) -> str:

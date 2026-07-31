@@ -44,10 +44,22 @@ class Recipe(Base, TimestampMixin):
     # Ordered list of step strings
     instructions: Mapped[list] = mapped_column(JSON, default=list)
 
-    # Per-serving nutrition estimate: calories, protein_g, carbs_g, fat_g,
-    # fiber_g, sodium_mg, cholesterol_mg -- keys are informal by design so
-    # the AI-grounded estimator (Phase 2+) can extend this without a migration.
+    # Per-serving nutrition estimate -- keys are app.services.food_data_
+    # service.NUTRITION_KEYS (calories, protein_g, carbs_g, fat_g, fiber_g,
+    # sodium_mg, cholesterol_mg, saturated_fat_g, sugars_g), informal by
+    # design so a future addition doesn't need a migration.
     nutrition: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Backlog B1.2: "computed" (every ingredient with a stated quantity
+    # summed from a real USDA/OFF match), "partial" (some but not all
+    # ingredients contributed -- an honest undercount, not a full total),
+    # "ai_estimated" (no ingredient contributed real data -- this is
+    # whatever the LLM guessed, or what a human typed into the form), or
+    # None (legacy row from before this column existed / never touched).
+    # Set by app.services.food_data_service.compute_recipe_nutrition() and
+    # by routers/recipes.py's create/update handlers -- never accepted
+    # directly from the client (see RecipeRead vs. RecipeBase/RecipeCreate/
+    # RecipeUpdate in schemas/recipe.py), so a client can't fake "computed".
+    nutrition_provenance: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-5
     is_staple: Mapped[bool] = mapped_column(Boolean, default=False)

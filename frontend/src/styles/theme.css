@@ -331,6 +331,42 @@ tr.urgency-low td {
   columns: 2;
 }
 
+/* Backlog B1.2 -- distinguishes real, ingredient-computed nutrition from
+   an unverified LLM/manual estimate. Same traffic-light convention as
+   .status-dot/.status-ok/.status-bad (Settings page, Phase 8) and the
+   trend-chart up/down coloring (Health page, Phase 6): secondary=good,
+   accent=caution, muted=unverified. */
+.provenance-badge {
+  display: inline-block;
+  font-size: 0.85em;
+  padding: 2px var(--spacing-2);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-2);
+}
+
+.provenance-computed {
+  background: color-mix(in srgb, var(--color-secondary) 15%, transparent);
+  color: var(--color-secondary);
+}
+
+.provenance-partial {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  color: var(--color-text);
+}
+
+.provenance-estimated {
+  background: color-mix(in srgb, var(--color-text-muted) 15%, transparent);
+  color: var(--color-text-muted);
+}
+
+/* Recipe form's nutrition fieldset -- 9 keys (backlog B1.3) need to wrap
+   sensibly instead of the fixed 4-column .form-row used elsewhere. */
+.nutrition-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--spacing-2) var(--spacing-3);
+}
+
 /* --- Recipe dish images --- */
 .recipe-list-item-with-image {
   display: flex;

@@ -3,6 +3,24 @@ import { api, backendOrigin } from "../api";
 
 const emptyIngredient = { ingredient_name: "", quantity: "", unit: "", prep_note: "" };
 
+// Backlog B1.3: the single nutrition key set every AI surface in this app
+// now asks for (see backend/app/services/food_data_service.py's
+// NUTRITION_KEYS) -- kept here as one list so the form-state keys,
+// hydration, and submit payload can't drift apart the way this form used
+// to (it only ever knew about 4 of up to 9 possible keys, silently
+// dropping fiber_g/sodium_mg/cholesterol_mg/etc. on every save).
+const NUTRIENT_FIELDS = [
+  { key: "calories", label: "Calories" },
+  { key: "protein_g", label: "Protein (g)" },
+  { key: "carbs_g", label: "Carbs (g)" },
+  { key: "fat_g", label: "Fat (g)" },
+  { key: "saturated_fat_g", label: "Saturated fat (g)" },
+  { key: "fiber_g", label: "Fiber (g)" },
+  { key: "sugars_g", label: "Sugars (g)" },
+  { key: "sodium_mg", label: "Sodium (mg)" },
+  { key: "cholesterol_mg", label: "Cholesterol (mg)" },
+];
+
 const emptyForm = {
   title: "",
   description: "",
@@ -16,10 +34,7 @@ const emptyForm = {
   source_url: "",
   source_name: "",
   source_author: "",
-  nutrition_calories: "",
-  nutrition_protein_g: "",
-  nutrition_carbs_g: "",
-  nutrition_fat_g: "",
+  ...Object.fromEntries(NUTRIENT_FIELDS.map((f) => [`nutrition_${f.key}`, ""])),
 };
 
 /** Shared add/edit recipe form. `initial` (from RecipeRead, or a RecipeCreate-
@@ -44,10 +59,9 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
       source_url: initial.source_url || "",
       source_name: initial.source_name || "",
       source_author: initial.source_author || "",
-      nutrition_calories: initial.nutrition?.calories ?? "",
-      nutrition_protein_g: initial.nutrition?.protein_g ?? "",
-      nutrition_carbs_g: initial.nutrition?.carbs_g ?? "",
-      nutrition_fat_g: initial.nutrition?.fat_g ?? "",
+      ...Object.fromEntries(
+        NUTRIENT_FIELDS.map((f) => [`nutrition_${f.key}`, initial.nutrition?.[f.key] ?? ""])
+      ),
     };
   });
 
@@ -160,10 +174,10 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
   function handleSubmit(e) {
     e.preventDefault();
     const nutrition = {};
-    if (form.nutrition_calories !== "") nutrition.calories = Number(form.nutrition_calories);
-    if (form.nutrition_protein_g !== "") nutrition.protein_g = Number(form.nutrition_protein_g);
-    if (form.nutrition_carbs_g !== "") nutrition.carbs_g = Number(form.nutrition_carbs_g);
-    if (form.nutrition_fat_g !== "") nutrition.fat_g = Number(form.nutrition_fat_g);
+    for (const f of NUTRIENT_FIELDS) {
+      const value = form[`nutrition_${f.key}`];
+      if (value !== "") nutrition[f.key] = Number(value);
+    }
 
     const payload = {
       title: form.title,
@@ -347,23 +361,27 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
 
       <fieldset>
         <legend>Nutrition (per serving, optional)</legend>
-        <div className="form-row">
-          <label>
-            Calories
-            <input type="number" value={form.nutrition_calories} onChange={(e) => set("nutrition_calories", e.target.value)} />
-          </label>
-          <label>
-            Protein (g)
-            <input type="number" value={form.nutrition_protein_g} onChange={(e) => set("nutrition_protein_g", e.target.value)} />
-          </label>
-          <label>
-            Carbs (g)
-            <input type="number" value={form.nutrition_carbs_g} onChange={(e) => set("nutrition_carbs_g", e.target.value)} />
-          </label>
-          <label>
-            Fat (g)
-            <input type="number" value={form.nutrition_fat_g} onChange={(e) => set("nutrition_fat_g", e.target.value)} />
-          </label>
+        {initial?.nutrition_provenance === "computed" || initial?.nutrition_provenance === "partial" ? (
+          <p className="hint">
+            These values were computed from real ingredient data. Editing and saving here will mark them as an
+            unverified estimate again -- use "Compute from ingredients" on the recipe page instead if you just want
+            to refresh them.
+          </p>
+        ) : (
+          <p className="hint">Best-effort estimates -- leave blank for anything unknown.</p>
+        )}
+        <div className="nutrition-field-grid">
+          {NUTRIENT_FIELDS.map((f) => (
+            <label key={f.key}>
+              {f.label}
+              <input
+                type="number"
+                step="any"
+                value={form[`nutrition_${f.key}`]}
+                onChange={(e) => set(`nutrition_${f.key}`, e.target.value)}
+              />
+            </label>
+          ))}
         </div>
       </fieldset>
 

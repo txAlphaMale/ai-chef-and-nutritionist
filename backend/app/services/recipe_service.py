@@ -13,6 +13,7 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
+from app.services.food_data_service import NUTRITION_PROMPT_HINT
 
 # --- Servings scaling --------------------------------------------------
 #
@@ -71,6 +72,13 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
         cook_time_minutes=parsed.get("cook_time_minutes"),
         instructions=parsed.get("instructions") or [],
         nutrition=parsed.get("nutrition") or {},
+        # Backlog B1.2: an AI-generated recipe's nutrition is always a
+        # guess at this point (meal-plan generation never resolves
+        # ingredients against USDA/OFF before proposing a new_recipe) --
+        # same "ai_estimated" bucket as a manually-typed or imported
+        # estimate, see routers/recipes.py's create_recipe for the
+        # matching logic on the normal creation path.
+        nutrition_provenance="ai_estimated" if parsed.get("nutrition") else None,
         tips=parsed.get("tips") or [],
         source=source,
     )
@@ -112,8 +120,7 @@ reasonable default like 4)
 "quantity" (number or null), "unit" (string or null), "prep_note" \
 (string or null, e.g. "diced")
 - "nutrition": object with best-effort per-serving estimates as numbers \
-or null: "calories", "protein_g", "carbs_g", "fat_g", "fiber_g", \
-"sodium_mg", "cholesterol_mg"
+or null: {NUTRITION_PROMPT_HINT}
 - "tags": array of short lowercase strings from this set where \
 applicable: quick, portable, non_refrigerated, dutch_oven_only, \
 backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, \
@@ -135,7 +142,12 @@ Content to extract from:
 ---
 {content}
 ---
-"""
+""".replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
+# ^ plain str.replace (not .format) for the nutrition-key hint, since
+# {content} below is a real .format() placeholder filled in per-call
+# (see routers/recipes.py's _run_text_extraction) -- .format() would
+# choke on the still-unfilled {NUTRITION_PROMPT_HINT} token if this were
+# resolved via .format() at both places.
 
 
 def parse_recipe_response(raw_text: str) -> dict | None:
@@ -322,8 +334,9 @@ integer, "prep_time_minutes": integer or null, "cook_time_minutes": \
 integer or null, "instructions": array of strings, "ingredients": array \
 of objects with "ingredient_name", "quantity" (number or null), "unit" \
 (string or null), "prep_note" (string or null), "nutrition": object \
-with best-effort per-serving numeric estimates, "tags": array of short \
-lowercase tags, "tips": array of strings}. Keep every field the user \
+with best-effort per-serving numeric estimates or null for these keys: \
+{NUTRITION_PROMPT_HINT}, "tags": array of short lowercase tags, "tips": \
+array of strings}. Keep every field the user \
 didn't ask to change the same as the current recipe below -- this is \
 the full recipe after your edit, not a list of just the changes. \
 Update nutrition estimates if the ingredient changes would meaningfully \
@@ -335,7 +348,7 @@ describing what's different about this version.
 Never silently modify the recipe -- only propose changes via \
 proposed_recipe. Nothing is saved until the user reviews and confirms \
 it themselves.
-"""
+""".replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 
 
 def parse_recipe_chat_response(raw_text: str) -> dict:

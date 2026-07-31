@@ -36,8 +36,13 @@ class RecipeBase(BaseModel):
     prep_time_minutes: int | None = None
     cook_time_minutes: int | None = None
     instructions: list[str] = Field(default_factory=list)
-    # Per-serving estimate: calories, protein_g, carbs_g, fat_g, fiber_g,
-    # sodium_mg, cholesterol_mg -- keys are informal, see Recipe model.
+    # Per-serving estimate -- keys are app.services.food_data_service.
+    # NUTRITION_KEYS (calories/protein_g/carbs_g/fat_g/fiber_g/sodium_mg/
+    # cholesterol_mg/saturated_fat_g/sugars_g), informal by design, see
+    # the Recipe model. Whether this dict is real (summed from resolved
+    # ingredients) or a guess is RecipeRead.nutrition_provenance below --
+    # deliberately NOT on this base class, since a client should never be
+    # able to just assert "computed" on create/update (see RecipeRead).
     nutrition: dict = Field(default_factory=dict)
     is_staple: bool = False
     image_path: str | None = None
@@ -102,6 +107,10 @@ class RecipeRead(RecipeBase):
     id: int
     rating: int | None = None
     source: str
+    # Backlog B1.2 -- output-only, same "never accepted from the client"
+    # discipline as RecipeIngredientRead.resolution_source above. "computed"
+    # / "partial" / "ai_estimated" / None (legacy row, never computed).
+    nutrition_provenance: str | None = None
     ingredients: list[RecipeIngredientRead]
     tags: list[str]
     servings_shown: int = Field(default=0, description="Servings these ingredient quantities are scaled to")

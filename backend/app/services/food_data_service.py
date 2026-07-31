@@ -1,4 +1,5 @@
-"""Ingredient-to-food-database resolution (backlog B1.1).
+"""Ingredient-to-food-database resolution (backlog B1.1), plus summing
+resolved ingredients into Recipe.nutrition with a provenance tag (B1.2).
 
 Maps a RecipeIngredient's free-text name to a canonical food record and a
 per-100g nutrient profile, so downstream features (B1.2 computed nutrition,
@@ -28,11 +29,22 @@ Resolution is cached on the RecipeIngredient row itself (fdc_id/
 off_barcode/resolved_food_name/resolution_source/nutrition_per_100g/
 resolved_at) so a given ingredient is only looked up once, not on every
 request -- see `resolve_and_cache_ingredient`. Nothing here is invoked
-automatically on recipe create/update yet; `POST /api/recipes/{id}/
-resolve-nutrition` is the current call site (explicit, on demand). Wiring
-resolution into the create/import flow, and summing resolved nutrients
-into `Recipe.nutrition` with a `computed`/`partial`/`ai_estimated`
-provenance tag, is B1.2 -- a separate, not-yet-built pass.
+automatically on recipe create/update; `POST /api/recipes/{id}/
+resolve-nutrition` resolves (explicit, on demand) and `POST /api/recipes/
+{id}/compute-nutrition` (B1.2, `routers/recipes.py`) resolves-if-needed
+AND persists the summed result via `compute_recipe_nutrition` below.
+
+`compute_recipe_nutrition` only sums an ingredient whose quantity
+converts to grams -- today that means a mass-family unit (g/kg/oz/lb)
+only. Volume-family units (cup, tbsp, ...) would need a per-ingredient
+density that nothing in this codebase sources yet (unit_conversion_
+service.convert() accepts an optional density but nothing here ever
+supplies one -- USDA FDC does publish portion/gram-weight data per food
+that could eventually fill this gap, it just isn't parsed here). A
+recipe with only volume/count-based quantities will therefore always
+come back "ai_estimated" even after every ingredient successfully
+resolves against USDA/OFF -- documented as a known limitation, not a
+bug, consistent with this layer's "never invent a conversion" rule.
 
 No live network access to api.nal.usda.gov or world.openfoodfacts.org
 exists in Claude's sandbox (same constraint noted for Ollama in every
@@ -50,8 +62,8 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
 
-from app.models import RecipeIngredient
-from app.services import settings_service
+from app.models import Recipe, RecipeIngredient
+from app.services import settings_service, unit_conversion_service
 
 USDA_BASE_URL = "https://api.nal.usda.gov/fdc/v1"
 OFF_SEARCH_URL = "https://world.openfoodfacts.org/cgi/search.pl"
@@ -59,13 +71,47 @@ OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json
 
 REQUEST_TIMEOUT_SECONDS = 8.0
 
+# Backlog B1.3 -- the single, shared per-serving nutrition key set every
+# AI surface in this app now asks for (recipe_service.RECIPE_IMPORT_PROMPT/
+# RECIPE_MODIFY_INSTRUCTIONS, meal_plan_service.MEAL_PLAN_PROMPT_TEMPLATE),
+# so a recipe's nutrition dict no longer depends on which surface created
+# it. Previously recipe_service.py asked for 7 keys and meal_plan_service.py
+# asked for only 4 -- a recipe born from meal-plan generation silently
+# carried less data than an imported one. This list is also exactly what
+# `_parse_usda_nutrients`/`_parse_off_nutrients` below produce per 100g, so
+# `compute_recipe_nutrition`'s summed totals land in the same key space as
+# an AI estimate without any translation step.
+#
+# `added_sugars_g` and `soluble_fiber_g` were considered (per the B1.3
+# backlog text) but deliberately left out: neither USDA FoodData Central's
+# Foundation/SR Legacy nutrient set nor Open Food Facts' core `nutriments`
+# fields cleanly distinguish "added" sugars from total sugars, or soluble
+# from total fiber. Labeling total sugars as "added" or total fiber as
+# "soluble" would be worse than omitting the field -- this app doesn't
+# invent a number a real food-composition source doesn't actually give it.
+NUTRITION_KEYS: list[str] = [
+    "calories",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "fiber_g",
+    "sodium_mg",
+    "cholesterol_mg",
+    "saturated_fat_g",
+    "sugars_g",
+]
+
+# Human-readable hint injected into every recipe/meal-plan generation
+# prompt so all three AI surfaces request exactly NUTRITION_KEYS, not
+# their own independently-drifted list.
+NUTRITION_PROMPT_HINT = (
+    '"calories", "protein_g", "carbs_g", "fat_g", "fiber_g", "sodium_mg", '
+    '"cholesterol_mg", "saturated_fat_g", "sugars_g"'
+)
+
 # USDA FoodData Central nutrient names (as returned in each food's
 # `foodNutrients[].nutrientName`) mapped to this app's per-100g nutrient
-# dict keys. Superset of what either recipe_service.py or
-# meal_plan_service.py currently ask the LLM for (see B1.3 -- those two
-# prompts disagree on a 7-key vs. 4-key set and both omit saturated fat,
-# the single most LDL-relevant number for the author's stated goal) so
-# this cache doesn't need a schema change once B1.2/B1.3 land.
+# dict keys -- exactly NUTRITION_KEYS above.
 USDA_NUTRIENT_MAP: dict[str, str] = {
     "Energy": "calories",
     "Protein": "protein_g",
@@ -292,3 +338,94 @@ def resolve_and_cache_ingredient(db: Session, ingredient: RecipeIngredient, forc
     ingredient.nutrition_per_100g = result.nutrition_per_100g
     ingredient.resolved_at = datetime.now(timezone.utc)
     return True
+
+
+# --- B1.2: summing resolved ingredients into Recipe.nutrition ----------
+#
+# The other half of B1.1's "plumbing before user-visible features"
+# sequencing: resolve_and_cache_ingredient (above) only caches a per-100g
+# snapshot per ingredient. Nothing until now actually sums those into
+# Recipe.nutrition or tells the user whether a recipe's nutrition block
+# is real data or an LLM's unchecked guess -- which is the entire B1
+# backlog group's stated problem (see PROJECT-PLAN.md).
+
+
+def compute_ingredient_grams(ingredient: RecipeIngredient) -> float | None:
+    """Converts one ingredient's quantity+unit into grams, the unit
+    nutrition_per_100g is denominated in. Returns None (never guesses)
+    for: no stated quantity ("salt to taste"), a count-based unit ("2
+    eggs", "1 can") which has no fixed weight this app can look up, or a
+    volume unit ("1 cup") -- the last case needs a per-ingredient density
+    that nothing in this codebase sources yet (see unit_conversion_
+    service's module docstring: B1.1 was meant to eventually supply it
+    from USDA's portion/gram-weight data, but that isn't parsed here --
+    only per-100g nutrients are). Only mass units (g/kg/oz/lb) convert
+    today; this is the same "never invent a conversion" discipline
+    unit_conversion_service.convert() itself already enforces -- this
+    function just doesn't have a density to hand it for the volume case."""
+    if ingredient.quantity is None:
+        return None
+    result = unit_conversion_service.convert(ingredient.quantity, ingredient.unit, "g")
+    if result is None:
+        return None
+    return result.quantity
+
+
+def compute_recipe_nutrition(recipe: Recipe) -> tuple[dict, str]:
+    """Sums each ingredient's cached `nutrition_per_100g` (see
+    resolve_and_cache_ingredient) scaled to its actual weight in grams,
+    divides by `default_servings` to land back in the per-serving unit
+    `Recipe.nutrition` has always used, and returns (nutrition_dict,
+    provenance):
+
+    - "ai_estimated": no quantified ingredient contributed real data
+      (nothing resolved, or everything that resolved is volume/count-
+      based with no way to weigh it). The recipe's EXISTING nutrition
+      dict is returned UNCHANGED -- this never overwrites a real AI
+      estimate with an empty computed total just because resolution
+      hasn't happened yet, and never fabricates a number from zero data.
+    - "partial": some but not all quantified ingredients contributed.
+      The returned dict is a real, honest sum -- just of an incomplete
+      ingredient list, so it should be shown as a probable undercount,
+      not a final number.
+    - "computed": every quantified ingredient contributed. The returned
+      dict fully replaces whatever was there before.
+
+    "Quantified" excludes ingredients with no stated quantity (e.g. "salt
+    to taste") from both the sum and the completeness check -- there's no
+    way to weigh them, and that's not a resolution failure, so they
+    shouldn't count against "computed" vs. "partial" the way an
+    unresolved or unconvertible ingredient does. A recipe with only
+    unquantified ingredients (unusual, but possible) reports
+    "ai_estimated" rather than a false "computed" over zero ingredients.
+
+    Callers own the transaction -- this only reads, never writes to the
+    DB or the ORM objects themselves (see routers/recipes.py's
+    compute_recipe_nutrition_endpoint, which does the actual persisting)."""
+    quantified = [ing for ing in recipe.ingredients if ing.quantity is not None]
+    if not quantified:
+        return dict(recipe.nutrition or {}), "ai_estimated"
+
+    totals: dict[str, float] = {}
+    contributed = 0
+    for ing in quantified:
+        if not ing.nutrition_per_100g:
+            continue
+        grams = compute_ingredient_grams(ing)
+        if grams is None:
+            continue
+        contributed += 1
+        factor = grams / 100.0
+        for key, per_100g in ing.nutrition_per_100g.items():
+            try:
+                totals[key] = totals.get(key, 0.0) + float(per_100g) * factor
+            except (TypeError, ValueError):
+                continue
+
+    if contributed == 0:
+        return dict(recipe.nutrition or {}), "ai_estimated"
+
+    servings = recipe.default_servings or 1
+    per_serving = {key: round(value / servings, 1) for key, value in totals.items()}
+    provenance = "computed" if contributed == len(quantified) else "partial"
+    return per_serving, provenance

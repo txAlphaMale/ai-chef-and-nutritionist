@@ -56,6 +56,7 @@ def _to_read(recipe: Recipe, servings_shown: int | None = None) -> RecipeRead:
         cook_time_minutes=recipe.cook_time_minutes,
         instructions=recipe.instructions or [],
         nutrition=recipe.nutrition or {},
+        nutrition_provenance=recipe.nutrition_provenance,
         is_staple=recipe.is_staple,
         image_path=recipe.image_path,
         source_url=recipe.source_url,
@@ -236,6 +237,15 @@ def list_recipe_variants(recipe_id: int, db: Session = Depends(get_db)):
 def create_recipe(payload: RecipeCreate, db: Session = Depends(get_db)):
     data = payload.model_dump(exclude={"ingredients", "tags"})
     recipe = Recipe(**data)
+    # Backlog B1.2: a nutrition dict arriving through the normal create
+    # endpoint is always either an LLM's guess (import/generation/chat
+    # already went through recipe_service.coerce_recipe_fields before the
+    # frontend ever POSTs here) or a human typing numbers into RecipeForm
+    # -- neither is "computed" (summed from a real USDA/OFF match), so
+    # both land in the same honestly-unverified bucket. Only
+    # POST /{id}/compute-nutrition (below) can ever set "computed"/"partial".
+    if recipe.nutrition:
+        recipe.nutrition_provenance = "ai_estimated"
     db.add(recipe)
     db.flush()
     _apply_ingredients(db, recipe, payload.ingredients)
@@ -251,6 +261,14 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, db: Session = Depends(g
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     updates = payload.model_dump(exclude_unset=True, exclude={"ingredients", "tags"})
+    # Backlog B1.2: only demote a "computed"/"partial" recipe back to
+    # "ai_estimated" if the incoming nutrition dict actually differs from
+    # what's stored -- RecipeForm always resends the nutrition fields it
+    # loaded, so an unrelated edit (title, rating, tags...) would
+    # otherwise silently overwrite a real computed result's provenance
+    # label on every save even though the numbers themselves didn't change.
+    if "nutrition" in updates and updates["nutrition"] != (recipe.nutrition or {}):
+        recipe.nutrition_provenance = "ai_estimated" if updates["nutrition"] else None
     for field, value in updates.items():
         setattr(recipe, field, value)
     if payload.ingredients is not None:
@@ -366,6 +384,41 @@ def resolve_recipe_nutrition(recipe_id: int, force: bool = False, db: Session = 
         raise HTTPException(status_code=404, detail="Recipe not found")
     for ingredient in recipe.ingredients:
         food_data_service.resolve_and_cache_ingredient(db, ingredient, force=force)
+    db.commit()
+    db.refresh(recipe)
+    return _to_read(recipe)
+
+
+@router.post("/{recipe_id}/compute-nutrition", response_model=RecipeRead)
+def compute_recipe_nutrition_endpoint(recipe_id: int, force: bool = False, db: Session = Depends(get_db)):
+    """Backlog B1.2: the one-click "just fix my nutrition" action. Any
+    ingredient never resolved before (resolution_source is None) is
+    resolved first -- so this works standalone without a prior call to
+    /resolve-nutrition -- but an ingredient already marked "unresolved"
+    is deliberately NOT retried here unless `force=True`, matching
+    resolve_and_cache_ingredient's own network-call discipline (retrying
+    every unresolved ingredient's network lookup on every nutrition
+    computation would be surprising for an endpoint whose name doesn't
+    say "resolve"). `force=True` re-resolves everything, same as
+    /resolve-nutrition's own force flag.
+
+    Then sums via food_data_service.compute_recipe_nutrition() and
+    persists both Recipe.nutrition and Recipe.nutrition_provenance --
+    UNLESS the result is "ai_estimated", in which case only the
+    provenance label is written (so an existing AI guess is preserved,
+    just correctly labeled as unverified, rather than being blanked out
+    because resolution didn't find anything to compute from)."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    for ingredient in recipe.ingredients:
+        if force or ingredient.resolution_source is None:
+            food_data_service.resolve_and_cache_ingredient(db, ingredient, force=force)
+    db.flush()
+    nutrition, provenance = food_data_service.compute_recipe_nutrition(recipe)
+    if provenance != "ai_estimated":
+        recipe.nutrition = nutrition
+    recipe.nutrition_provenance = provenance
     db.commit()
     db.refresh(recipe)
     return _to_read(recipe)

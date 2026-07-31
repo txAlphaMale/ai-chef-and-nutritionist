@@ -4,6 +4,35 @@ import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
 
+// Backlog B1.3: friendlier labels for the shared nutrition key set (see
+// backend/app/services/food_data_service.py's NUTRITION_KEYS) -- falls
+// back to the raw key for anything not listed, so an unrecognized key
+// (e.g. from an older recipe, or a future addition) still renders instead
+// of silently disappearing.
+const NUTRIENT_LABELS = {
+  calories: "Calories",
+  protein_g: "Protein (g)",
+  carbs_g: "Carbs (g)",
+  fat_g: "Fat (g)",
+  saturated_fat_g: "Saturated fat (g)",
+  fiber_g: "Fiber (g)",
+  sugars_g: "Sugars (g)",
+  sodium_mg: "Sodium (mg)",
+  cholesterol_mg: "Cholesterol (mg)",
+};
+
+// Backlog B1.2: how to describe each provenance value to a non-technical
+// user -- distinguishing "we actually looked this up" from "this is a
+// guess" is the entire point of B1's backlog group (see PROJECT-PLAN.md).
+const PROVENANCE_INFO = {
+  computed: { label: "Computed from ingredient data", className: "provenance-computed" },
+  partial: {
+    label: "Partially computed -- some ingredients couldn't be matched or weighed",
+    className: "provenance-partial",
+  },
+  ai_estimated: { label: "AI estimate -- not verified against a food database", className: "provenance-estimated" },
+};
+
 export default function RecipeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -11,6 +40,8 @@ export default function RecipeDetailPage() {
   const [servings, setServings] = useState(null);
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [computing, setComputing] = useState(false);
+  const [computeError, setComputeError] = useState(null);
   // Variants (children of this recipe, via parent_recipe_id) -- fetched
   // separately since RecipeRead only carries the count, not the list.
   const [variants, setVariants] = useState([]);
@@ -66,6 +97,19 @@ export default function RecipeDetailPage() {
     if (!window.confirm(`Delete "${recipe.title}"?`)) return;
     await api.del(`/recipes/${id}`);
     navigate("/recipes");
+  }
+
+  async function handleComputeNutrition() {
+    setComputing(true);
+    setComputeError(null);
+    try {
+      await api.post(`/recipes/${id}/compute-nutrition`);
+      load(servings);
+    } catch (e) {
+      setComputeError(e.message);
+    } finally {
+      setComputing(false);
+    }
   }
 
   if (error) return <p className="error-text">{error}</p>;
@@ -154,16 +198,26 @@ export default function RecipeDetailPage() {
         ))}
       </ol>
 
-      {Object.keys(recipe.nutrition || {}).length > 0 && (
+      {(Object.keys(recipe.nutrition || {}).length > 0 || recipe.ingredients.some((i) => i.quantity != null)) && (
         <>
           <h3>Nutrition (per serving)</h3>
-          <ul className="nutrition-list">
-            {Object.entries(recipe.nutrition).map(([k, v]) => (
-              <li key={k}>
-                {k}: {v}
-              </li>
-            ))}
-          </ul>
+          {(() => {
+            const info = PROVENANCE_INFO[recipe.nutrition_provenance] || PROVENANCE_INFO.ai_estimated;
+            return <p className={`provenance-badge ${info.className}`}>{info.label}</p>;
+          })()}
+          {Object.keys(recipe.nutrition || {}).length > 0 && (
+            <ul className="nutrition-list">
+              {Object.entries(recipe.nutrition).map(([k, v]) => (
+                <li key={k}>
+                  {NUTRIENT_LABELS[k] || k}: {v}
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={handleComputeNutrition} disabled={computing}>
+            {computing ? "Computing..." : "Compute from ingredients"}
+          </button>
+          {computeError && <p className="error-text">{computeError}</p>}
         </>
       )}
 
