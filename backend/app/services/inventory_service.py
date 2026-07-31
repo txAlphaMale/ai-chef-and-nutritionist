@@ -142,14 +142,25 @@ def _safe_float(value) -> float | None:
         return None
 
 
-# --- Deduction on confirmed meals -------------------------------------
+# --- Name-based lookup, deduction, and updates -------------------------
 #
-# Primitive for Phase 5 (meal plan entry confirmation) and Phase 7
-# (chat: "we made the stir fry tonight" / "we skipped taco night") to
-# call. Matching a recipe ingredient name to an inventory item name is
-# inherently fuzzy -- this does exact-then-substring, case-insensitive
-# matching as a first pass; a smarter matcher (aliases, units
+# Primitive for Phase 5 (meal plan entry confirmation), Phase 7 (chat:
+# "we made the stir fry tonight" / "we're out of milk" / "flag the
+# lentils as priority"), and anywhere else a natural-language ingredient
+# name needs to resolve to an inventory row without the caller knowing
+# its id. Matching is inherently fuzzy -- exact-then-substring,
+# case-insensitive as a first pass; a smarter matcher (aliases, unit
 # conversion) is a documented future improvement, not solved here.
+
+
+def find_by_name(db: Session, name: str) -> InventoryItem | None:
+    name_lower = name.strip().lower()
+    if not name_lower:
+        return None
+    item = db.query(InventoryItem).filter(InventoryItem.name.ilike(name_lower)).first()
+    if item is None:
+        item = db.query(InventoryItem).filter(InventoryItem.name.ilike(f"%{name_lower}%")).first()
+    return item
 
 
 def deduct_by_name(db: Session, ingredient_name: str, quantity: float | None = None) -> InventoryItem | None:
@@ -158,13 +169,7 @@ def deduct_by_name(db: Session, ingredient_name: str, quantity: float | None = N
     Returns the affected item, or None if nothing matched. Does not
     delete zeroed-out items -- an empty-but-known item is still useful
     context (e.g. "we're out of X") rather than disappearing silently."""
-    name_lower = ingredient_name.strip().lower()
-    if not name_lower:
-        return None
-
-    item = db.query(InventoryItem).filter(InventoryItem.name.ilike(name_lower)).first()
-    if item is None:
-        item = db.query(InventoryItem).filter(InventoryItem.name.ilike(f"%{name_lower}%")).first()
+    item = find_by_name(db, ingredient_name)
     if item is None:
         return None
 
@@ -173,6 +178,34 @@ def deduct_by_name(db: Session, ingredient_name: str, quantity: float | None = N
     else:
         item.quantity = max(0.0, item.quantity - 1)
     item.last_used_date = date.today()
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+UPDATABLE_FIELDS_BY_NAME = {
+    "quantity",
+    "unit",
+    "category",
+    "expiration_date",
+    "is_priority",
+    "priority_note",
+    "notes",
+}
+
+
+def update_by_name(db: Session, name: str, **updates) -> InventoryItem | None:
+    """Applies a partial update (any of UPDATABLE_FIELDS_BY_NAME) to the
+    closest-matching inventory item by name. Unknown keys are ignored
+    rather than raising, since callers (chat action execution) pass
+    through whatever the user/model specified, which may be a subset.
+    Returns the updated item, or None if nothing matched."""
+    item = find_by_name(db, name)
+    if item is None:
+        return None
+    for field, value in updates.items():
+        if field in UPDATABLE_FIELDS_BY_NAME and value is not None:
+            setattr(item, field, value)
     db.commit()
     db.refresh(item)
     return item

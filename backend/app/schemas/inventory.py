@@ -74,3 +74,27 @@ class VisionIntakeResponse(BaseModel):
 
 class VisionIntakeConfirmRequest(BaseModel):
     items: list[InventoryItemCreate]
+
+
+class InventoryDeductRequest(BaseModel):
+    """Name-based deduction -- used by confirmed chat actions (Phase 7)
+    and anywhere else "we used some of X" needs to resolve a name to a
+    row without the caller knowing its id. See
+    inventory_service.deduct_by_name for the matching logic."""
+
+    ingredient_name: str
+    quantity: float | None = None  # None means "deduct one unit"
+
+
+class InventoryUpdateByNameRequest(BaseModel):
+    """Name-based partial update -- used by confirmed chat actions for
+    things like "mark the lentils as priority" or "we're out of milk"
+    (set quantity) without the user/model needing to know the item's id.
+    See inventory_service.update_by_name."""
+
+    ingredient_name: str
+    quantity: float | None = None
+    unit: str | None = None
+    category: str | None = None
+    is_priority: bool | None = None
+    priority_note: str | None = None

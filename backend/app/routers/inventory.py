@@ -3,8 +3,9 @@ suggestions for the meal planner, and AI vision photo intake.
 
 Route ordering matters here -- FastAPI matches path operations in
 declaration order, so the static paths (/priority-suggestions,
-/vision-intake, /vision-intake/confirm) are declared before the
-dynamic /{item_id} routes to avoid being swallowed by them.
+/vision-intake, /vision-intake/confirm, /deduct, /update-by-name) are
+declared before the dynamic /{item_id} routes to avoid being swallowed
+by them.
 """
 from __future__ import annotations
 
@@ -14,9 +15,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import InventoryItem
 from app.schemas.inventory import (
+    InventoryDeductRequest,
     InventoryItemCreate,
     InventoryItemRead,
     InventoryItemUpdate,
+    InventoryUpdateByNameRequest,
     PrioritySuggestion,
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
@@ -99,6 +102,30 @@ def confirm_vision_intake(payload: VisionIntakeConfirmRequest, db: Session = Dep
     for item in created:
         db.refresh(item)
     return created
+
+
+@router.post("/deduct", response_model=InventoryItemRead)
+def deduct_inventory(payload: InventoryDeductRequest, db: Session = Depends(get_db)):
+    """Name-based deduction -- the confirm step for a chat-proposed
+    inventory_deduct action (Phase 7), or anywhere else a natural-
+    language ingredient name needs to resolve to a row. 404 if nothing
+    matches closely enough (see inventory_service.find_by_name)."""
+    item = inventory_service.deduct_by_name(db, payload.ingredient_name, payload.quantity)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f'No inventory item matching "{payload.ingredient_name}"')
+    return item
+
+
+@router.post("/update-by-name", response_model=InventoryItemRead)
+def update_inventory_by_name(payload: InventoryUpdateByNameRequest, db: Session = Depends(get_db)):
+    """Name-based partial update -- the confirm step for a chat-proposed
+    inventory_update action (Phase 7), e.g. "mark the lentils as
+    priority" or "we're out of milk" (set quantity to 0)."""
+    updates = payload.model_dump(exclude={"ingredient_name"}, exclude_unset=True)
+    item = inventory_service.update_by_name(db, payload.ingredient_name, **updates)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f'No inventory item matching "{payload.ingredient_name}"')
+    return item
 
 
 @router.get("/{item_id}", response_model=InventoryItemRead)

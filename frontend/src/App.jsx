@@ -5,6 +5,7 @@ import RecipesPage from "./pages/RecipesPage";
 import RecipeDetailPage from "./pages/RecipeDetailPage";
 import MealPlanPage from "./pages/MealPlanPage";
 import HealthPage from "./pages/HealthPage";
+import ChatWidget from "./components/ChatWidget";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
 // built SPA with `serve -s`, and keeping routing hash-based avoids
@@ -36,6 +37,10 @@ export default function App() {
             <Route path="/health" element={<HealthPage />} />
           </Routes>
         </main>
+        {/* Mounted here, outside <Routes>, so it stays alive (history,
+            in-flight sends, panel open/closed state) across route
+            navigation instead of remounting on every page change. */}
+        <ChatWidget />
       </div>
     </Router>
   );

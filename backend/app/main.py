@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import HouseholdPreferences
-from app.routers import health, household, inventory, kitchen, knowledge, meal_plan, recipes, system
+from app.routers import chat, health, household, inventory, kitchen, knowledge, meal_plan, recipes, system
 
 app = FastAPI(title="Chef", version="0.1.0")
 
@@ -32,6 +32,7 @@ app.include_router(meal_plan.router)
 app.include_router(household.router)
 app.include_router(health.router)
 app.include_router(knowledge.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")

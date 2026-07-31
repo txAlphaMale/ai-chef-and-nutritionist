@@ -570,3 +570,80 @@ tr.urgency-low td {
   gap: var(--spacing-2);
   white-space: nowrap;
 }
+
+/* --- Persistent chat widget (Phase 7) ---
+   Fixed dock in the bottom-right corner so it's reachable from every
+   page; ChatWidget itself is mounted once at the App shell level
+   (outside <Routes>) so this stays alive across navigation. */
+.chat-widget {
+  position: fixed;
+  right: var(--spacing-4);
+  bottom: var(--spacing-4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-2);
+}
+
+.chat-widget-toggle {
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.chat-widget-panel {
+  width: 360px;
+  max-width: calc(100vw - var(--spacing-4) * 2);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.22);
+}
+
+.chat-widget-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-widget-panel-header h3 {
+  margin: 0;
+}
+
+.chat-widget-history {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+  background: var(--color-bg);
+  min-height: 120px;
+}
+
+.chat-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+}
+
+.chat-action-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  background: var(--color-surface);
+}
+
+.chat-action-label {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
+}
+
+.chat-action-description {
+  font-size: 0.9em;
+  margin-bottom: var(--spacing-2);
+}
