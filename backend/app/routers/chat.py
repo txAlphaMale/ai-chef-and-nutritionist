@@ -10,9 +10,12 @@ action's `type`:
 - inventory_add     -> POST /api/inventory (existing create endpoint)
 - meal_plan_confirm_entry -> POST /api/meal-plans/{meal_plan_id}/entries/{entry_id}/confirm
 - meal_plan_skip_entry    -> POST /api/meal-plans/{meal_plan_id}/entries/{entry_id}/skip
-- recipe_update_proposal  -> POST /api/recipes (action.recipe + parent_recipe_id:
-  action.target_recipe_id + variant_label: action.variant_label -- always
-  creates a new variant, never a PATCH; see chat_service.ALLOWED_ACTION_TYPES)
+- recipe_update_proposal  -> mode "variant" (default): POST /api/recipes
+  (action.recipe + parent_recipe_id: action.target_recipe_id + variant_label:
+  action.variant_label). mode "overwrite": PATCH /api/recipes/{target_recipe_id}
+  (action.recipe as-is) -- the frontend requires an extra native confirm()
+  before sending this one, since this surface has no review form; see
+  chat_service.py's recipe_update_proposal comment for the full rationale.
 This keeps one source of truth for what an action actually does, rather
 than a parallel action-execution layer duplicating those endpoints.
 

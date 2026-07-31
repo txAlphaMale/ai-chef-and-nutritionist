@@ -34,14 +34,18 @@ ALLOWED_ACTION_TYPES = {
 }
 
 # recipe_update_proposal (added 2026-07-31, "commit an AI-modified recipe"
-# request) is deliberately variant-ONLY from this chat surface -- it always
-# creates a new Recipe row via parent_recipe_id rather than ever offering to
-# overwrite in place. The recipe-scoped chat (routers/recipes.py's /chat,
-# recipe_service.RECIPE_MODIFY_INSTRUCTIONS) DOES offer both save paths, but
-# it also shows a full RecipeForm review step before saving. This chat
-# widget's confirm is a single click with no review form, so the riskier
-# "overwrite" path -- which risks silently serving a recipe that no longer
-# matches dietary requirements -- is intentionally not reachable from here.
+# request) originally shipped variant-ONLY from this chat surface -- see
+# git history. The author then asked (still 2026-07-31) whether an overwrite
+# path was available here too, the same way the recipe-scoped chat already
+# offers both. Extended to carry a "mode" field ("variant", the default, or
+# "overwrite") so the model proposes whichever the user actually asked for --
+# "save this as a new version" vs. "just update the recipe" / "replace it" /
+# "overwrite it". The frontend (ChatWidget.jsx) still requires an explicit
+# confirm click either way (same as every other action type here), but adds
+# an extra native confirm() prompt specifically for "overwrite" -- this
+# surface has no RecipeForm review step the way the recipe-scoped chat does,
+# so that one extra deliberate step is the safeguard against a stray click
+# silently replacing a recipe's content.
 
 CATEGORY_VALUES = {"pantry", "fridge", "freezer", "produce", "spice", "other"}
 
@@ -141,14 +145,16 @@ spice/other, "description": short string}}
   - {{"type": "meal_plan_skip_entry", "meal_plan_id": integer, "entry_id": \
 integer, "description": short string}}
   - {{"type": "recipe_update_proposal", "target_recipe_id": integer (must \
-be an id from the recipe list below), "variant_label": short string (2-4 \
-words, e.g. "Gluten-Free", "Dairy-Free"), "recipe": the ENTIRE recipe as \
-it should look after the change, every field, in this exact shape: \
-{{"title": string, "description": string or null, "default_servings": \
-integer, "prep_time_minutes": integer or null, "cook_time_minutes": \
-integer or null, "instructions": array of strings, "ingredients": array \
-of objects with "ingredient_name", "quantity" (number or null), "unit" \
-(string or null), "prep_note" (string or null), "nutrition": object with \
+be an id from the recipe list below), "mode": "variant" or "overwrite" \
+(see guidance below), "variant_label": short string (2-4 words, e.g. \
+"Gluten-Free", "Dairy-Free" -- required if mode is "variant", ignored if \
+"overwrite"), "recipe": the ENTIRE recipe as it should look after the \
+change, every field, in this exact shape: {{"title": string, \
+"description": string or null, "default_servings": integer, \
+"prep_time_minutes": integer or null, "cook_time_minutes": integer or \
+null, "instructions": array of strings, "ingredients": array of objects \
+with "ingredient_name", "quantity" (number or null), "unit" (string or \
+null), "prep_note" (string or null), "nutrition": object with \
 best-effort per-serving numeric estimates, "tags": array of short \
 lowercase tags, "tips": array of strings}}, "description": short string}}
 
@@ -158,15 +164,24 @@ inventory_deduct; "we skipped taco night" is meal_plan_skip_entry for that \
 specific entry; "we made the lentil soup" is meal_plan_confirm_entry (and \
 usually also an inventory_deduct per ingredient, if you know the recipe); \
 "make the lentil soup gluten-free" (a change to an EXISTING recipe, named \
-or clearly implied) is recipe_update_proposal -- this ALWAYS creates a new \
-variant of the recipe, never overwrites it, so it's fine to propose even \
-for a small change. NEVER invent an entry_id, meal_plan_id, or \
-target_recipe_id that isn't listed below -- if you can't tell which entry \
-or recipe the user means, ask a clarifying question in "reply" instead of \
-guessing. Each action's "description" is a short human-readable label for \
-a confirm button (e.g. "Mark milk as out of stock"), not a repeat of the \
-reply. Actions are proposals only -- nothing happens until the user \
-confirms them in the UI, so it's fine to suggest something reasonable.
+or clearly implied) is recipe_update_proposal. Default to "mode": \
+"variant" (keeps the original recipe untouched, saves the change as a new \
+linked recipe) UNLESS the user clearly asks to update/replace/overwrite \
+the existing recipe itself rather than save a copy -- phrases like "just \
+update it", "replace the recipe", "overwrite it", "don't make a new one" \
+mean "mode": "overwrite" against that same target_recipe_id. If it's \
+ambiguous whether they want a new version or to replace the existing one, \
+default to "variant" and you can mention in "reply" that they can ask you \
+to overwrite instead if that's what they meant. NEVER invent an entry_id, \
+meal_plan_id, or target_recipe_id that isn't listed below -- if you can't \
+tell which entry or recipe the user means, ask a clarifying question in \
+"reply" instead of guessing. Each action's "description" is a short \
+human-readable label for a confirm button (e.g. "Mark milk as out of \
+stock"), not a repeat of the reply -- for recipe_update_proposal, make it \
+clear which mode it is, e.g. "Save as a new Gluten-Free variant" vs. \
+"Overwrite Traditional Beef Stew with this change". Actions are proposals \
+only -- nothing happens until the user confirms them in the UI, so it's \
+fine to suggest something reasonable.
 
 Household: {household_size} people. Dietary restrictions: {dietary_restrictions}.
 {knowledge_section}
@@ -326,11 +341,13 @@ def _coerce_action(a) -> dict | None:
         recipe_data = a.get("recipe")
         if target_recipe_id is None or not isinstance(recipe_data, dict) or not recipe_data.get("title"):
             return None
+        mode = a.get("mode") if a.get("mode") in ("variant", "overwrite") else "variant"
         coerced_recipe = coerce_recipe_fields(recipe_data)
-        coerced_recipe["source"] = "chat_variant"
+        coerced_recipe["source"] = "chat_variant" if mode == "variant" else "chat_modified"
         return {
             "type": action_type,
             "target_recipe_id": target_recipe_id,
+            "mode": mode,
             "variant_label": str(a.get("variant_label") or "").strip() or "Chat Variant",
             "recipe": coerced_recipe,
             "description": description,

@@ -61,11 +61,16 @@ async function executeAction(action) {
     case "meal_plan_skip_entry":
       return api.post(`/meal-plans/${action.meal_plan_id}/entries/${action.entry_id}/skip`, {});
     case "recipe_update_proposal":
-      // Deliberately ALWAYS a new variant (parent_recipe_id set), never a
-      // PATCH -- see chat_service.py's ALLOWED_ACTION_TYPES comment. This
-      // widget's one-click confirm has no review form, so the riskier
-      // "overwrite the recipe in place" path is only reachable from the
-      // recipe-scoped chat's fuller review UI (RecipeChat.jsx).
+      // mode "variant" (default): create a new Recipe row linked back to
+      // the target via parent_recipe_id -- the original is untouched.
+      // mode "overwrite": PATCH the target recipe's content directly.
+      // ActionCard's onClick (below) requires an extra native confirm()
+      // before this ever runs for "overwrite", since this widget's
+      // single Confirm click has no review form the way the
+      // recipe-scoped chat's RecipeForm step does.
+      if (action.mode === "overwrite") {
+        return api.patch(`/recipes/${action.target_recipe_id}`, action.recipe);
+      }
       return api.post("/recipes", {
         ...action.recipe,
         parent_recipe_id: action.target_recipe_id,
@@ -76,23 +81,49 @@ async function executeAction(action) {
   }
 }
 
+const RECIPE_MODE_LABELS = {
+  variant: "Recipe — new variant",
+  overwrite: "Recipe — overwrite existing",
+};
+
+function handleActionButtonClick(action, actionKey, onConfirm) {
+  // recipe_update_proposal's "overwrite" mode replaces a recipe's content
+  // in place with no review form first -- everything else in this widget
+  // is a single confirm click, but this one specific case gets an extra
+  // native confirm() as a deliberate speed bump, since a stray click here
+  // (unlike a stray inventory tweak) risks serving a recipe that no
+  // longer matches dietary requirements. See chat_service.py's
+  // recipe_update_proposal comment for the full rationale.
+  if (action.type === "recipe_update_proposal" && action.mode === "overwrite") {
+    const ok = window.confirm(
+      `This will overwrite the existing recipe's content. This can't be undone. Continue?`
+    );
+    if (!ok) return;
+  }
+  onConfirm(actionKey, action);
+}
+
 function ActionCard({ action, actionKey, status, result, onConfirm }) {
   const isDone = status === "done";
   const isError = typeof status === "string" && status.startsWith("error:");
+  const isRecipeAction = action.type === "recipe_update_proposal";
+  const label = isRecipeAction ? RECIPE_MODE_LABELS[action.mode] || "Recipe" : ACTION_TYPE_LABELS[action.type] || "Action";
   return (
     <div className="chat-action-card">
-      <div className="chat-action-label">{ACTION_TYPE_LABELS[action.type] || "Action"}</div>
+      <div className="chat-action-label">{label}</div>
       <div className="chat-action-description">{action.description}</div>
       {isError && <div className="error-text">{status.slice("error:".length)}</div>}
-      {isDone && action.type === "recipe_update_proposal" && result?.id && (
+      {isDone && isRecipeAction && result?.id && (
         <div>
-          <Link to={`/recipes/${result.id}`}>View saved variant &rarr;</Link>
+          <Link to={`/recipes/${result.id}`}>
+            {action.mode === "overwrite" ? "View updated recipe" : "View saved variant"} &rarr;
+          </Link>
         </div>
       )}
       <button
         className="btn btn-sm btn-secondary"
         disabled={isDone || status === "pending"}
-        onClick={() => onConfirm(actionKey, action)}
+        onClick={() => handleActionButtonClick(action, actionKey, onConfirm)}
       >
         {isDone ? "Done" : status === "pending" ? "Applying..." : "Confirm"}
       </button>
