@@ -1,7 +1,7 @@
-# Chef
+# AI Chef & Nutritionist
 
 A locally hosted, AI-driven meal planning, food inventory, and recipe
-management app. Runs via Docker Compose, uses a local LLM through
+management app. Internally referred to as "Chef." Runs via Docker Compose, uses a local LLM through
 [Ollama](https://ollama.com) for meal planning/chat, and
 [Tavily](https://tavily.com) for web-grounded recipe/nutrition lookups.
 All data (inventory, recipes, meal plans, chat history) is stored locally

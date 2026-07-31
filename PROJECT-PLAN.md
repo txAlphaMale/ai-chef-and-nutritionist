@@ -93,9 +93,9 @@ Chef/
 
 ## GitHub repository
 
-https://github.com/txAlphaMale/chef (public, empty as of creation — see session log for push status)
+https://github.com/txAlphaMale/ai-chef-and-nutritionist (public; renamed from the initial `chef` slug on 2026-07-30 at the author's request — GitHub repo names can't contain spaces/`&`, so "AI Chef & Nutritionist" became this slug, with the full name kept in the README title and repo description)
 
-No GitHub MCP connector is installed in this workspace, and Claude's sandbox has no route to push authenticated git operations (no `gh` CLI available, no credentials, and Claude does not handle GitHub tokens/passwords on the user's behalf). Claude created the empty repo via browser automation (Chrome, already-authenticated session, no credentials entered) and configured the local `origin` remote + `main` branch. **The author must run the actual `git push` locally** — local git/credential manager handles auth, Claude never sees a token. Command, run from the `Chef` folder:
+The author has a "GitHub Integration" connector shown as Connected in Settings, but it did not surface any tools in the session where the repo was created (2026-07-30) — connectors load at session start, so it likely needs a fresh conversation to pick up. Until confirmed working, assume no GitHub connector is available: Claude's sandbox has no route to push authenticated git operations (no `gh` CLI available — not installable, no root — and Claude does not handle GitHub tokens/passwords on the user's behalf under any circumstances). Claude created/renamed the repo via browser automation (Chrome, already-authenticated session, no credentials entered) and configured the local `origin` remote + `main` branch. **The author must run the actual `git push` locally** — local git/credential manager handles auth, Claude never sees a token. Command, run from the `Chef` folder:
 ```
 git push -u origin main
 ```
