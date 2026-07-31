@@ -5,6 +5,7 @@ import RecipesPage from "./pages/RecipesPage";
 import RecipeDetailPage from "./pages/RecipeDetailPage";
 import MealPlanPage from "./pages/MealPlanPage";
 import HealthPage from "./pages/HealthPage";
+import SettingsPage from "./pages/SettingsPage";
 import ChatWidget from "./components/ChatWidget";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
@@ -25,6 +26,7 @@ export default function App() {
             <NavLink to="/recipes">Recipes</NavLink>
             <NavLink to="/meal-plan">Meal Plan</NavLink>
             <NavLink to="/health">Health</NavLink>
+            <NavLink to="/settings">Settings</NavLink>
           </nav>
         </header>
         <main>
@@ -35,6 +37,7 @@ export default function App() {
             <Route path="/recipes/:id" element={<RecipeDetailPage />} />
             <Route path="/meal-plan" element={<MealPlanPage />} />
             <Route path="/health" element={<HealthPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
         {/* Mounted here, outside <Routes>, so it stays alive (history,

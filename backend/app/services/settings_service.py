@@ -108,6 +108,13 @@ def set_setting(db: Session, key: str, value: str) -> AppSetting:
     return row
 
 
+def is_known_key(key: str) -> bool:
+    """True if `key` is a registered setting (i.e. editable through the
+    Settings GUI). Lets routers validate without reaching into the
+    private _SPECS_BY_KEY lookup directly."""
+    return key in _SPECS_BY_KEY
+
+
 def get_effective_config(db: Session) -> dict[str, str | None]:
     """All known settings, decrypted, keyed by SETTING_SPECS key -- e.g.
     for building the Ollama/Tavily clients."""
