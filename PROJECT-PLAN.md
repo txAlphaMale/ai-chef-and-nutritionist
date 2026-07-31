@@ -116,6 +116,14 @@ Claude's bash sandbox sees this folder through a FUSE mount that can cache stale
 - Keep secrets (Tavily key, etc.) out of version control — `.env` is gitignored, `.env.example` documents required vars.
 - Fiduciary Project (a sibling app the author built) may hold reusable patterns, especially for persistent background chat — not accessible in this workspace yet. Ask the author to share it if deeper inspiration is wanted.
 
+## Backlog / planned enhancements
+
+- **Recipe dish images** (requested 2026-07-30, not yet implemented). `Recipe.image_path` (`backend/app/models/recipe.py`) has existed as a nullable column since the Phase 1 schema and is already exposed on every recipe schema (`RecipeBase`/`RecipeCreate`/`RecipeRead`/`RecipeUpdate` in `app/schemas/recipe.py`), but nothing actually sets or serves it: there's no upload endpoint, no static-file serving route, and the frontend (`RecipeForm.jsx`, `RecipeDetailPage.jsx`) has no image UI at all. The author wants:
+  - A manual "upload a photo of the dish" option on the recipe form (add and edit).
+  - Auto-capture during import where a source photo is plausibly of the finished dish: image import (the photo itself, distinct from its use as OCR/vision input for parsing text), and ideally URL import too, where `trafilatura`'s metadata could plausibly include a hero/og:image (not currently extracted -- `recipe_service.extract_content_from_html` only pulls text/title/author/sitename today). File (PDF) import is a weaker fit -- most likely no useful photo to extract, deprioritize.
+  - The image should remain optional -- most recipes, especially AI-generated ones (Phase 5's `new_recipe` slots), won't have one.
+  - Needs: a storage location/pattern (same Docker-volume-backed approach as `knowledge_service.py`'s `KNOWLEDGE_FILES_DIR` or `secrets_crypto.py`'s key file -- UUID-named file on disk, path in the DB), a static-file-serving route (FastAPI `StaticFiles` mount or a dedicated `GET /api/recipes/{id}/image` endpoint), a `POST/PUT` endpoint to attach/replace an image on an existing recipe, wiring into the `POST /import` dispatch to capture the source image when the import method is `import_image` (and possibly a fetched og:image for `import_url`), and frontend upload/display UI. Scope this as its own unit of work in a future session rather than bolting it onto Phase 7.
+
 ## GitHub repository
 
 https://github.com/txAlphaMale/ai-chef-and-nutritionist (public; renamed from the initial `chef` slug on 2026-07-30 at the author's request — GitHub repo names can't contain spaces/`&`, so "AI Chef & Nutritionist" became this slug, with the full name kept in the README title and repo description)
