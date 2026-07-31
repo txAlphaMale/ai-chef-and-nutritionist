@@ -511,3 +511,59 @@ def compute_grocery_list(db: Session, meal_plan: MealPlan) -> list[dict]:
     aggregated = aggregate_ingredients(ingredient_lists)
     inventory_items = db.query(InventoryItem).all()
     return subtract_inventory(aggregated, inventory_items)
+
+
+def compute_nutrition_summary(meal_plan: MealPlan) -> dict:
+    """Backlog B1.4 -- per-day and week nutrition totals over a saved
+    plan's non-skipped, recipe-assigned entries, for comparison against
+    dri_service's per-member daily targets (wired up in the router, not
+    here, since this function has no DB session and no member data --
+    it only needs the plan itself).
+
+    Each contributing entry adds its recipe's nutrition dict EXACTLY
+    ONCE, regardless of entry.servings. Recipe.nutrition is always
+    per-serving (see food_data_service.compute_recipe_nutrition, which
+    divides by default_servings) -- scaling a recipe up to feed more
+    people changes how much gets cooked/deducted from inventory
+    (compute_grocery_list above), not the per-serving figure itself, and
+    the per-serving figure is exactly the right unit to sum for a
+    per-person daily total. Known simplification, stated plainly: this
+    assumes every household member eats exactly one serving of every
+    planned meal -- there is no per-person meal-attendance or portion
+    tracking anywhere in this schema to do better than that.
+    """
+    day_totals: dict[int, dict[str, float]] = {}
+    day_entry_count: dict[int, int] = {}
+    day_contributing_count: dict[int, int] = {}
+
+    for entry in meal_plan.entries:
+        if entry.is_skipped or entry.recipe is None:
+            continue
+        day = entry.day_of_week
+        day_entry_count[day] = day_entry_count.get(day, 0) + 1
+        nutrition = entry.recipe.nutrition or {}
+        if not nutrition:
+            continue
+        day_contributing_count[day] = day_contributing_count.get(day, 0) + 1
+        totals = day_totals.setdefault(day, {})
+        for key, value in nutrition.items():
+            if value is None:
+                continue
+            totals[key] = totals.get(key, 0) + value
+
+    days = [
+        {
+            "day_of_week": day,
+            "entry_count": day_entry_count[day],
+            "contributing_entry_count": day_contributing_count.get(day, 0),
+            "totals": {k: round(v, 1) for k, v in day_totals.get(day, {}).items()},
+        }
+        for day in sorted(day_entry_count)
+    ]
+
+    week_totals: dict[str, float] = {}
+    for totals in day_totals.values():
+        for key, value in totals.items():
+            week_totals[key] = week_totals.get(key, 0) + value
+
+    return {"days": days, "week_totals": {k: round(v, 1) for k, v in week_totals.items()}}

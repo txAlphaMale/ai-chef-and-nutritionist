@@ -6,6 +6,27 @@
     <title>Chef</title>
   </head>
   <body>
+    <!-- Theme pre-hydration (2026-08-01): applies the last-known theme
+         from localStorage synchronously, before React (or even the CSS
+         file) has loaded, so the page never flashes the default theme
+         before switching to whatever was actually selected. The real
+         source of truth is the DB-backed "ui_theme" setting (see
+         src/themes.js / SettingsPage.jsx) -- this is only a same-tab
+         instant-apply cache reconciled against that setting once the
+         app mounts. Must run before <div id="root"> paints anything,
+         so it's inline and un-deferred, not a module import. */ -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("chefTheme");
+          if (theme && theme !== "default") {
+            document.documentElement.setAttribute("data-theme", theme);
+          }
+        } catch (e) {
+          // ignore -- falls back to the default theme
+        }
+      })();
+    </script>
     <div id="root"></div>
     <!-- Runtime config, written by docker-entrypoint.sh at container start
          from the BACKEND_PORT env var -- see src/api.js. Only exists in

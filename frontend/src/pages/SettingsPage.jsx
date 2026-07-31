@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { THEME_OPTIONS, applyTheme } from "../themes";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
 // Tavily key) and system prompts are edited here, one field/prompt at a
@@ -32,6 +33,28 @@ export default function SettingsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [themeSaving, setThemeSaving] = useState(false);
+
+  // Backlog: Appearance/theme picker. ui_theme round-trips through the
+  // same generic DB-backed settings API as everything else (see
+  // settings_service.py), but gets its own swatch-card UI here rather
+  // than the plain text/password field the generic settings loop below
+  // renders for every other key -- so it's read out of `settings`
+  // directly instead of duplicated in its own state.
+  const currentTheme = settings.find((s) => s.key === "ui_theme")?.value || "default";
+  const otherSettings = settings.filter((s) => s.key !== "ui_theme");
+  const themeGroups = useMemo(() => {
+    const groups = [];
+    for (const t of THEME_OPTIONS) {
+      let g = groups.find((g) => g.name === t.group);
+      if (!g) {
+        g = { name: t.group, themes: [] };
+        groups.push(g);
+      }
+      g.themes.push(t);
+    }
+    return groups;
+  }, []);
 
   function applySettings(list) {
     setSettings(list);
@@ -111,6 +134,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function selectTheme(key) {
+    if (key === currentTheme || themeSaving) return;
+    setThemeSaving(true);
+    setError(null);
+    try {
+      // Apply instantly rather than waiting on the round trip -- the
+      // save is expected to succeed (no per-key validation on this
+      // field, same as every other setting), and an instant preview is
+      // the whole point of a swatch picker.
+      applyTheme(key);
+      const updated = await api.patch("/system/settings/ui_theme", { value: key });
+      applySettings(updated);
+    } catch (e) {
+      setError(e.message);
+      applyTheme(currentTheme); // save failed -- revert the instant preview
+    } finally {
+      setThemeSaving(false);
+    }
+  }
+
   async function savePrompt(promptKey) {
     const edit = promptEdits[promptKey];
     setPromptSaving((s) => ({ ...s, [promptKey]: true }));
@@ -130,6 +173,38 @@ export default function SettingsPage() {
   return (
     <div>
       {error && <p className="error-text">{error}</p>}
+
+      <div className="card">
+        <h3>Appearance</h3>
+        <p className="hint">
+          Applies instantly and is saved to the database (persists across container rebuilds, same as every other
+          setting here).
+        </p>
+        {themeGroups.map((group) => (
+          <div key={group.name}>
+            <p className="theme-group-label">{group.name}</p>
+            <div className="theme-swatch-grid">
+              {group.themes.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`theme-swatch-card${t.key === currentTheme ? " active" : ""}`}
+                  onClick={() => selectTheme(t.key)}
+                  disabled={themeSaving}
+                >
+                  <span className="theme-swatch-dots">
+                    {Object.values(t.swatches).map((color, i) => (
+                      <span className="theme-swatch-dot" key={i} style={{ background: color }} />
+                    ))}
+                  </span>
+                  <span className="theme-swatch-label">{t.label}</span>
+                  {t.key === currentTheme && <span className="theme-swatch-active-marker">&#10003; active</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
 
       <div className="card">
         <div className="page-toolbar">
@@ -159,7 +234,7 @@ export default function SettingsPage() {
         {loading ? (
           <p>Loading...</p>
         ) : (
-          settings.map((spec) => (
+          otherSettings.map((spec) => (
             <div className="settings-row" key={spec.key}>
               <label>
                 {spec.label}

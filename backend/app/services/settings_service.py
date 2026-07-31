@@ -87,6 +87,23 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="TAVILY_API_KEY",
     ),
     SettingSpec(
+        key="ui_theme",
+        label="Theme",
+        is_secret=False,
+        default="default",
+        description=(
+            "Color theme key for the frontend (see frontend/src/themes.js's "
+            "THEME_OPTIONS for the full, authoritative list -- 'default' plus "
+            "four themes ported from the Fiduciary project (amber, cobalt, "
+            "highcontrast, daylight) and all four Catppuccin flavors "
+            "(catppuccin-latte/frappe/macchiato/mocha). Edited via the "
+            "Settings page's Appearance picker, not this raw field -- present "
+            "here mainly so it round-trips through the same generic settings "
+            "API as everything else and persists in the database like every "
+            "other user preference."
+        ),
+    ),
+    SettingSpec(
         key="usda_fdc_api_key",
         label="USDA FoodData Central API key",
         is_secret=True,

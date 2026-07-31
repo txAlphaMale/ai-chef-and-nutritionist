@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import GroceryListItem, MealPlan, MealPlanEntry, Recipe
+from app.models import GroceryListItem, HouseholdMember, MealPlan, MealPlanEntry, Recipe
 from app.schemas.meal_plan import (
     GroceryListItemCreate,
     GroceryListItemRead,
@@ -26,10 +26,12 @@ from app.schemas.meal_plan import (
     MealPlanEntryUpdate,
     MealPlanGenerateRequest,
     MealPlanGenerateResponse,
+    MealPlanNutritionSummary,
     MealPlanRead,
     MealPlanUpdate,
+    MemberDailyTarget,
 )
-from app.services import allergen_service, inventory_service, meal_plan_service, ollama_client, recipe_service
+from app.services import allergen_service, dri_service, inventory_service, meal_plan_service, ollama_client, recipe_service
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
 
@@ -319,6 +321,34 @@ def get_grocery_list(plan_id: int, db: Session = Depends(get_db)):
         .filter_by(meal_plan_id=plan_id)
         .order_by(GroceryListItem.is_purchased, GroceryListItem.ingredient_name)
         .all()
+    )
+
+
+@router.get("/{plan_id}/nutrition-summary", response_model=MealPlanNutritionSummary)
+def get_meal_plan_nutrition_summary(plan_id: int, db: Session = Depends(get_db)):
+    """Backlog B1.4 -- per-day/week nutrition totals (meal_plan_service.
+    compute_nutrition_summary) alongside every household member's
+    DRI-derived daily target (dri_service.compute_member_daily_targets),
+    so the totals have something concrete to compare against instead of
+    just being logged. Member targets are returned even for members
+    missing the data to compute one (weight/height/age) -- with
+    `missing_fields` naming exactly what's absent -- rather than
+    silently omitting that member from the response."""
+    plan = db.get(MealPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Meal plan not found")
+
+    summary = meal_plan_service.compute_nutrition_summary(plan)
+
+    member_targets = []
+    for member in db.query(HouseholdMember).order_by(HouseholdMember.name).all():
+        targets, missing = dri_service.compute_member_daily_targets(db, member)
+        member_targets.append(
+            MemberDailyTarget(member_id=member.id, name=member.name, daily_targets=targets, missing_fields=missing)
+        )
+
+    return MealPlanNutritionSummary(
+        days=summary["days"], week_totals=summary["week_totals"], member_targets=member_targets
     )
 
 

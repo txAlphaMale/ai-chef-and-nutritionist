@@ -161,6 +161,40 @@ class MealPlanGenerateResponse(BaseModel):
     raw_model_output: str
 
 
+class DayNutritionTotals(BaseModel):
+    """Backlog B1.4 -- one day's summed per-serving nutrition across its
+    non-skipped, recipe-assigned entries. `entry_count` is every such
+    entry; `contributing_entry_count` is how many actually had nutrition
+    data to add in -- the two can differ (e.g. a recipe that's never had
+    "Compute from ingredients" run and has no AI estimate either), and
+    showing both rather than just a silent total is the same "be honest
+    about partial data" discipline as B1.2's computed/partial/
+    ai_estimated provenance."""
+
+    day_of_week: int
+    entry_count: int
+    contributing_entry_count: int
+    totals: dict[str, float] = Field(default_factory=dict)
+
+
+class MemberDailyTarget(BaseModel):
+    """A household member's DRI-derived daily target (dri_service.py),
+    or None with `missing_fields` naming exactly what's absent (weight/
+    height/age) if there isn't enough data to compute one -- never a
+    guessed number."""
+
+    member_id: int
+    name: str
+    daily_targets: dict[str, float] | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+
+
+class MealPlanNutritionSummary(BaseModel):
+    days: list[DayNutritionTotals] = Field(default_factory=list)
+    week_totals: dict[str, float] = Field(default_factory=dict)
+    member_targets: list[MemberDailyTarget] = Field(default_factory=list)
+
+
 class GroceryListItemBase(BaseModel):
     ingredient_name: str
     quantity: float | None = None

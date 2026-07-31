@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
+import NutritionSummaryPanel from "../components/NutritionSummaryPanel";
 import RestrictionWarnings from "../components/RestrictionWarnings";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -398,6 +399,8 @@ export default function MealPlanPage() {
               </div>
             )}
           </div>
+
+          <NutritionSummaryPanel planId={selectedPlan.id} refreshKey={refreshKey} />
 
           <GroceryListPanel planId={selectedPlan.id} refreshKey={refreshKey} />
         </>

@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { NavLink, Route, HashRouter as Router, Routes } from "react-router-dom";
+import { api } from "./api";
 import HomePage from "./pages/HomePage";
 import InventoryPage from "./pages/InventoryPage";
 import RecipesPage from "./pages/RecipesPage";
@@ -7,11 +9,34 @@ import MealPlanPage from "./pages/MealPlanPage";
 import HealthPage from "./pages/HealthPage";
 import SettingsPage from "./pages/SettingsPage";
 import ChatWidget from "./components/ChatWidget";
+import { applyTheme, getCachedTheme } from "./themes";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
 // built SPA with `serve -s`, and keeping routing hash-based avoids
 // needing server-side history-API fallback configuration for a first pass.
 export default function App() {
+  // Theme reconciliation (2026-08-01): index.html's inline pre-hydration
+  // script already applied the cached (localStorage) theme synchronously
+  // before this component ever mounted, so there's no visible flash --
+  // this effect just fetches the DB-backed "ui_theme" setting (the real
+  // source of truth, persists across container rebuilds) and re-applies
+  // it if it turns out to differ from the cache, e.g. after the setting
+  // was changed on a different device/browser.
+  useEffect(() => {
+    api
+      .get("/system/settings")
+      .then((list) => {
+        const uiTheme = list.find((s) => s.key === "ui_theme");
+        if (uiTheme && uiTheme.value !== getCachedTheme()) {
+          applyTheme(uiTheme.value);
+        }
+      })
+      .catch(() => {
+        // Non-fatal -- worst case the page keeps showing the cached/
+        // default theme until the next successful load.
+      });
+  }, []);
+
   return (
     <Router>
       <div className="app-shell">

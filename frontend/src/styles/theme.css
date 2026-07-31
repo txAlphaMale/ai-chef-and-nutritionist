@@ -22,6 +22,144 @@
   --spacing-4: 24px;
 }
 
+/* Alternate themes (2026-08-01, author request) -- each overrides ONLY
+   the 10 color vars above (never spacing/radius/font-sans, matching the
+   scope of every override below), applied via a `data-theme` attribute
+   on <html>. This is the exact mechanism Fiduciary itself uses (see
+   Fiduciary's portfolio-api/static/index.html, its own :root[data-theme]
+   blocks) -- confirmed a good fit here too, since Chef's ~11 color vars
+   were already the semantic layer (no separate Tier-1/Tier-2 split
+   needed the way Fiduciary's --bg/--amber/etc. primitives required).
+   Because color-mix(in srgb, var(--color-x) N%, transparent) is used
+   throughout this file (provenance badges, restriction warnings, etc.)
+   rather than hardcoded rgba() literals, those derived tints recompute
+   live from whichever theme is active with zero extra per-theme work --
+   Fiduciary's own overlay tokens needed manual per-theme restating
+   specifically because they used rgba() literals instead. See
+   frontend/src/themes.js for the JS-side registry (picker swatches,
+   apply/persist logic) and PROJECT-PLAN.md's theming notes section for
+   the Catppuccin token-mapping rationale. "default" (no attribute) is
+   Chef's own palette defined in :root above -- there is no
+   :root[data-theme="default"] block, mirroring how Fiduciary's "amber"
+   default also has no block of its own. */
+
+/* --- Ported from Fiduciary (portfolio-api/static/index.html) --- */
+
+:root[data-theme="amber"] {
+  --color-bg: #0a0b0d;
+  --color-surface: #121417;
+  --color-text: #cdd2d8;
+  --color-text-muted: #7d848c;
+  --color-primary: #f0a823;
+  --color-primary-hover: #d6900f;
+  --color-secondary: #2ec27e;
+  --color-accent: #4a9eff;
+  --color-danger: #ff5d5d;
+  --color-border: #23262b;
+}
+
+:root[data-theme="cobalt"] {
+  --color-bg: #080b12;
+  --color-surface: #0d1420;
+  --color-text: #d7e2f0;
+  --color-text-muted: #7c8ba3;
+  --color-primary: #4d9bff;
+  --color-primary-hover: #2f82e6;
+  --color-secondary: #2ec27e;
+  --color-accent: #4ad4ff;
+  --color-danger: #ff5d5d;
+  --color-border: #1a2536;
+}
+
+:root[data-theme="highcontrast"] {
+  --color-bg: #050505;
+  --color-surface: #0d0d0d;
+  --color-text: #f5f5f5;
+  --color-text-muted: #b8b8b8;
+  --color-primary: #ffb020;
+  --color-primary-hover: #e69a10;
+  --color-secondary: #3ddb8f;
+  --color-accent: #5eb3ff;
+  --color-danger: #ff6b6b;
+  --color-border: #3a3a3a;
+}
+
+:root[data-theme="daylight"] {
+  --color-bg: #ece7dc;
+  --color-surface: #ffffff;
+  --color-text: #111111;
+  --color-text-muted: #4d4a42;
+  --color-primary: #a0530a;
+  --color-primary-hover: #7a3f08;
+  --color-secondary: #0f7a38;
+  --color-accent: #1d4ed8;
+  --color-danger: #c81e1e;
+  --color-border: #c9c2b0;
+}
+
+/* --- Catppuccin (https://catppuccin.com/palette) --- */
+/* Mapping applied identically across all four flavors: bg=Base,
+   surface=Surface0 (Mantle for Latte -- Latte's ramp has nothing
+   brighter than Base to use as an elevated-card tone, so Mantle's
+   slightly-darker/warmer tone is the closest available separation),
+   border=Surface1, text=Text, text-muted=Subtext0, primary=Mauve
+   (Catppuccin's own iconic brand hue -- also its favicon/meta-theme-
+   color), primary-hover=Lavender, secondary=Green, danger=Red,
+   accent=Peach (Chef's own default --color-accent plays the same
+   "warm highlight" role, so Peach is the closest Catppuccin analog). */
+
+:root[data-theme="catppuccin-latte"] {
+  --color-bg: #eff1f5;
+  --color-surface: #e6e9ef;
+  --color-text: #4c4f69;
+  --color-text-muted: #6c6f85;
+  --color-primary: #8839ef;
+  --color-primary-hover: #7287fd;
+  --color-secondary: #40a02b;
+  --color-accent: #fe640b;
+  --color-danger: #d20f39;
+  --color-border: #bcc0cc;
+}
+
+:root[data-theme="catppuccin-frappe"] {
+  --color-bg: #303446;
+  --color-surface: #414559;
+  --color-text: #c6d0f5;
+  --color-text-muted: #a5adce;
+  --color-primary: #ca9ee6;
+  --color-primary-hover: #babbf1;
+  --color-secondary: #a6d189;
+  --color-accent: #ef9f76;
+  --color-danger: #e78284;
+  --color-border: #51576d;
+}
+
+:root[data-theme="catppuccin-macchiato"] {
+  --color-bg: #24273a;
+  --color-surface: #363a4f;
+  --color-text: #cad3f5;
+  --color-text-muted: #a5adcb;
+  --color-primary: #c6a0f6;
+  --color-primary-hover: #b7bdf8;
+  --color-secondary: #a6da95;
+  --color-accent: #f5a97f;
+  --color-danger: #ed8796;
+  --color-border: #494d64;
+}
+
+:root[data-theme="catppuccin-mocha"] {
+  --color-bg: #1e1e2e;
+  --color-surface: #313244;
+  --color-text: #cdd6f4;
+  --color-text-muted: #a6adc8;
+  --color-primary: #cba6f7;
+  --color-primary-hover: #b4befe;
+  --color-secondary: #a6e3a1;
+  --color-accent: #fab387;
+  --color-danger: #f38ba8;
+  --color-border: #45475a;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -837,6 +975,96 @@ tr.urgency-low td {
 
 .status-bad {
   background: var(--color-danger);
+}
+
+/* --- Appearance/theme picker (Settings page, 2026-08-01) --- */
+.theme-group-label {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: var(--spacing-3) 0 var(--spacing-1);
+}
+
+.theme-group-label:first-child {
+  margin-top: 0;
+}
+
+.theme-swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.theme-swatch-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  width: 150px;
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.theme-swatch-card:hover {
+  border-color: var(--color-primary);
+}
+
+.theme-swatch-card.active {
+  border-color: var(--color-primary);
+  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.theme-swatch-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.theme-swatch-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.theme-swatch-label {
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.theme-swatch-active-marker {
+  font-size: 0.8em;
+  color: var(--color-primary);
+}
+
+/* --- Nutrition summary (backlog B1.4, meal-plan roll-up) --- */
+.nutrition-summary-table-wrap {
+  overflow-x: auto;
+}
+
+.nutrition-summary-week-row {
+  font-weight: 600;
+  border-top: 2px solid var(--color-border);
+}
+
+.nutrition-target-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.nutrition-target-list li {
+  font-size: 0.9em;
 }
 
 /* --- Responsive layout (backlog B10.4) ---
