@@ -260,3 +260,73 @@ tr.urgency-low td {
 .error-text {
   color: var(--color-danger);
 }
+
+/* --- Recipe form extras --- */
+.recipe-form fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.recipe-form legend {
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+  padding: 0 var(--spacing-1);
+}
+
+.ingredient-row,
+.instruction-row {
+  align-items: center;
+  margin-bottom: var(--spacing-1);
+}
+
+.ingredient-row input,
+.instruction-row input {
+  margin-bottom: 0;
+}
+
+.step-number {
+  color: var(--color-text-muted);
+  min-width: 20px;
+}
+
+.btn-sm {
+  font-size: 0.85em;
+  padding: 4px var(--spacing-2);
+}
+
+.checkbox-label.inline {
+  flex-direction: row !important;
+  align-items: center;
+  gap: var(--spacing-1) !important;
+  margin-bottom: 0;
+}
+
+/* --- Recipe list/detail --- */
+.recipe-list {
+  list-style: none;
+  padding: 0;
+}
+
+.recipe-list-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+}
+
+.recipe-list-item a {
+  color: var(--color-primary);
+  text-decoration: none;
+  margin-right: var(--spacing-2);
+}
+
+.recipe-meta {
+  margin-bottom: var(--spacing-3);
+}
+
+.nutrition-list {
+  columns: 2;
+}
