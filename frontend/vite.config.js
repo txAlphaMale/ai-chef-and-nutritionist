@@ -10,6 +10,12 @@ export default defineConfig({
         target: process.env.VITE_BACKEND_URL || "http://localhost:8095",
         changeOrigin: true,
       },
+      // /health lives outside /api (see backend/app/main.py) but needs
+      // the same dev-time proxy -- see src/api.js's backendOrigin.
+      "/health": {
+        target: process.env.VITE_BACKEND_URL || "http://localhost:8095",
+        changeOrigin: true,
+      },
     },
   },
 });

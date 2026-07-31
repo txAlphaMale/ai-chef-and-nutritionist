@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import HouseholdPreferences
-from app.routers import system
+from app.routers import inventory, system
 
 app = FastAPI(title="Chef", version="0.1.0")
 
@@ -24,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(system.router)
+app.include_router(inventory.router)
 
 
 @app.get("/health")

@@ -1,30 +1,31 @@
-import { useEffect, useState } from "react";
+import { NavLink, Route, HashRouter as Router, Routes } from "react-router-dom";
+import HomePage from "./pages/HomePage";
+import InventoryPage from "./pages/InventoryPage";
 
-// Phase 0 placeholder: confirms the frontend can reach the backend.
-// Real routing/pages (Dashboard, Inventory, Recipes, Meal Plan, Chat,
-// Settings) land in later phases -- see PROJECT-PLAN.md.
+// HashRouter (not BrowserRouter): the production Dockerfile serves the
+// built SPA with `serve -s`, and keeping routing hash-based avoids
+// needing server-side history-API fallback configuration for a first pass.
 export default function App() {
-  const [health, setHealth] = useState(null);
-
-  useEffect(() => {
-    fetch("/api/health")
-      .then((res) => res.json())
-      .then(setHealth)
-      .catch(() => setHealth({ status: "unreachable" }));
-  }, []);
-
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <h1>Chef</h1>
-        <p className="subtitle">AI meal planning &amp; kitchen inventory</p>
-      </header>
-      <main>
-        <p>
-          Backend status:{" "}
-          <strong>{health ? health.status : "checking..."}</strong>
-        </p>
-      </main>
-    </div>
+    <Router>
+      <div className="app-shell">
+        <header className="app-header">
+          <h1>Chef</h1>
+          <p className="subtitle">AI meal planning &amp; kitchen inventory</p>
+          <nav className="app-nav">
+            <NavLink to="/" end>
+              Home
+            </NavLink>
+            <NavLink to="/inventory">Inventory</NavLink>
+          </nav>
+        </header>
+        <main>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+          </Routes>
+        </main>
+      </div>
+    </Router>
   );
 }
