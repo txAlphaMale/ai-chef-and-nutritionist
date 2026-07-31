@@ -16,6 +16,11 @@ This project supersedes an earlier prototype built inside a personal "Local AI" 
 - GPU: dual GTX 1080 Ti (second card runs headless — usable for compute/second Ollama model or ComfyUI-style workloads, not display)
 - Ollama: already available in the environment (assume host-installed unless told otherwise)
 - Tavily: API key already held by the author
+- Docker host: WSL2 Debian. The project folder (`C:\Users\JBentley\Claude\Projects\Chef` on Windows) is reached from the WSL Debian docker host at:
+  ```
+  /mnt/c/Users/JBentley/Claude/Projects/chef
+  ```
+  Run `docker compose` commands from that path inside WSL, not from a Windows shell.
 
 ## Architecture decisions (confirmed 2026-07-30)
 
