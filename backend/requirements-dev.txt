@@ -1,0 +1,5 @@
+# Test-only dependencies -- kept out of requirements.txt so the production
+# image (backend/Dockerfile) doesn't carry a test runner it never uses.
+# Pinned to the version this repo's test suite has actually been run
+# against (backend/tests/, 202 tests as of 2026-08-01).
+pytest==9.1.1
