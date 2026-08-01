@@ -25,6 +25,41 @@ export default function InventoryPage() {
   const [editingId, setEditingId] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState("");
 
+  // Backlog B3.3 (2026-08-01) -- the RecallBanner (App.jsx, app-wide)
+  // only ever shows itself when there's an active match, mirroring
+  // ExpiringDigestBanner's own "say nothing when there's nothing to
+  // report" behavior. That leaves nowhere to trigger a manual check
+  // when everything's currently clean, or to see when the last check
+  // actually ran -- this small, page-scoped line fills that gap, same
+  // relationship Settings' "Force resync" button has to the Google
+  // Calendar card it doesn't otherwise duplicate.
+  const [recallStatus, setRecallStatus] = useState(null);
+  const [recallChecking, setRecallChecking] = useState(false);
+
+  async function refreshRecallStatus() {
+    try {
+      setRecallStatus(await api.get("/inventory/recalls"));
+    } catch {
+      setRecallStatus(null);
+    }
+  }
+
+  async function checkRecallsNow() {
+    setRecallChecking(true);
+    try {
+      await api.post("/inventory/recalls/check", {});
+      setTimeout(refreshRecallStatus, 4000);
+    } catch {
+      // JobsBadge still reflects reality even if this optimistic refresh fails
+    } finally {
+      setRecallChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshRecallStatus();
+  }, []);
+
   // Backlog B11.1 (2026-08-01): vision-intake used to block this request
   // until the vision model finished (tens of seconds to a couple of
   // minutes on this app's target hardware), freezing the WHOLE app for
@@ -377,6 +412,18 @@ export default function InventoryPage() {
           {showOrderImportForm ? "Close" : "📊 Import order history"}
         </button>
       </div>
+
+      {recallStatus && recallStatus.alerts.length === 0 && (
+        <p className="hint recall-check-line">
+          No active recall matches
+          {recallStatus.last_checked_at
+            ? ` -- last checked ${new Date(recallStatus.last_checked_at).toLocaleString()}.`
+            : " -- not checked yet."}{" "}
+          <button type="button" className="btn-link" onClick={checkRecallsNow} disabled={recallChecking}>
+            {recallChecking ? "Checking..." : "Check for recalls now"}
+          </button>
+        </p>
+      )}
 
       {showAddForm && (
         <div className="card">

@@ -258,6 +258,20 @@ body {
   color: var(--color-danger);
 }
 
+.btn-link:disabled {
+  color: var(--color-text-muted, #888);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* Backlog B3.3-adjacent fix (2026-08-01): the Google Calendar redirect
+   URI field's two suggestion buttons -- keeps them from crowding the
+   input on narrow widths the way an unwrapped inline pair would. */
+.settings-redirect-uri-suggestions {
+  margin: var(--spacing-1) 0 var(--spacing-2);
+  font-size: 0.9em;
+}
+
 /* --- Toolbar --- */
 .page-toolbar {
   display: flex;
@@ -372,6 +386,41 @@ body {
   border-radius: var(--radius-md);
   padding: var(--spacing-2) var(--spacing-3);
   margin: 0 var(--spacing-3) var(--spacing-3);
+}
+
+/* Backlog B3.3 (2026-08-01) -- recall-awareness banner, same visual
+   weight as the expiration digest banner above (both are safety-
+   relevant "the app reaches out" notices), but its own class since it
+   also renders an expandable per-alert list, not just a one-line
+   summary. */
+.recall-banner {
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin: 0 var(--spacing-3) var(--spacing-3);
+}
+
+.recall-banner-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.recall-banner-list {
+  list-style: none;
+  margin: var(--spacing-2) 0 0;
+  padding: 0;
+}
+
+.recall-banner-list li {
+  border-top: 1px solid var(--color-border);
+  padding: var(--spacing-2) 0;
+}
+
+.recall-status-tag {
+  font-weight: 600;
 }
 
 /* Backlog B10.1 (2026-08-01) -- the dining-out finder's result cards.

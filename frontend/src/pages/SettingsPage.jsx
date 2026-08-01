@@ -43,6 +43,44 @@ const GOOGLE_CALENDAR_CONFIG_KEYS = [
 
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/calendar/google/callback";
 
+// Corrected 2026-08-01 -- the author hit this directly in Google Cloud
+// Console: a redirect URI built from the browser's own LAN address
+// (e.g. http://10.11.24.21:8095/...) is REJECTED by Google's own
+// redirect URI validation, not by anything Chef does. Verified against
+// Google's own documented validation rules (Redirect URI validation
+// rules table, developers.google.com/identity/protocols/oauth2/
+// web-server): "Hosts cannot be raw IP addresses. Localhost IP
+// addresses are exempted from this rule" and "Redirect URIs must use
+// the HTTPS scheme, not plain HTTP. Localhost URIs (including localhost
+// IP address URIs) are exempt from this rule." So a bare LAN IP is
+// rejected outright, but http://localhost:<port> (or 127.0.0.1) is
+// explicitly exempt from BOTH the HTTPS requirement and the
+// raw-IP-host ban, for any OAuth client type including Web application
+// -- it isn't a hack, it's Google's own documented carve-out. See the
+// WIKI's Google Calendar setup entry for what this means in practice
+// (the one-time "Connect" click needs to happen from a browser that can
+// reach the backend AS localhost -- i.e. on the server machine itself,
+// or via an SSH/port-forward tunnel -- unless the household would
+// rather set up a public-DNS-to-LAN-IP hostname instead, also covered
+// there).
+function isRawIpHost(origin) {
+  try {
+    const host = new URL(origin).hostname;
+    return /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host === "" || host.startsWith("[");
+  } catch {
+    return false;
+  }
+}
+
+function suggestedRedirectUri(origin) {
+  if (!origin) return null;
+  if (isRawIpHost(origin)) {
+    const port = new URL(origin).port || "80";
+    return `http://localhost:${port}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+  }
+  return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState([]);
   const [settingEdits, setSettingEdits] = useState({});
@@ -281,15 +319,16 @@ export default function SettingsPage() {
         } else if (s.key === "google_calendar_redirect_uri" && !s.value && backendOrigin) {
           // Author-requested (2026-08-01): don't make the household dig
           // through .env for BACKEND_PORT -- backendOrigin already knows
-          // it (window.__CHEF_CONFIG__.backendPort, see api.js), and it's
-          // exactly the address THIS browser is already using to reach
-          // Chef's backend, which is the correct redirect URI value for
-          // any device on the same LAN (the backend's address doesn't
-          // change per-device, only per-deployment). Only pre-fills an
-          // EMPTY, never-saved field -- never overwrites a value the
-          // household already set (possibly deliberately different, e.g.
-          // a reverse-proxied hostname).
-          next[s.key] = `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+          // it (window.__CHEF_CONFIG__.backendPort, see api.js). Corrected
+          // the same day: suggesting the browser's raw LAN IP address
+          // directly doesn't work -- Google rejects it (see
+          // suggestedRedirectUri's comment above) -- so this now suggests
+          // http://localhost:<port> whenever the browser's own address is
+          // a bare IP, and only suggests the browser's address directly
+          // when it's already a real domain name (which Google accepts
+          // as-is). Only pre-fills an EMPTY, never-saved field -- never
+          // overwrites a value the household already set.
+          next[s.key] = suggestedRedirectUri(backendOrigin);
         } else {
           // Non-secret fields are prefilled with their current value for editing.
           next[s.key] = s.value;
@@ -595,18 +634,37 @@ export default function SettingsPage() {
                 )}
               </label>
               {spec.key === "google_calendar_redirect_uri" && backendOrigin && (
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() =>
-                    setSettingEdits((prev) => ({
-                      ...prev,
-                      [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
-                    }))
-                  }
-                >
-                  Use this browser's address ({backendOrigin})
-                </button>
+                <div className="settings-redirect-uri-suggestions">
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() =>
+                      setSettingEdits((prev) => ({ ...prev, [spec.key]: suggestedRedirectUri(backendOrigin) }))
+                    }
+                  >
+                    Use localhost{isRawIpHost(backendOrigin) ? " (recommended -- see below)" : ""}
+                  </button>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="btn-link"
+                    disabled={isRawIpHost(backendOrigin)}
+                    title={
+                      isRawIpHost(backendOrigin)
+                        ? "This browser is reaching Chef by a raw IP address, which Google's OAuth redirect URI validation rejects. Use localhost instead, or see the WIKI for a domain-based alternative."
+                        : undefined
+                    }
+                    onClick={() =>
+                      setSettingEdits((prev) => ({
+                        ...prev,
+                        [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
+                      }))
+                    }
+                  >
+                    Use this browser's address ({backendOrigin})
+                    {isRawIpHost(backendOrigin) ? " -- won't work, it's a raw IP" : ""}
+                  </button>
+                </div>
               )}
               <p className="hint">{spec.description}</p>
               <div className="form-actions">

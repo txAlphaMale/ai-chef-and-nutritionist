@@ -149,6 +149,21 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="USDA_FDC_API_KEY",
     ),
     SettingSpec(
+        key="openfda_api_key",
+        label="openFDA API key",
+        is_secret=True,
+        default="",
+        description=(
+            "Optional. Backlog B3.3's recall check works against openFDA's food "
+            "enforcement API with no key at all; a free key from "
+            "https://open.fda.gov/apis/authentication/ just raises the shared "
+            "rate limit, which only matters for a very large inventory checked "
+            "very frequently. The USDA FSIS recall check (the other half of B3.3) "
+            "needs no key at all, with or without this one set."
+        ),
+        env_fallback="OPENFDA_API_KEY",
+    ),
+    SettingSpec(
         key="household_timezone",
         label="Household timezone",
         is_secret=False,
@@ -201,13 +216,15 @@ SETTING_SPECS: list[SettingSpec] = [
         default="",
         description=(
             "Must exactly match one of the 'Authorized redirect URIs' registered "
-            "on your Google Cloud OAuth client -- typically "
-            "http://<this-machine's-address>:<backend port>/api/calendar/google/callback. "
-            "The Settings page auto-suggests this from the browser's own address the "
-            "first time this field is empty (see the 'Use this browser's address' "
-            "button) -- confirm it matches what you register in Google Cloud Console "
-            "rather than assuming it's already right, and override it if you'll "
-            "connect from a different address than usual (a reverse proxy, etc.)."
+            "on your Google Cloud OAuth client. Google's own validation REJECTS a "
+            "raw LAN IP address here (e.g. http://10.11.24.21:8095/...) even though "
+            "that's how most LAN-hosted apps are normally reached -- only a real "
+            "domain name or http://localhost:<port> (any port, plain HTTP, no "
+            "certificate needed) is accepted. The Settings page auto-suggests "
+            "localhost for this reason; see the in-app WIKI's Google Calendar setup "
+            "entry for what that means for who can click 'Connect' and for a "
+            "domain-based alternative if you'd rather not be limited to the server "
+            "machine itself."
         ),
     ),
     SettingSpec(

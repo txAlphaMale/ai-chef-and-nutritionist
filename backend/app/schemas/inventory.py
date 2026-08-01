@@ -70,6 +70,37 @@ class ExpiringDigestResponse(BaseModel):
     within_days: int
 
 
+class RecallAlertRead(BaseModel):
+    """Backlog B3.3 -- one persisted recall match. See
+    app.models.inventory.RecallAlert and app.services.recall_service for
+    the full matching/persistence rationale."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source: str  # fsis | openfda
+    external_id: str
+    matched_item_name: str
+    title: str
+    reason: str | None = None
+    classification: str | None = None
+    status: str | None = None
+    recall_date: date | None = None
+    states: str | None = None
+    summary: str | None = None
+    is_dismissed: bool
+
+
+class RecallStatusResponse(BaseModel):
+    """GET /api/inventory/recalls -- fast, DB-only. `check_due` tells the
+    frontend whether a background refresh was just kicked off (see
+    routers/inventory.py's get_recalls)."""
+
+    alerts: list[RecallAlertRead]
+    last_checked_at: datetime | None
+    check_due: bool
+
+
 class VisionDetectedItem(BaseModel):
     """One item as detected from a photo, before the user reviews/edits
     and confirms it into real inventory rows."""

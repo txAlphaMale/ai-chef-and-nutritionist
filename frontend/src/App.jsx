@@ -13,6 +13,7 @@ import WikiPage from "./pages/WikiPage";
 import ChatWidget from "./components/ChatWidget";
 import LoginGate from "./components/LoginGate";
 import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
+import RecallBanner from "./components/RecallBanner";
 import JobsBadge from "./components/JobsBadge";
 import { applyTheme, getCachedTheme } from "./themes";
 
@@ -89,6 +90,9 @@ export default function App() {
           </nav>
         </header>
         <ExpiringDigestBanner />
+        {/* Backlog B3.3 -- same app-shell placement as the digest banner
+            above, so a recall match reaches the household from any page. */}
+        <RecallBanner />
         {/* Backlog B11.1 -- app-wide background-job indicator, same
             "outside <Routes>, always mounted" placement as the banner
             above, so it's visible no matter which page enqueued the

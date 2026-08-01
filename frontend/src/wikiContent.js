@@ -110,17 +110,11 @@ export const WIKI_ENTRIES = [
       {
         type: "steps",
         items: [
-          "**Work out your redirect URI first** -- you'll need it in step 6. It's " +
-            "`http://<the address you use to reach Chef's backend>:<BACKEND_PORT>/api/calendar/google/callback`. " +
-            "Chef auto-suggests this for you the first time you open the Google OAuth redirect URI field on the " +
-            "Settings page (a **\"Use this browser's address\"** button also lets you re-fill it any time) -- it " +
-            "reads BACKEND_PORT the same way the rest of the app does, so you don't need to open `.env` yourself. " +
-            "Just confirm the suggested value matches whichever address you'll actually click \"Connect\" from: if " +
-            "you always connect from the same machine Chef's backend runs on, `http://localhost:8095/api/calendar/google/callback` " +
-            "works. If you (or anyone else in the household) will click \"Connect\" from a phone/tablet/other " +
-            "computer on your LAN, it needs to be that machine's real LAN address instead, e.g. " +
-            "`http://10.11.24.21:8095/api/calendar/google/callback` -- Google needs the exact address a *browser* " +
-            "can reach, and a phone can't reach \"localhost\" meaning the Chef server.",
+          "**Work out your redirect URI first** -- you'll need it in step 6. **Read the note right after this " +
+            "list before picking one** -- Google rejects a plain LAN IP address here (the obvious first choice " +
+            "for a self-hosted app), so the right value depends on how you'll click \"Connect.\" Chef's Settings " +
+            "page auto-suggests a working value for you (the **\"Use localhost\"** / **\"Use this browser's " +
+            "address\"** buttons next to the field) -- the note below explains why it picks the one it does.",
           "Go to **console.cloud.google.com** and create a new project (top-left project picker → \"New project\"). " +
             "Any name works. Billing is NOT required for any of this.",
           "In the left menu, open **APIs & Services → Library**, search for **Google Calendar API**, and click " +
@@ -153,6 +147,45 @@ export const WIKI_ENTRIES = [
             "below), click **Advanced**, then **Go to \"Chef\" (unsafe)**, then **Continue** to grant Calendar " +
             "access. You'll be sent back to Chef's Settings page, now showing your connected account and the " +
             "dedicated \"Chef Meal Plan\" calendar -- and sync is turned on automatically.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "**Why a plain LAN address (like `http://10.11.24.21:8095/...`) doesn't work here, corrected " +
+          "2026-08-01.** An earlier version of this guide suggested using the LAN address you normally reach " +
+          "Chef at directly -- that's wrong, and Google Cloud Console will reject it with \"Invalid Redirect: " +
+          "must end with a public top-level domain\" / \"must use a domain that is a valid top private domain.\" " +
+          "This is Google's own OAuth redirect URI policy, not a Chef limitation: per Google's documented " +
+          "validation rules, a redirect URI's host **cannot be a raw IP address** (with one exception, below), " +
+          "and non-localhost URIs must use HTTPS, which this LAN-only app deliberately doesn't set up (see the " +
+          "known plain-HTTP simplification elsewhere in this WIKI/PROJECT-PLAN). Two real ways forward:",
+      },
+      {
+        type: "steps",
+        items: [
+          "**Loopback (`http://localhost:<port>` or `http://127.0.0.1:<port>`) -- Chef's default suggestion, " +
+            "zero extra setup.** Google explicitly exempts localhost/127.0.0.1 addresses from BOTH restrictions " +
+            "above (any port, plain HTTP, no certificate) -- it's a documented carve-out, not a workaround. The " +
+            "catch: the OAuth \"Connect\" click has to happen from a browser that reaches Chef's backend AS " +
+            "`localhost`, which in practice means either sitting at the server machine itself for that one click, " +
+            "or opening an SSH tunnel from another device first (e.g. `ssh -L 8095:localhost:8095 " +
+            "user@your-server` from a laptop, then browse to `http://localhost:8095` on THAT laptop and click " +
+            "Connect there). This only matters for the one-time connect step -- once connected, ongoing calendar " +
+            "sync runs entirely on the backend with no browser involved at all, from any device, same as before.",
+          "**A public-DNS-to-LAN-IP hostname (e.g. sslip.io/nip.io) -- lets ANY device on the LAN click Connect, " +
+            "no server-machine/tunnel needed.** Services like `sslip.io` and `nip.io` publish real, public DNS " +
+            "records that embed an IP address in the hostname itself and resolve back to it -- for example " +
+            "`http://chef.10-11-24-21.sslip.io:8095/api/calendar/google/callback` is a real domain name (passes " +
+            "Google's check) that any device's normal DNS resolves straight back to `10.11.24.21` -- the actual " +
+            "HTTP connection still goes directly over your LAN, never through sslip.io itself; only the one-time " +
+            "DNS lookup touches the public internet. That lookup is not a new requirement in practice: the same " +
+            "browser has to reach `accounts.google.com` to complete the consent screen anyway, so if it can do " +
+            "that, it can already resolve a public DNS name too. Trade-off: it depends on a free third-party " +
+            "DNS service staying up, which loopback doesn't. To use this, register the sslip.io-style URL as " +
+            "the \"Authorized redirect URI\" in step 6 below instead of localhost, and type that same value into " +
+            "Chef's **Google OAuth redirect URI** field (the auto-suggest buttons only offer localhost or this " +
+            "browser's raw address, so this path needs a manual paste).",
         ],
       },
       {

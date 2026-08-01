@@ -1,6 +1,6 @@
 """Import every model so Base.metadata (and Alembic autogenerate) sees
 the full schema, and so relationship() string references resolve."""
-from app.models.inventory import InventoryItem, OrderImportProfile
+from app.models.inventory import InventoryItem, OrderImportProfile, RecallAlert, RecallCheckState
 from app.models.kitchen import KitchenProfile
 from app.models.recipe import MealTag, Recipe, RecipeIngredient
 from app.models.meal_plan import GroceryListItem, MealPlan, MealPlanEntry
@@ -12,6 +12,8 @@ from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, Syste
 __all__ = [
     "InventoryItem",
     "OrderImportProfile",
+    "RecallAlert",
+    "RecallCheckState",
     "KitchenProfile",
     "MealTag",
     "Recipe",

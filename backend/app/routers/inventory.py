@@ -51,11 +51,19 @@ from app.schemas.inventory import (
     OrderImportProfileRead,
     OrderImportProfileUpdate,
     PrioritySuggestion,
+    RecallStatusResponse,
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
 from app.schemas.jobs import JobEnqueuedResponse
-from app.services import inventory_service, job_queue, ollama_client, order_import_service, recipe_service
+from app.services import (
+    inventory_service,
+    job_queue,
+    ollama_client,
+    order_import_service,
+    recall_service,
+    recipe_service,
+)
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -156,6 +164,67 @@ def expiring_digest(within_days: int = 7, db: Session = Depends(get_db)):
     (ExpiringDigestBanner.jsx), not just the Inventory page's own passive
     display, per the backlog's explicit "reach out" framing."""
     return inventory_service.get_expiring_digest(db, within_days=within_days)
+
+
+@router.get("/recalls", response_model=RecallStatusResponse)
+def get_recalls(db: Session = Depends(get_db)):
+    """Backlog B3.3 -- fast, DB-only read of currently active (not
+    dismissed) recall alerts, backing RecallBanner.jsx. Deliberately
+    never makes a live FSIS/openFDA call itself (that's slow and
+    network-bound -- see recall_service.check_inventory_for_recalls's
+    docstring); instead, when a check is due (recall_service.is_check_due),
+    it enqueues one in the background via the same job queue every other
+    external-API-consuming feature uses, and returns immediately with
+    whatever's already cached. `check_due` in the response lets the
+    frontend know a fresh check was just kicked off, without blocking
+    this request on it."""
+    check_due = recall_service.is_check_due(db)
+    if check_due:
+        job_queue.enqueue("recall_check", "Recall check", _recall_check_job, dedup_key="recall_check")
+    state = recall_service.get_check_state(db)
+    return RecallStatusResponse(
+        alerts=recall_service.list_active_alerts(db),
+        last_checked_at=state.last_checked_at,
+        check_due=check_due,
+    )
+
+
+def _recall_check_job() -> dict:
+    db = SessionLocal()
+    try:
+        return recall_service.check_inventory_for_recalls(db)
+    finally:
+        db.close()
+
+
+@router.post("/recalls/check", response_model=JobEnqueuedResponse, status_code=202)
+def trigger_recall_check(db: Session = Depends(get_db)):
+    """The explicit "Check for recalls now" button -- bypasses the
+    throttle interval (force=True) since the household asked for this
+    specifically, unlike get_recalls's automatic background trigger."""
+
+    def _forced_job() -> dict:
+        job_db = SessionLocal()
+        try:
+            return recall_service.check_inventory_for_recalls(job_db, force=True)
+        finally:
+            job_db.close()
+
+    job_id, created = job_queue.enqueue("recall_check", "Recall check", _forced_job, dedup_key="recall_check")
+    return JobEnqueuedResponse(job_id=job_id, created=created)
+
+
+@router.post("/recalls/{alert_id}/dismiss", response_model=RecallStatusResponse)
+def dismiss_recall_alert(alert_id: int, db: Session = Depends(get_db)):
+    alert = recall_service.dismiss_alert(db, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Recall alert not found")
+    state = recall_service.get_check_state(db)
+    return RecallStatusResponse(
+        alerts=recall_service.list_active_alerts(db),
+        last_checked_at=state.last_checked_at,
+        check_due=recall_service.is_check_due(db),
+    )
 
 
 @router.post("/vision-intake", response_model=JobEnqueuedResponse, status_code=202)
