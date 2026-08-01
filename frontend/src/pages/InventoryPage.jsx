@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import InventoryItemForm from "../components/InventoryItemForm";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 // Backlog B4.2 (author-requested 2026-08-01) -- same category enum the
 // backend's InventoryItemBase/RECEIPT_IMPORT_PROMPT use, duplicated here
@@ -24,9 +25,17 @@ export default function InventoryPage() {
   const [editingId, setEditingId] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState("");
 
-  const [visionBusy, setVisionBusy] = useState(false);
-  const [visionResult, setVisionResult] = useState(null); // { detected_items, raw_model_output }
-  const [visionError, setVisionError] = useState(null);
+  // Backlog B11.1 (2026-08-01): vision-intake used to block this request
+  // until the vision model finished (tens of seconds to a couple of
+  // minutes on this app's target hardware), freezing the WHOLE app for
+  // that entire window, and lost all trace of itself the moment this
+  // page unmounted (navigating away, or a tab switch long enough to
+  // suspend/reload). It now enqueues a background job and polls --
+  // useBackgroundJob persists the job_id to localStorage, so returning
+  // to this page (even after a full reload) resumes exactly where
+  // things left off instead of showing a blank slate. See
+  // job_queue.py's module docstring for the full "why".
+  const visionJob = useBackgroundJob("chef.job.vision_intake");
 
   // Backlog B4.2 (author-requested 2026-08-01) -- receipt photo/PDF or a
   // plain-text/file list of PURCHASED items, distinct from the pantry
@@ -37,11 +46,35 @@ export default function InventoryPage() {
   // and POS-abbreviation guesses that are more likely to need correction
   // than a single pantry photo's few items.
   const [showImportForm, setShowImportForm] = useState(false);
-  const [importBusy, setImportBusy] = useState(false);
-  const [importError, setImportError] = useState(null);
+  const importJob = useBackgroundJob("chef.job.inventory_import"); // B11.1, same rationale as visionJob above
   const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text" | "order_history"
   const [importItems, setImportItems] = useState(null); // editable rows, or null when no preview is active
   const [importText, setImportText] = useState("");
+
+  // The job body returns the exact same {detected_items, raw_model_output,
+  // source_type} shape the old synchronous endpoint used to return
+  // directly -- this effect is the one place that turns THAT into the
+  // page's own editable-row shape, whether it just finished from a fresh
+  // upload or was picked back up on mount from a job left running
+  // before the page was last closed.
+  useEffect(() => {
+    if (!importJob.result) return;
+    setImportSourceType(importJob.result.source_type);
+    setImportItems(
+      importJob.result.detected_items.map((d) => ({
+        name: d.name,
+        category: d.category || "other",
+        quantity: d.estimated_quantity ?? 1,
+        unit: d.unit || "",
+        expiration_date: d.expiration_date || "",
+        purchased_date: d.purchased_date || "",
+        unit_price: d.unit_price ?? "",
+        confidence_note: d.confidence_note || "",
+        included: true,
+      }))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importJob.result]);
 
   // Backlog B10.3 (author-requested group, 2026-08-01) -- generic order-
   // history CSV/XLSX import (e.g. a Walmart order-history export from a
@@ -125,25 +158,25 @@ export default function InventoryPage() {
   async function handleVisionUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setVisionBusy(true);
-    setVisionError(null);
-    setVisionResult(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const result = await api.post("/inventory/vision-intake", formData);
-      setVisionResult(result);
+      const { job_id } = await api.post("/inventory/vision-intake", formData);
+      visionJob.poll(job_id);
     } catch (err) {
-      setVisionError(err.message);
+      // Enqueueing itself failed (e.g. a network error before the job
+      // ever started) -- rare, but worth surfacing rather than silently
+      // swallowing since visionJob has no error state for this case.
+      window.alert(`Could not start photo analysis: ${err.message}`);
     } finally {
-      setVisionBusy(false);
       e.target.value = "";
     }
   }
 
   async function confirmVisionItems() {
-    if (!visionResult?.detected_items?.length) return;
-    const items = visionResult.detected_items.map((d) => ({
+    const detected = visionJob.result?.detected_items;
+    if (!detected?.length) return;
+    const items = detected.map((d) => ({
       name: d.name,
       category: d.category || "other",
       quantity: d.estimated_quantity ?? 1,
@@ -152,34 +185,16 @@ export default function InventoryPage() {
       source: "vision",
     }));
     await api.post("/inventory/vision-intake/confirm", { items });
-    setVisionResult(null);
+    visionJob.clear();
     refresh();
   }
 
   async function runImport(formData) {
-    setImportBusy(true);
-    setImportError(null);
-    setImportItems(null);
     try {
-      const result = await api.post("/inventory/import", formData);
-      setImportSourceType(result.source_type);
-      setImportItems(
-        result.detected_items.map((d) => ({
-          name: d.name,
-          category: d.category || "other",
-          quantity: d.estimated_quantity ?? 1,
-          unit: d.unit || "",
-          expiration_date: d.expiration_date || "",
-          purchased_date: d.purchased_date || "",
-          unit_price: d.unit_price ?? "",
-          confidence_note: d.confidence_note || "",
-          included: true,
-        }))
-      );
+      const { job_id } = await api.post("/inventory/import", formData);
+      importJob.poll(job_id);
     } catch (err) {
-      setImportError(err.message);
-    } finally {
-      setImportBusy(false);
+      window.alert(`Could not start import: ${err.message}`);
     }
   }
 
@@ -237,7 +252,7 @@ export default function InventoryPage() {
   function discardImport() {
     setImportItems(null);
     setImportSourceType(null);
-    setImportError(null);
+    importJob.clear();
     setImportText("");
     setOrderFile(null);
     setOrderHeaders([]);
@@ -345,8 +360,15 @@ export default function InventoryPage() {
           {showAddForm ? "Close" : "+ Add item"}
         </button>
         <label className="btn btn-secondary file-btn">
-          {visionBusy ? "Analyzing..." : "📷 Add from photo"}
-          <input type="file" accept="image/*" onChange={handleVisionUpload} disabled={visionBusy} hidden />
+          {visionJob.busy ? (
+            <>
+              <span className="busy-spinner" aria-hidden="true" />
+              {visionJob.status === "queued" ? "Queued..." : "Analyzing..."}
+            </>
+          ) : (
+            "📷 Add from photo"
+          )}
+          <input type="file" accept="image/*" onChange={handleVisionUpload} disabled={visionJob.busy} hidden />
         </label>
         <button className="btn btn-secondary" onClick={() => setShowImportForm((v) => !v)}>
           {showImportForm ? "Close" : "🧾 Import receipt/list"}
@@ -378,25 +400,37 @@ export default function InventoryPage() {
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
               style={{ flex: 1 }}
-              disabled={importBusy}
+              disabled={importJob.busy}
             />
           </div>
           <div className="form-actions">
-            <button className="btn btn-secondary" onClick={handleImportText} disabled={importBusy || !importText.trim()}>
-              {importBusy ? "Parsing..." : "Parse text"}
+            <button
+              className="btn btn-secondary"
+              onClick={handleImportText}
+              disabled={importJob.busy || !importText.trim()}
+            >
+              {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
+              {importJob.busy ? (importJob.status === "queued" ? "Queued..." : "Parsing...") : "Parse text"}
             </button>
             <label className="btn btn-secondary file-btn">
-              {importBusy ? "Parsing..." : "Upload receipt photo, PDF, or text file"}
+              {importJob.busy ? (
+                <>
+                  <span className="busy-spinner" aria-hidden="true" />
+                  {importJob.status === "queued" ? "Queued..." : "Parsing..."}
+                </>
+              ) : (
+                "Upload receipt photo, PDF, or text file"
+              )}
               <input
                 type="file"
                 accept="image/*,application/pdf,.txt,.csv,text/plain"
                 onChange={handleImportFile}
-                disabled={importBusy}
+                disabled={importJob.busy}
                 hidden
               />
             </label>
           </div>
-          {importError && <p className="error-text">Import failed: {importError}</p>}
+          {importJob.error && <p className="error-text">Import failed: {importJob.error}</p>}
         </div>
       )}
 
@@ -590,17 +624,25 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {visionError && <p className="error-text">Photo analysis failed: {visionError}</p>}
+      {visionJob.busy && (
+        <p className="hint">
+          <span className="busy-spinner" aria-hidden="true" />
+          {visionJob.status === "queued"
+            ? "Photo queued for analysis -- it'll start as soon as the chef finishes whatever else is running."
+            : "Analyzing photo..."}
+        </p>
+      )}
+      {visionJob.error && <p className="error-text">Photo analysis failed: {visionJob.error}</p>}
 
-      {visionResult && (
+      {visionJob.result && (
         <div className="card">
           <h3>Detected from photo</h3>
-          {visionResult.detected_items.length === 0 ? (
+          {visionJob.result.detected_items.length === 0 ? (
             <p>No items recognized. Try a clearer photo, or add items manually.</p>
           ) : (
             <>
               <ul className="vision-preview-list">
-                {visionResult.detected_items.map((d, i) => (
+                {visionJob.result.detected_items.map((d, i) => (
                   <li key={i}>
                     <strong>{d.name}</strong>
                     {d.estimated_quantity != null && ` — ${d.estimated_quantity}${d.unit ? " " + d.unit : ""}`}
@@ -615,7 +657,7 @@ export default function InventoryPage() {
                 <button className="btn btn-primary" onClick={confirmVisionItems}>
                   Add all to inventory
                 </button>
-                <button className="btn btn-secondary" onClick={() => setVisionResult(null)}>
+                <button className="btn btn-secondary" onClick={() => visionJob.clear()}>
                   Discard
                 </button>
               </div>

@@ -28,10 +28,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import ChatMessage
 from app.schemas.chat import ChatMessageRead, ChatSendRequest, ChatSendResponse, ChatSessionSummary
-from app.services import chat_service, ollama_client
+from app.schemas.jobs import JobEnqueuedResponse
+from app.services import chat_service, job_queue, ollama_client
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -91,8 +92,26 @@ def list_messages(session_id: str = "default", limit: int = 200, db: Session = D
     )
 
 
-@router.post("/messages", response_model=ChatSendResponse)
+@router.post("/messages", response_model=JobEnqueuedResponse, status_code=202)
 def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
+    """Backlog B11.1 (2026-08-01): the user's message is still persisted
+    SYNCHRONOUSLY here, right away, so it appears in the history
+    immediately rather than waiting on a reply -- only generating the
+    assistant's reply moves into a background job. This endpoint was
+    already a plain `def` (never froze the whole app's event loop the
+    way the `async def` import endpoints did), but it still held one
+    browser tab's request open for the full generation, lost all state
+    on navigation, and didn't share this app's one GPU budget with any
+    other AI feature -- so it now goes through the same shared queue,
+    per the 2026-08-01 "everything, unified" scope decision (see
+    PROJECT-PLAN.md).
+
+    `dedup_key=session_id`: a second send while THIS session's reply is
+    still generating coalesces into the same in-flight job rather than
+    starting a duplicate that would confuse the model with two
+    overlapping generations against the same growing history -- the
+    frontend already disables its send button while busy, this is the
+    server-side backstop for that."""
     session_id = payload.session_id.strip() or "default"
     message_text = payload.message.strip()
     if not message_text:
@@ -102,42 +121,53 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
+    # Snapshot to plain data BEFORE the job closure -- an ORM object is
+    # bound to the session that loaded it and isn't safe to hand across
+    # threads; job_db below is a completely separate session.
+    user_message_dict = ChatMessageRead.model_validate(user_message).model_dump(mode="json")
 
-    # Full persisted history for this session (including the message
-    # just added) becomes the conversation sent to Ollama -- this is
-    # what makes the chat "remember" earlier turns, not just the latest
-    # message.
-    history = (
-        db.query(ChatMessage)
-        .filter_by(session_id=session_id)
-        .order_by(ChatMessage.created_at.asc())
-        .all()
-    )
+    def _run() -> dict:
+        job_db = SessionLocal()
+        try:
+            # Full persisted history for this session (including the
+            # message just added above) becomes the conversation sent to
+            # Ollama -- this is what makes the chat "remember" earlier
+            # turns, not just the latest message.
+            history = (
+                job_db.query(ChatMessage)
+                .filter_by(session_id=session_id)
+                .order_by(ChatMessage.created_at.asc())
+                .all()
+            )
+            base_prompt = ollama_client.get_active_prompt(job_db, "main_chef") or ""
+            # The user's own message doubles as the knowledge-retrieval
+            # query (2026-07-31) -- see chat_service.build_chat_context's
+            # docstring.
+            context = chat_service.build_chat_context(job_db, query=message_text)
+            system_prompt = chat_service.build_chat_system_prompt(base_prompt, context)
 
-    base_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
-    # The user's own message doubles as the knowledge-retrieval query
-    # (2026-07-31) -- see chat_service.build_chat_context's docstring.
-    context = chat_service.build_chat_context(db, query=message_text)
-    system_prompt = chat_service.build_chat_system_prompt(base_prompt, context)
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend({"role": m.role, "content": m.content} for m in history if m.role in ("user", "assistant"))
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend({"role": m.role, "content": m.content} for m in history if m.role in ("user", "assistant"))
+            response = ollama_client.chat(job_db, messages)
+            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
-    try:
-        response = ollama_client.chat(db, messages)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
-    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            parsed = chat_service.parse_chat_response(raw_output)
+            assistant_message = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=parsed["reply"],
+                actions=parsed["actions"] or None,
+            )
+            job_db.add(assistant_message)
+            job_db.commit()
+            job_db.refresh(assistant_message)
 
-    parsed = chat_service.parse_chat_response(raw_output)
-    assistant_message = ChatMessage(
-        session_id=session_id,
-        role="assistant",
-        content=parsed["reply"],
-        actions=parsed["actions"] or None,
-    )
-    db.add(assistant_message)
-    db.commit()
-    db.refresh(assistant_message)
+            return ChatSendResponse(
+                user_message=user_message_dict, assistant_message=assistant_message
+            ).model_dump(mode="json")
+        finally:
+            job_db.close()
 
-    return ChatSendResponse(user_message=user_message, assistant_message=assistant_message)
+    job_id, created = job_queue.enqueue("chat_message", "Chat reply", _run, dedup_key=f"chat:{session_id}")
+    return JobEnqueuedResponse(job_id=job_id, created=created)

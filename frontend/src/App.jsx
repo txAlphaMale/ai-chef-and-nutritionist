@@ -12,6 +12,7 @@ import SettingsPage from "./pages/SettingsPage";
 import ChatWidget from "./components/ChatWidget";
 import LoginGate from "./components/LoginGate";
 import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
+import JobsBadge from "./components/JobsBadge";
 import { applyTheme, getCachedTheme } from "./themes";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
@@ -86,6 +87,11 @@ export default function App() {
           </nav>
         </header>
         <ExpiringDigestBanner />
+        {/* Backlog B11.1 -- app-wide background-job indicator, same
+            "outside <Routes>, always mounted" placement as the banner
+            above, so it's visible no matter which page enqueued the
+            job or which page is currently open. */}
+        <JobsBadge />
         <main>
           <Routes>
             <Route path="/" element={<HomePage />} />

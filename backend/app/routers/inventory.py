@@ -34,7 +34,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import InventoryItem, OrderImportProfile
 from app.schemas.inventory import (
     ColumnMapping,
@@ -54,7 +54,8 @@ from app.schemas.inventory import (
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
-from app.services import inventory_service, ollama_client, order_import_service, recipe_service
+from app.schemas.jobs import JobEnqueuedResponse
+from app.services import inventory_service, job_queue, ollama_client, order_import_service, recipe_service
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
@@ -157,21 +158,39 @@ def expiring_digest(within_days: int = 7, db: Session = Depends(get_db)):
     return inventory_service.get_expiring_digest(db, within_days=within_days)
 
 
-@router.post("/vision-intake", response_model=VisionIntakeResponse)
-async def vision_intake(file: UploadFile, db: Session = Depends(get_db)):
-    """Analyzes an uploaded photo with the configured Ollama vision model
-    and returns a PREVIEW of detected items -- nothing is written to
-    inventory here. The user reviews/edits the preview client-side, then
-    POSTs the confirmed list to /vision-intake/confirm."""
-    image_bytes = await file.read()
-    try:
-        response = ollama_client.describe_image(db, image_bytes, VISION_PROMPT)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama vision request failed: {exc}") from exc
+@router.post("/vision-intake", response_model=JobEnqueuedResponse, status_code=202)
+async def vision_intake(file: UploadFile):
+    """Backlog B11.1 (2026-08-01): analyzes an uploaded photo with the
+    configured Ollama vision model and returns a PREVIEW of detected
+    items -- nothing is written to inventory here. The user reviews/
+    edits the preview client-side, then POSTs the confirmed list to
+    /vision-intake/confirm.
 
-    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-    detected = inventory_service.parse_vision_response(raw_output)
-    return VisionIntakeResponse(detected_items=detected, raw_model_output=raw_output)
+    Enqueues a background job instead of blocking on the vision model
+    (which can run tens of seconds to a couple of minutes on this app's
+    target hardware) -- returns immediately with a job_id the frontend
+    polls via GET /api/jobs/{job_id}. See job_queue.py's module docstring
+    for why: this endpoint used to be `async def` calling the Ollama
+    client's synchronous, blocking HTTP client directly, which froze the
+    entire app (not just this request) for the whole duration of the
+    call. The file is read here (UploadFile.read() needs the request's
+    own async context) before handing the raw bytes to the job body,
+    which opens its own DB session -- never the request-scoped one,
+    which isn't safe to share across threads."""
+    image_bytes = await file.read()
+
+    def _run() -> dict:
+        db = SessionLocal()
+        try:
+            response = ollama_client.describe_image(db, image_bytes, VISION_PROMPT)
+            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            detected = inventory_service.parse_vision_response(raw_output)
+            return VisionIntakeResponse(detected_items=detected, raw_model_output=raw_output).model_dump()
+        finally:
+            db.close()
+
+    job_id, created = job_queue.enqueue("vision_intake", "Vision intake (pantry photo)", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.post("/vision-intake/confirm", response_model=list[InventoryItemRead])
@@ -197,23 +216,43 @@ def _bulk_create_items(db: Session, items_in: list[InventoryItemCreate]) -> list
     return created
 
 
-async def _receipt_text_extraction(db: Session, content: str) -> str:
+def _receipt_text_extraction(db: Session, content: str) -> str:
     """Chat-based extraction for the text/PDF receipt-import paths --
     mirrors routers/recipes.py's _run_text_extraction (same 8000-char
     truncation convention, same response-unwrapping idiom), kept as its
     own function here rather than imported from recipes.py since the two
-    routers shouldn't depend on each other for something this small."""
+    routers shouldn't depend on each other for something this small.
+
+    Plain sync (no longer `async def`, backlog B11.1, 2026-08-01) -- every
+    caller now runs this from inside a job body on the background worker
+    thread, never from a request handler awaiting it directly, so there's
+    nothing left to await here."""
     prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:8000])
-    try:
-        response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
+    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
 
-@router.post("/import", response_model=InventoryImportResponse)
+def _inventory_import_job(source_type: str, extractor) -> dict:
+    """Shared job body for every import_inventory branch below --
+    `extractor` is a zero-arg callable (a closure over whatever raw bytes/
+    text that branch already read) that returns the model's raw text
+    output; this opens its own DB session (background worker thread,
+    never the request's own session), parses it the same way regardless
+    of which branch produced it, and returns the exact JSON shape
+    InventoryImportResponse used to return synchronously -- so it can be
+    handed straight to InventoryImportResponse(**result) once the job
+    finishes without the frontend needing to know anything changed."""
+    db = SessionLocal()
+    try:
+        raw_output = extractor(db)
+        detected = inventory_service.parse_vision_response(raw_output)
+        return InventoryImportResponse(detected_items=detected, raw_model_output=raw_output, source_type=source_type).model_dump()
+    finally:
+        db.close()
+
+
+@router.post("/import", response_model=JobEnqueuedResponse, status_code=202)
 async def import_inventory(
-    db: Session = Depends(get_db),
     file: UploadFile | None = None,
     text: str | None = Form(None),
 ):
@@ -222,7 +261,16 @@ async def import_inventory(
     -- exactly one -- and returns a PREVIEW of detected items, same
     preview-then-confirm discipline as every other AI-assisted intake in
     this app. Nothing is written to inventory here; the user reviews/
-    edits client-side and POSTs the confirmed list to /import/confirm."""
+    edits client-side and POSTs the confirmed list to /import/confirm.
+
+    Backlog B11.1 (2026-08-01): enqueues a background job for the
+    Ollama-calling part instead of blocking on it -- see job_queue.py's
+    module docstring and vision_intake's docstring above for why. Fast,
+    Ollama-independent validation (missing input, an image-only PDF with
+    no text layer, an undecodable file) still happens HERE, synchronously,
+    so a doomed request fails immediately with a clear 400 rather than
+    occupying a queue slot behind other work only to fail once it's
+    finally run."""
     if file is None and not text:
         raise HTTPException(status_code=400, detail="Provide a file or pasted text.")
 
@@ -232,14 +280,13 @@ async def import_inventory(
         filename = (file.filename or "").lower()
 
         if content_type.startswith("image/"):
-            try:
-                response = ollama_client.describe_image(
-                    db, raw_bytes, RECEIPT_IMPORT_PROMPT.format(content="[see attached photo of a receipt]")
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"Ollama vision request failed: {exc}") from exc
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            prompt = RECEIPT_IMPORT_PROMPT.format(content="[see attached photo of a receipt]")
             source_type = "photo"
+
+            def extractor(db: Session) -> str:
+                response = ollama_client.describe_image(db, raw_bytes, prompt)
+                return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+
         elif content_type == "application/pdf" or filename.endswith(".pdf"):
             extracted = recipe_service.extract_pdf_text(raw_bytes)
             if not extracted.strip():
@@ -257,8 +304,11 @@ async def import_inventory(
                         "layer. Try uploading it as a photo/image instead."
                     ),
                 )
-            raw_output = await _receipt_text_extraction(db, extracted)
             source_type = "pdf"
+
+            def extractor(db: Session) -> str:
+                return _receipt_text_extraction(db, extracted)
+
         else:
             try:
                 decoded = raw_bytes.decode("utf-8")
@@ -266,14 +316,21 @@ async def import_inventory(
                 raise HTTPException(
                     status_code=400, detail="Could not read this file as text. Upload a photo, PDF, or plain-text file."
                 )
-            raw_output = await _receipt_text_extraction(db, decoded)
             source_type = "text"
+
+            def extractor(db: Session) -> str:
+                return _receipt_text_extraction(db, decoded)
+
     else:
-        raw_output = await _receipt_text_extraction(db, text)
         source_type = "text"
 
-    detected = inventory_service.parse_vision_response(raw_output)
-    return InventoryImportResponse(detected_items=detected, raw_model_output=raw_output, source_type=source_type)
+        def extractor(db: Session) -> str:
+            return _receipt_text_extraction(db, text)
+
+    job_id, created = job_queue.enqueue(
+        "inventory_import", "Receipt/list import", lambda: _inventory_import_job(source_type, extractor)
+    )
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.post("/import/confirm", response_model=list[InventoryItemRead])

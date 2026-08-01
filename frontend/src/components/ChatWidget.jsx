@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 const SESSION_STORAGE_KEY = "chef.chat.session_id";
 
@@ -136,14 +137,26 @@ function ActionCard({ action, actionKey, status, result, onConfirm }) {
  * remounting/losing state on every page change. History is also
  * persisted server-side (see chat_service.py / routers/chat.py), so a
  * full page reload restores the conversation too, keyed by a
- * session_id kept in localStorage. */
+ * session_id kept in localStorage.
+ *
+ * Backlog B11.1 (2026-08-01): POST /chat/messages now enqueues a
+ * background job (see routers/chat.py's send_message, dedup_key=
+ * f"chat:{session_id}") instead of blocking the request for the full
+ * Ollama call -- this is the exact scenario the author's bug report
+ * called out ("upload a receipt, then ask Chef chat a question, then go
+ * mess with recipes" should never silently drop the chat send). Tracked
+ * via useBackgroundJob keyed by session_id, so a page reload or even
+ * this always-mounted widget's own remount (shouldn't normally happen,
+ * but costs nothing to be safe) resumes polling an in-flight send
+ * instead of losing track of it. */
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [sessionId] = useState(getOrCreateSessionId);
   const [messages, setMessages] = useState([]); // ChatMessageRead[]
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const sendJob = useBackgroundJob(`chef.job.chat.${sessionId}`);
+  const busy = sendJob.busy;
   const [actionStatus, setActionStatus] = useState({}); // actionKey -> "pending"|"done"|"error:<msg>"
   const [actionResults, setActionResults] = useState({}); // actionKey -> executeAction's resolved value
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -181,16 +194,34 @@ export default function ChatWidget() {
     if (!message || busy) return;
     setInput("");
     setError(null);
-    setBusy(true);
     try {
-      const result = await api.post("/chat/messages", { session_id: sessionId, message });
-      setMessages((prev) => [...prev, result.user_message, result.assistant_message]);
+      const enqueued = await api.post("/chat/messages", { session_id: sessionId, message });
+      sendJob.poll(enqueued.job_id);
     } catch (e) {
       setError(e.message);
-    } finally {
-      setBusy(false);
     }
   }
+
+  // The enqueued send's result carries BOTH the user message (persisted
+  // synchronously before the job was even created, see send_message's
+  // "why snapshot" comment) and the assistant's reply -- appending both
+  // together here, only once the job finishes, keeps the two from ever
+  // appearing out of order even if the user fires off another send
+  // immediately (which the backend's dedup_key coalesces anyway).
+  useEffect(() => {
+    if (!sendJob.result) return;
+    setMessages((prev) => [...prev, sendJob.result.user_message, sendJob.result.assistant_message]);
+    sendJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendJob.result]);
+
+  useEffect(() => {
+    if (sendJob.error) {
+      setError(sendJob.error);
+      sendJob.clear();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendJob.error]);
 
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -265,7 +296,8 @@ export default function ChatWidget() {
               style={{ flex: 1 }}
             />
             <button className="btn btn-primary" onClick={send} disabled={busy || !input.trim()}>
-              {busy ? "Thinking..." : "Send"}
+              {busy && <span className="busy-spinner" aria-hidden="true" />}
+              {sendJob.status === "queued" ? "Queued..." : busy ? "Thinking..." : "Send"}
             </button>
           </div>
         </div>

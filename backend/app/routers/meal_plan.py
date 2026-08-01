@@ -13,8 +13,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import GroceryListItem, HouseholdMember, MealPlan, MealPlanEntry, Recipe
+from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.meal_plan import (
     GroceryListItemCreate,
     GroceryListItemRead,
@@ -31,7 +32,15 @@ from app.schemas.meal_plan import (
     MealPlanUpdate,
     MemberDailyTarget,
 )
-from app.services import allergen_service, dri_service, inventory_service, meal_plan_service, ollama_client, recipe_service
+from app.services import (
+    allergen_service,
+    dri_service,
+    inventory_service,
+    job_queue,
+    meal_plan_service,
+    ollama_client,
+    recipe_service,
+)
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
 
@@ -100,49 +109,64 @@ def _persist_grocery_list(db: Session, plan: MealPlan) -> None:
     db.commit()
 
 
-@router.post("/generate", response_model=MealPlanGenerateResponse)
-def generate_meal_plan(payload: MealPlanGenerateRequest, db: Session = Depends(get_db)):
+@router.post("/generate", response_model=JobEnqueuedResponse, status_code=202)
+def generate_meal_plan(payload: MealPlanGenerateRequest):
     """AI-assisted draft for a full week -- returns a MealPlanCreate-
     shaped PREVIEW, nothing is persisted here. The user reviews/edits
     (swap a recipe, adjust servings, fill in a slot the model left
-    empty) then POSTs the confirmed result to POST /api/meal-plans."""
+    empty) then POSTs the confirmed result to POST /api/meal-plans.
+
+    Backlog B11.1 (2026-08-01): enqueues a background job instead of
+    blocking on the Ollama call. This endpoint was already a plain `def`
+    (never froze the whole app's event loop the way the `async def`
+    import endpoints did), but it still held one browser tab's request
+    open for the full generation, lost all state on navigation, and
+    didn't share this app's one GPU budget with any other AI feature --
+    so it now goes through the same shared queue, per the 2026-08-01
+    "everything, unified" scope decision (see PROJECT-PLAN.md)."""
     meal_types = [m.strip().lower() for m in (payload.meal_types or ["dinner"]) if m.strip()]
     if not meal_types:
         meal_types = ["dinner"]
+    entry_guidance = [g.model_dump() for g in payload.entry_guidance]
 
-    context = meal_plan_service.gather_generation_context(
-        db,
-        household_size=payload.household_size,
-        meal_types=meal_types,
-        kitchen_profile_id=payload.kitchen_profile_id,
-        entry_guidance=[g.model_dump() for g in payload.entry_guidance],
-        notes=payload.notes,
-    )
-    prompt = meal_plan_service.build_generation_prompt(context)
-    system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
-    try:
-        response = ollama_client.chat(
-            db, [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
-    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    def _run() -> dict:
+        db = SessionLocal()
+        try:
+            context = meal_plan_service.gather_generation_context(
+                db,
+                household_size=payload.household_size,
+                meal_types=meal_types,
+                kitchen_profile_id=payload.kitchen_profile_id,
+                entry_guidance=entry_guidance,
+                notes=payload.notes,
+            )
+            prompt = meal_plan_service.build_generation_prompt(context)
+            system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
+            response = ollama_client.chat(
+                db, [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+            )
+            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
-    entries = meal_plan_service.parse_meal_plan_response(raw_output)
-    if not entries:
-        raise HTTPException(status_code=422, detail="Could not extract a meal plan from the model's response")
-    catalog_ids = {r["id"] for r in context["recipe_catalog"]}
-    entries = meal_plan_service.validate_entries_against_catalog(entries, catalog_ids)
-    entries = meal_plan_service.attach_restriction_warnings(db, entries)
+            entries = meal_plan_service.parse_meal_plan_response(raw_output)
+            if not entries:
+                raise RuntimeError("Could not extract a meal plan from the model's response")
+            catalog_ids = {r["id"] for r in context["recipe_catalog"]}
+            entries = meal_plan_service.validate_entries_against_catalog(entries, catalog_ids)
+            entries = meal_plan_service.attach_restriction_warnings(db, entries)
 
-    plan = MealPlanCreate(
-        week_start_date=payload.week_start_date,
-        household_size_snapshot=context["household_size"],
-        kitchen_profile_id=context["kitchen_profile_id"],
-        status="draft",
-        entries=entries,
-    )
-    return MealPlanGenerateResponse(plan=plan, raw_model_output=raw_output)
+            plan = MealPlanCreate(
+                week_start_date=payload.week_start_date,
+                household_size_snapshot=context["household_size"],
+                kitchen_profile_id=context["kitchen_profile_id"],
+                status="draft",
+                entries=entries,
+            )
+            return MealPlanGenerateResponse(plan=plan, raw_model_output=raw_output).model_dump(mode="json")
+        finally:
+            db.close()
+
+    job_id, created = job_queue.enqueue("meal_plan_generate", "Meal plan generation", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.get("", response_model=list[MealPlanRead])

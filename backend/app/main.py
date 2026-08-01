@@ -25,7 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import SessionLocal, get_db
 from app.models import HouseholdPreferences
-from app.routers import auth, chat, dining, health, household, inventory, kitchen, knowledge, meal_plan, recipes, system
+from app.routers import auth, chat, dining, health, household, inventory, jobs, kitchen, knowledge, meal_plan, recipes, system
 from app.services import auth_service
 
 app = FastAPI(title="Chef", version="0.1.0")
@@ -126,6 +126,7 @@ async def auth_gate(request: Request, call_next):
 app.add_middleware(SessionMiddleware, secret_key=_load_or_create_session_secret())
 
 app.include_router(auth.router)
+app.include_router(jobs.router)
 app.include_router(dining.router)
 app.include_router(system.router)
 app.include_router(inventory.router)

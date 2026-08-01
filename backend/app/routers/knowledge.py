@@ -12,10 +12,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import KnowledgeFile
 from app.schemas.knowledge import KnowledgeFileRead, KnowledgeFileUpdate
-from app.services import knowledge_service
+from app.services import job_queue, knowledge_service
 
 router = APIRouter(prefix="/api/knowledge-files", tags=["knowledge-files"])
 
@@ -46,6 +46,29 @@ def list_knowledge_files(db: Session = Depends(get_db)):
 async def upload_knowledge_file(
     file: UploadFile, description: str | None = Form(None), db: Session = Depends(get_db)
 ):
+    """Backlog B11.1 (2026-08-01): the embedding-indexing step
+    (knowledge_service.ensure_indexed -- one blocking Ollama embed() call
+    PER CHUNK, potentially dozens to hundreds in a row for a large file)
+    now runs as a background job instead of inline. This endpoint was
+    `async def` calling that blocking loop directly with no thread
+    offload -- likely the single worst offender behind the reported
+    "whole app freezes" bug, since a big file meant MANY sequential
+    blocking calls in one request, not just one.
+
+    The file row is still created, extracted, and returned immediately
+    with chunk_count=0 -- unlike every other B11.1 conversion, the
+    caller doesn't need a job_id to get a useful response here, since
+    the file already exists and is usable (just not yet indexed for
+    retrieval). The persistent job badge still shows indexing in
+    progress for anyone watching; a later GET on this list reflects the
+    real chunk_count once the job finishes.
+
+    Also a genuine improvement over the previous behavior, not just a
+    refactor: the old code wrapped ensure_indexed in a bare
+    `except: pass`, so a failed indexing pass (e.g. Ollama unreachable)
+    left chunk_count at 0 forever with NO visible explanation anywhere.
+    A failed indexing job now shows up in the job registry with a real
+    error message instead."""
     raw_bytes = await file.read()
     storage_path = knowledge_service.save_file(file.filename, raw_bytes)
     content = knowledge_service.extract_text(file.filename, file.content_type, raw_bytes)
@@ -61,19 +84,22 @@ async def upload_knowledge_file(
     db.add(kf)
     db.commit()
     db.refresh(kf)
+    kf_id = kf.id
+    kf_filename = kf.filename
 
-    # Best-effort eager indexing so the upload response already reflects
-    # a usable chunk_count (nicer UX than waiting for the next meal-plan
-    # generation or chat message to trigger it lazily). Never blocks or
-    # fails the upload itself -- an unreachable Ollama just means this
-    # file gets indexed later, same as any other lazy-index path
-    # (knowledge_service.ensure_indexed retries automatically since
-    # indexed_embed_model stays null until a chunk actually succeeds).
-    try:
-        knowledge_service.ensure_indexed(db, knowledge_file=kf)
-    except Exception:  # noqa: BLE001
-        pass
-    db.refresh(kf)
+    def _run() -> dict:
+        job_db = SessionLocal()
+        try:
+            job_kf = job_db.get(KnowledgeFile, kf_id)
+            if job_kf is None:
+                raise RuntimeError("Knowledge file was deleted before indexing could run")
+            knowledge_service.ensure_indexed(job_db, knowledge_file=job_kf)
+            job_db.refresh(job_kf)
+            return _to_read(job_kf).model_dump(mode="json")
+        finally:
+            job_db.close()
+
+    job_queue.enqueue("knowledge_reindex", f"Indexing: {kf_filename}", _run)
     return _to_read(kf)
 
 

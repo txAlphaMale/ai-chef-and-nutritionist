@@ -304,6 +304,64 @@ body {
 
 /* Backlog B4.4/B10.2 (2026-08-01) -- the in-app expiration digest
    banner, mounted outside <Routes> so it's visible on every page. */
+/* Backlog B11.1 (2026-08-01) -- the persistent background-job status
+   badge (JobsBadge.jsx) and a general-purpose inline spinner
+   (.busy-spinner) for any button/label that needs to show real activity
+   instead of just changed text -- the author's own reported gap was
+   "the mouse cursor didn't change, there was no graphic indicating
+   processing." Fixed sizes/positions rather than theme-color-derived
+   everywhere, since a spinner needs to be visible against every theme
+   this app ships (see themes.js), not just the default. */
+@keyframes chef-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jobs-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-1) var(--spacing-3);
+  margin: 0 var(--spacing-3) var(--spacing-3);
+  font-size: 0.9em;
+}
+
+.jobs-badge-over {
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.jobs-badge-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, var(--color-text) 20%, transparent);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: chef-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.jobs-badge-over .jobs-badge-spinner {
+  border-top-color: var(--color-danger);
+}
+
+.busy-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: chef-spin 0.8s linear infinite;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
 .expiring-digest-banner {
   display: flex;
   align-items: center;

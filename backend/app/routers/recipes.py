@@ -13,8 +13,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import Recipe, RecipeIngredient
+from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.recipe import (
     RecipeChatRequest,
     RecipeChatResponse,
@@ -25,7 +26,7 @@ from app.schemas.recipe import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import allergen_service, food_data_service, ollama_client, recipe_image_service, recipe_service
+from app.services import allergen_service, food_data_service, job_queue, ollama_client, recipe_image_service, recipe_service
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -125,9 +126,8 @@ def list_recipes(
     return [_to_read(r, db) for r in recipes]
 
 
-@router.post("/import", response_model=RecipeImportResponse)
+@router.post("/import", response_model=JobEnqueuedResponse, status_code=202)
 async def import_recipe(
-    db: Session = Depends(get_db),
     file: UploadFile | None = None,
     text: str | None = Form(None),
     url: str | None = Form(None),
@@ -152,91 +152,122 @@ async def import_recipe(
     import leaves an orphaned file on disk; consistent with this app's
     existing local-single-user pragmatism elsewhere (e.g. inventory/
     knowledge-file deletes are best-effort too) rather than adding
-    preview-session cleanup machinery for a low-stakes, low-volume case."""
-    citation: dict = {}
-    image_path: str | None = None
-    if url:
-        try:
-            page = recipe_service.extract_url_content(url)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"Could not fetch or parse that URL: {exc}") from exc
-        if not page.get("text"):
-            raise HTTPException(status_code=422, detail="Could not extract readable content from that URL")
-        citation = {"source_url": url, "source_name": page.get("sitename"), "source_author": page.get("author")}
-        if page.get("image"):
-            fetched = recipe_service.fetch_image_bytes(page["image"])
-            if fetched:
-                raw_image_bytes, image_content_type = fetched
-                try:
-                    image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-                except ValueError:
-                    pass  # unsupported content type -- skip, not fatal to the import
-        raw_output = await _run_text_extraction(db, page["text"])
-        default_source = "import_url"
-    elif text:
-        raw_output = await _run_text_extraction(db, text)
-        default_source = "import_text"
-    elif file is not None:
-        raw_bytes = await file.read()
-        content_type = file.content_type or ""
-        if content_type.startswith("image/"):
-            try:
-                response = ollama_client.describe_image(
-                    db, raw_bytes, recipe_service.RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
-                )
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"Ollama vision request failed: {exc}") from exc
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-            default_source = "import_image"
-            try:
-                image_path = recipe_image_service.save_image(content_type, raw_bytes)
-            except ValueError:
-                pass  # unsupported content type -- skip, not fatal to the import
-        elif content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
-            pdf_text = recipe_service.extract_pdf_text(raw_bytes)
-            raw_output = await _run_text_extraction(db, pdf_text)
-            default_source = "import_file"
-        else:
-            try:
-                text_content = raw_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                raise HTTPException(status_code=400, detail="Unsupported file type for recipe import")
-            raw_output = await _run_text_extraction(db, text_content)
-            default_source = "import_file"
-    else:
+    preview-session cleanup machinery for a low-stakes, low-volume case.
+
+    Backlog B11.1 (2026-08-01): the entire body below -- URL fetch, image
+    fetch, PDF extraction, and the Ollama call -- now runs inside a
+    background job instead of directly in this `async def` handler. This
+    isn't just the Ollama call moving: `recipe_service.extract_url_content`
+    (trafilatura.fetch_url) and `fetch_image_bytes` (a synchronous
+    httpx.Client) are ALSO blocking network I/O that was previously called
+    directly here, which froze the whole app's event loop for their
+    duration exactly like the Ollama calls did -- found while converting
+    this endpoint, not assumed away. Only the cheap "was anything provided
+    at all" check and the async UploadFile.read() (which needs the
+    request's own context) still happen before enqueueing; every other
+    error that used to get its own HTTP status code (a bad URL, an
+    unreadable file, a recipe the model couldn't extract) now surfaces
+    uniformly as job status "error" with a message, since that
+    distinction only mattered for synchronous HTTP semantics this
+    endpoint no longer has."""
+    if not (url or text or file is not None):
         raise HTTPException(status_code=400, detail="Provide one of `text`, `file`, or `url`")
 
-    parsed = recipe_service.parse_recipe_response(raw_output)
-    if parsed is None:
-        raise HTTPException(status_code=422, detail="Could not extract a recipe from that input")
-    parsed["source"] = default_source
-    for key, value in citation.items():
-        if value:
-            parsed[key] = value
-    if image_path:
-        parsed["image_path"] = image_path
+    raw_bytes: bytes | None = None
+    content_type = ""
+    filename = ""
+    if file is not None:
+        raw_bytes = await file.read()
+        content_type = file.content_type or ""
+        filename = (file.filename or "").lower()
 
-    # Backlog B3.1: check the parsed-but-not-yet-saved ingredients against
-    # the household's current restrictions BEFORE the user ever confirms
-    # this import -- a conflict should be visible in the review step, not
-    # discovered later on the recipe's own page.
-    restriction_check = allergen_service.check_household_restrictions(
-        db, [ing.get("ingredient_name", "") for ing in parsed.get("ingredients", [])]
-    )
-    return RecipeImportResponse(
-        recipe=RecipeCreate(**parsed),
-        raw_model_output=raw_output,
-        restriction_warnings=[vars(m) for m in restriction_check.matches],
-        cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
-    )
+    def _run() -> dict:
+        db = SessionLocal()
+        try:
+            citation: dict = {}
+            image_path: str | None = None
+            if url:
+                try:
+                    page = recipe_service.extract_url_content(url)
+                except Exception as exc:  # noqa: BLE001
+                    raise RuntimeError(f"Could not fetch or parse that URL: {exc}") from exc
+                if not page.get("text"):
+                    raise RuntimeError("Could not extract readable content from that URL")
+                citation = {"source_url": url, "source_name": page.get("sitename"), "source_author": page.get("author")}
+                if page.get("image"):
+                    fetched = recipe_service.fetch_image_bytes(page["image"])
+                    if fetched:
+                        raw_image_bytes, image_content_type = fetched
+                        try:
+                            image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+                        except ValueError:
+                            pass  # unsupported content type -- skip, not fatal to the import
+                raw_output = _run_text_extraction(db, page["text"])
+                default_source = "import_url"
+            elif text:
+                raw_output = _run_text_extraction(db, text)
+                default_source = "import_text"
+            else:
+                if content_type.startswith("image/"):
+                    response = ollama_client.describe_image(
+                        db, raw_bytes, recipe_service.RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
+                    )
+                    raw_output = (
+                        response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+                    )
+                    default_source = "import_image"
+                    try:
+                        image_path = recipe_image_service.save_image(content_type, raw_bytes)
+                    except ValueError:
+                        pass  # unsupported content type -- skip, not fatal to the import
+                elif content_type == "application/pdf" or filename.endswith(".pdf"):
+                    pdf_text = recipe_service.extract_pdf_text(raw_bytes)
+                    raw_output = _run_text_extraction(db, pdf_text)
+                    default_source = "import_file"
+                else:
+                    try:
+                        text_content = raw_bytes.decode("utf-8")
+                    except UnicodeDecodeError:
+                        raise RuntimeError("Unsupported file type for recipe import")
+                    raw_output = _run_text_extraction(db, text_content)
+                    default_source = "import_file"
+
+            parsed = recipe_service.parse_recipe_response(raw_output)
+            if parsed is None:
+                raise RuntimeError("Could not extract a recipe from that input")
+            parsed["source"] = default_source
+            for key, value in citation.items():
+                if value:
+                    parsed[key] = value
+            if image_path:
+                parsed["image_path"] = image_path
+
+            # Backlog B3.1: check the parsed-but-not-yet-saved ingredients
+            # against the household's current restrictions BEFORE the user
+            # ever confirms this import -- a conflict should be visible in
+            # the review step, not discovered later on the recipe's own page.
+            restriction_check = allergen_service.check_household_restrictions(
+                db, [ing.get("ingredient_name", "") for ing in parsed.get("ingredients", [])]
+            )
+            return RecipeImportResponse(
+                recipe=RecipeCreate(**parsed),
+                raw_model_output=raw_output,
+                restriction_warnings=[vars(m) for m in restriction_check.matches],
+                cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
+            ).model_dump()
+        finally:
+            db.close()
+
+    job_id, created = job_queue.enqueue("recipe_import", "Recipe import", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
-async def _run_text_extraction(db: Session, content: str) -> str:
+def _run_text_extraction(db: Session, content: str) -> str:
+    """Plain sync (no longer `async def`, backlog B11.1) -- always called
+    from inside a job body on the background worker thread now, never
+    awaited directly from a request handler."""
     prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:8000])
-    try:
-        response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
+    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
 
@@ -321,46 +352,75 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, db: Session = Depends(g
     return _to_read(recipe, db)
 
 
-@router.post("/{recipe_id}/chat", response_model=RecipeChatResponse)
+@router.post("/{recipe_id}/chat", response_model=JobEnqueuedResponse, status_code=202)
 def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = Depends(get_db)):
     """Ephemeral, recipe-scoped chat -- for things like "I'm out of buttermilk,
     what can I use instead?" while actually cooking. Deliberately NOT
     persisted to chat_messages (that's the Phase 7 persistent chat system,
     a separate concern); the client resends `history` each turn. The
     recipe's current ingredients/instructions/tips are injected as context
-    so suggestions are grounded in the actual recipe, not a generic answer."""
+    so suggestions are grounded in the actual recipe, not a generic answer.
+
+    Backlog B11.1 (2026-08-01): enqueues a background job instead of
+    blocking on the Ollama call. This endpoint was already a plain `def`
+    (FastAPI runs it in a threadpool, so it never froze the whole app's
+    event loop the way the `async def` import endpoints did) -- but it
+    still held one browser tab's request open for the full generation
+    and lost all state on navigation, and it still needs to share this
+    app's one GPU budget with every other AI feature, so it moves to the
+    same shared queue for consistency, per the 2026-08-01 "everything,
+    unified" scope decision (see PROJECT-PLAN.md). The 404 check below
+    still runs synchronously against the request's own `db` -- cheap,
+    fast, no reason to make a bad recipe_id wait in line -- but the job
+    body re-fetches the recipe fresh through its OWN session, since a
+    SQLAlchemy ORM object is bound to the session that loaded it and
+    isn't safe to hand across threads."""
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
     servings = payload.servings or recipe.default_servings
-    read_view = _to_read(recipe, db, servings_shown=servings)
-    system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
-    context = recipe_service.build_recipe_chat_context(read_view.model_dump())
+    history = [{"role": m.role, "content": m.content} for m in payload.history]
+    message = payload.message
+    recipe_title = recipe.title
 
-    # RECIPE_MODIFY_INSTRUCTIONS (added 2026-07-31) upgrades this chat
-    # from read-only Q&A to also being able to propose an edit -- e.g.
-    # "make this gluten-free" -- which the frontend shows as a reviewable
-    # RecipeForm, exactly like a recipe import preview, before anything
-    # is saved. See recipe_service.py for the full writeup.
-    messages = [
-        {
-            "role": "system",
-            "content": f"{system_prompt}\n\n{context}\n\n{recipe_service.RECIPE_MODIFY_INSTRUCTIONS}",
-        }
-    ]
-    for m in payload.history:
-        messages.append({"role": m.role, "content": m.content})
-    messages.append({"role": "user", "content": payload.message})
+    def _run() -> dict:
+        job_db = SessionLocal()
+        try:
+            job_recipe = job_db.get(Recipe, recipe_id)
+            if job_recipe is None:
+                raise RuntimeError("Recipe not found")
+            read_view = _to_read(job_recipe, job_db, servings_shown=servings)
+            system_prompt = ollama_client.get_active_prompt(job_db, "main_chef") or ""
+            context = recipe_service.build_recipe_chat_context(read_view.model_dump())
 
-    try:
-        response = ollama_client.chat(db, messages)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc
-    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-    parsed = recipe_service.parse_recipe_chat_response(raw_output)
-    proposed = RecipeCreate(**parsed["proposed_recipe"]) if parsed["proposed_recipe"] else None
-    return RecipeChatResponse(reply=parsed["reply"], proposed_recipe=proposed, variant_label=parsed["variant_label"])
+            # RECIPE_MODIFY_INSTRUCTIONS (added 2026-07-31) upgrades this
+            # chat from read-only Q&A to also being able to propose an
+            # edit -- e.g. "make this gluten-free" -- which the frontend
+            # shows as a reviewable RecipeForm, exactly like a recipe
+            # import preview, before anything is saved. See
+            # recipe_service.py for the full writeup.
+            messages = [
+                {
+                    "role": "system",
+                    "content": f"{system_prompt}\n\n{context}\n\n{recipe_service.RECIPE_MODIFY_INSTRUCTIONS}",
+                }
+            ]
+            messages.extend(history)
+            messages.append({"role": "user", "content": message})
+
+            response = ollama_client.chat(job_db, messages)
+            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            parsed = recipe_service.parse_recipe_chat_response(raw_output)
+            proposed = RecipeCreate(**parsed["proposed_recipe"]) if parsed["proposed_recipe"] else None
+            return RecipeChatResponse(
+                reply=parsed["reply"], proposed_recipe=proposed, variant_label=parsed["variant_label"]
+            ).model_dump()
+        finally:
+            job_db.close()
+
+    job_id, created = job_queue.enqueue("recipe_chat", f"Recipe chat: {recipe_title}", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.post("/{recipe_id}/image", response_model=RecipeRead)

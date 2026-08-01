@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import RecipeForm from "./RecipeForm";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 /** Ephemeral, recipe-scoped "Ask the Chef" widget -- for substitution
  * questions etc. while actually cooking. History lives only in this
@@ -13,14 +14,27 @@ import RecipeForm from "./RecipeForm";
  * When it does, a review card appears reusing RecipeForm, with an
  * explicit choice between saving as a new variant (the default, safer
  * path -- keeps the original recipe untouched) or overwriting the
- * recipe in place. Nothing is saved until the user submits that form. */
+ * recipe in place. Nothing is saved until the user submits that form.
+ *
+ * Backlog B11.1 (2026-08-01): POST /{id}/chat now enqueues a background
+ * job (see recipes.py's chat_about_recipe) instead of blocking, so the
+ * send is tracked via useBackgroundJob rather than a plain busy flag.
+ * storageKey is scoped per recipeId so switching between two recipes'
+ * chats (or a stray resume after remounting on the same recipe) can't
+ * cross-contaminate. The reply text still only lives in this
+ * component's own `history` state -- if the job finishes after a
+ * navigation-triggered remount (history reset to []), the assistant's
+ * reply is appended to a fresh, empty history rather than lost, since
+ * pendingUserHistoryRef.current would be null in that case. */
 export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [history, setHistory] = useState([]); // [{role, content}]
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const chatJob = useBackgroundJob(`chef.job.recipe_chat.${recipeId}`);
+  const pendingUserHistoryRef = useRef(null);
+  const busy = chatJob.busy;
 
   // The most recent proposed edit, if any -- {recipe, variantLabel}.
   // Deliberately replaced (not accumulated) on every reply: if the next
@@ -41,28 +55,49 @@ export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
     setError(null);
     const nextHistory = [...history, { role: "user", content: message }];
     setHistory(nextHistory);
-    setBusy(true);
+    pendingUserHistoryRef.current = nextHistory;
     try {
-      const result = await api.post(`/recipes/${recipeId}/chat`, {
+      const enqueued = await api.post(`/recipes/${recipeId}/chat`, {
         message,
         history,
         servings,
       });
-      setHistory([...nextHistory, { role: "assistant", content: result.reply }]);
-      if (result.proposed_recipe) {
-        setProposal({ recipe: result.proposed_recipe, variantLabel: result.variant_label || "" });
-        setVariantLabel(result.variant_label || "");
-        setSaveMode("variant");
-        setSaveError(null);
-      } else {
-        setProposal(null);
-      }
+      chatJob.poll(enqueued.job_id);
     } catch (e) {
       setError(e.message);
-    } finally {
-      setBusy(false);
     }
   }
+
+  // Fires once the enqueued chat job reaches a terminal state (see the
+  // poll() call in send() above). Reads pendingUserHistoryRef instead of
+  // closing over `history` directly since this effect's own closure is
+  // fixed at mount/dependency-change time, not at send() time.
+  useEffect(() => {
+    if (!chatJob.result) return;
+    const result = chatJob.result;
+    const base = pendingUserHistoryRef.current ?? history;
+    setHistory([...base, { role: "assistant", content: result.reply }]);
+    pendingUserHistoryRef.current = null;
+    if (result.proposed_recipe) {
+      setProposal({ recipe: result.proposed_recipe, variantLabel: result.variant_label || "" });
+      setVariantLabel(result.variant_label || "");
+      setSaveMode("variant");
+      setSaveError(null);
+    } else {
+      setProposal(null);
+    }
+    chatJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatJob.result]);
+
+  useEffect(() => {
+    if (chatJob.error) {
+      setError(chatJob.error);
+      pendingUserHistoryRef.current = null;
+      chatJob.clear();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatJob.error]);
 
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -134,7 +169,8 @@ export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
               style={{ flex: 1 }}
             />
             <button className="btn btn-primary" onClick={send} disabled={busy || !input.trim()}>
-              {busy ? "Thinking..." : "Send"}
+              {busy && <span className="busy-spinner" aria-hidden="true" />}
+              {chatJob.status === "queued" ? "Queued..." : busy ? "Thinking..." : "Send"}
             </button>
           </div>
 

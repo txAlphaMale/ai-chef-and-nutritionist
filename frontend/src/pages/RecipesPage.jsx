@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 import RestrictionWarnings from "../components/RestrictionWarnings";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState([]);
@@ -12,8 +13,15 @@ export default function RecipesPage() {
   const [stapleOnly, setStapleOnly] = useState(false);
   const [search, setSearch] = useState("");
 
-  const [importBusy, setImportBusy] = useState(false);
-  const [importError, setImportError] = useState(null);
+  // Backlog B11.1 (2026-08-01) -- POST /recipes/import now enqueues a
+  // background job (see recipes.py's import_recipe) instead of blocking
+  // the request for the full URL-fetch/PDF-extract/Ollama duration.
+  // importJob.busy/.status drive the button/label states below;
+  // enqueueError covers the synchronous "you didn't provide anything"
+  // 400 that the endpoint still raises before ever creating a job, which
+  // importJob itself has no way to see.
+  const importJob = useBackgroundJob("chef.job.recipe_import");
+  const [enqueueError, setEnqueueError] = useState(null);
   const [importPreview, setImportPreview] = useState(null); // RecipeCreate-shaped
   // Backlog B3.1 -- RecipeImportResponse carries these alongside the
   // parsed recipe, computed against current household restrictions at
@@ -21,6 +29,17 @@ export default function RecipesPage() {
   const [importWarnings, setImportWarnings] = useState(null);
   const [importText, setImportText] = useState("");
   const [importUrl, setImportUrl] = useState("");
+
+  useEffect(() => {
+    if (!importJob.result) return;
+    setImportPreview(importJob.result.recipe);
+    setImportWarnings({
+      matches: importJob.result.restriction_warnings,
+      crossContactMatches: importJob.result.cross_contact_warnings,
+    });
+    importJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importJob.result]);
 
   async function refresh() {
     setLoading(true);
@@ -66,63 +85,40 @@ export default function RecipesPage() {
     refresh();
   }
 
-  async function handleImportText() {
-    if (!importText.trim()) return;
-    setImportBusy(true);
-    setImportError(null);
+  async function submitImport(formData) {
+    setEnqueueError(null);
+    importJob.clear();
     setImportPreview(null);
     setImportWarnings(null);
     try {
-      const formData = new FormData();
-      formData.append("text", importText);
-      const result = await api.post("/recipes/import", formData);
-      setImportPreview(result.recipe);
-      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
+      const enqueued = await api.post("/recipes/import", formData);
+      importJob.poll(enqueued.job_id);
     } catch (e) {
-      setImportError(e.message);
-    } finally {
-      setImportBusy(false);
+      setEnqueueError(e.message);
     }
+  }
+
+  async function handleImportText() {
+    if (!importText.trim()) return;
+    const formData = new FormData();
+    formData.append("text", importText);
+    await submitImport(formData);
   }
 
   async function handleImportUrl() {
     if (!importUrl.trim()) return;
-    setImportBusy(true);
-    setImportError(null);
-    setImportPreview(null);
-    setImportWarnings(null);
-    try {
-      const formData = new FormData();
-      formData.append("url", importUrl.trim());
-      const result = await api.post("/recipes/import", formData);
-      setImportPreview(result.recipe);
-      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
-    } catch (e) {
-      setImportError(e.message);
-    } finally {
-      setImportBusy(false);
-    }
+    const formData = new FormData();
+    formData.append("url", importUrl.trim());
+    await submitImport(formData);
   }
 
   async function handleImportFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImportBusy(true);
-    setImportError(null);
-    setImportPreview(null);
-    setImportWarnings(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const result = await api.post("/recipes/import", formData);
-      setImportPreview(result.recipe);
-      setImportWarnings({ matches: result.restriction_warnings, crossContactMatches: result.cross_contact_warnings });
-    } catch (err) {
-      setImportError(err.message);
-    } finally {
-      setImportBusy(false);
-      e.target.value = "";
-    }
+    const formData = new FormData();
+    formData.append("file", file);
+    await submitImport(formData);
+    e.target.value = "";
   }
 
   async function confirmImport(editedPayload, imageFile) {
@@ -168,8 +164,9 @@ export default function RecipesPage() {
             onChange={(e) => setImportUrl(e.target.value)}
             style={{ flex: 1 }}
           />
-          <button className="btn btn-secondary" onClick={handleImportUrl} disabled={importBusy || !importUrl.trim()}>
-            {importBusy ? "Fetching..." : "Import from URL"}
+          <button className="btn btn-secondary" onClick={handleImportUrl} disabled={importJob.busy || !importUrl.trim()}>
+            {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
+            {importJob.status === "queued" ? "Queued..." : importJob.busy ? "Fetching..." : "Import from URL"}
           </button>
         </div>
         <div className="form-row">
@@ -182,15 +179,29 @@ export default function RecipesPage() {
           />
         </div>
         <div className="form-actions">
-          <button className="btn btn-secondary" onClick={handleImportText} disabled={importBusy || !importText.trim()}>
-            {importBusy ? "Parsing..." : "Parse text"}
+          <button
+            className="btn btn-secondary"
+            onClick={handleImportText}
+            disabled={importJob.busy || !importText.trim()}
+          >
+            {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
+            {importJob.status === "queued" ? "Queued..." : importJob.busy ? "Parsing..." : "Parse text"}
           </button>
           <label className="btn btn-secondary file-btn">
-            {importBusy ? "Parsing..." : "Upload photo or PDF"}
-            <input type="file" accept="image/*,application/pdf" onChange={handleImportFile} disabled={importBusy} hidden />
+            {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
+            {importJob.status === "queued" ? "Queued..." : importJob.busy ? "Parsing..." : "Upload photo or PDF"}
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleImportFile}
+              disabled={importJob.busy}
+              hidden
+            />
           </label>
         </div>
-        {importError && <p className="error-text">Import failed: {importError}</p>}
+        {(enqueueError || importJob.error) && (
+          <p className="error-text">Import failed: {enqueueError || importJob.error}</p>
+        )}
       </div>
 
       {importPreview && (

@@ -4,6 +4,7 @@ import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
 import NutritionSummaryPanel from "../components/NutritionSummaryPanel";
 import RestrictionWarnings from "../components/RestrictionWarnings";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -39,8 +40,14 @@ export default function MealPlanPage() {
   const [kitchenProfileId, setKitchenProfileId] = useState("");
   const [notes, setNotes] = useState("");
   const [guidance, setGuidance] = useState(emptyGuidance());
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState(null);
+  // Backlog B11.1 (2026-08-01) -- POST /meal-plans/generate now enqueues
+  // a background job (see meal_plan.py's generate_meal_plan) instead of
+  // blocking for the full Ollama generation. generateEnqueueError covers
+  // a failure to even create the job (e.g. a network hiccup on the
+  // initial POST); generateJob.error covers the job itself failing.
+  const generateJob = useBackgroundJob("chef.job.meal_plan_generate");
+  const [generateEnqueueError, setGenerateEnqueueError] = useState(null);
+  const generating = generateJob.busy;
 
   const [preview, setPreview] = useState(null); // { entries: [...], meta: {...} }
   const [saving, setSaving] = useState(false);
@@ -90,8 +97,8 @@ export default function MealPlanPage() {
 
   async function handleGenerate(e) {
     e.preventDefault();
-    setGenerating(true);
-    setGenerateError(null);
+    setGenerateEnqueueError(null);
+    generateJob.clear();
     setPreview(null);
     try {
       const selectedMealTypes = MEAL_TYPES.filter((m) => mealTypes[m]);
@@ -104,7 +111,7 @@ export default function MealPlanPage() {
         }))
         .filter((g) => g.tags.length > 0 || g.notes);
 
-      const result = await api.post("/meal-plans/generate", {
+      const enqueued = await api.post("/meal-plans/generate", {
         week_start_date: weekStartDate,
         meal_types: selectedMealTypes.length ? selectedMealTypes : ["dinner"],
         household_size: householdSize === "" ? null : Number(householdSize),
@@ -112,35 +119,42 @@ export default function MealPlanPage() {
         entry_guidance: entryGuidance,
         notes: notes.trim() || null,
       });
-
-      setPreview({
-        meta: {
-          week_start_date: result.plan.week_start_date,
-          household_size_snapshot: result.plan.household_size_snapshot,
-          kitchen_profile_id: result.plan.kitchen_profile_id,
-        },
-        entries: result.plan.entries.map((e) => ({
-          day_of_week: e.day_of_week,
-          meal_type: e.meal_type,
-          servings: e.servings,
-          requested_tags: (e.requested_tags || []).join(", "),
-          is_indulgence: e.is_indulgence,
-          notes: e.notes || "",
-          selection: e.recipe_id != null ? String(e.recipe_id) : e.new_recipe ? "new" : "",
-          new_recipe: e.new_recipe,
-          // Backlog B3.1 -- attached during generation preview by
-          // meal_plan_service.attach_restriction_warnings, informational
-          // only at this stage (the entry isn't saved yet).
-          restriction_warnings: e.restriction_warnings || [],
-          cross_contact_warnings: e.cross_contact_warnings || [],
-        })),
-      });
+      generateJob.poll(enqueued.job_id);
     } catch (e) {
-      setGenerateError(e.message);
-    } finally {
-      setGenerating(false);
+      setGenerateEnqueueError(e.message);
     }
   }
+
+  // Runs once the enqueued generation job finishes -- builds the same
+  // editable preview shape the old synchronous handler built inline.
+  useEffect(() => {
+    if (!generateJob.result) return;
+    const result = generateJob.result;
+    setPreview({
+      meta: {
+        week_start_date: result.plan.week_start_date,
+        household_size_snapshot: result.plan.household_size_snapshot,
+        kitchen_profile_id: result.plan.kitchen_profile_id,
+      },
+      entries: result.plan.entries.map((e) => ({
+        day_of_week: e.day_of_week,
+        meal_type: e.meal_type,
+        servings: e.servings,
+        requested_tags: (e.requested_tags || []).join(", "),
+        is_indulgence: e.is_indulgence,
+        notes: e.notes || "",
+        selection: e.recipe_id != null ? String(e.recipe_id) : e.new_recipe ? "new" : "",
+        new_recipe: e.new_recipe,
+        // Backlog B3.1 -- attached during generation preview by
+        // meal_plan_service.attach_restriction_warnings, informational
+        // only at this stage (the entry isn't saved yet).
+        restriction_warnings: e.restriction_warnings || [],
+        cross_contact_warnings: e.cross_contact_warnings || [],
+      })),
+    });
+    generateJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateJob.result]);
 
   function updatePreviewEntry(index, field, value) {
     setPreview((p) => ({ ...p, entries: p.entries.map((e, i) => (i === index ? { ...e, [field]: value } : e)) }));
@@ -302,10 +316,13 @@ export default function MealPlanPage() {
 
             <div className="form-actions">
               <button className="btn btn-primary" type="submit" disabled={generating}>
-                {generating ? "Thinking..." : "Generate plan"}
+                {generating && <span className="busy-spinner" aria-hidden="true" />}
+                {generateJob.status === "queued" ? "Queued..." : generating ? "Thinking..." : "Generate plan"}
               </button>
             </div>
-            {generateError && <p className="error-text">{generateError}</p>}
+            {(generateEnqueueError || generateJob.error) && (
+              <p className="error-text">{generateEnqueueError || generateJob.error}</p>
+            )}
           </form>
         </div>
       )}
