@@ -23,10 +23,24 @@ from app.models import (
     AppSetting,
     HouseholdPreferences,
     KitchenProfile,
+    KnowledgeFile,
     MealTag,
     SystemPrompt,
 )
-from app.services import settings_service
+from app.services import knowledge_service, settings_service
+
+# Backlog B2.1 (2026-08-01): bundled, repo-shipped reference documents so
+# every external user starts with SOME grounding for the "grounded in
+# nutritionist knowledge" requirement, instead of an empty knowledge
+# corpus. Seeded INACTIVE (is_active=False) -- a household must
+# explicitly enable each one from the Knowledge Files UI, since these are
+# generic references, not this household's own dietary needs. Sourced
+# from federal-agency (public-domain) pages plus one clearly-labeled
+# original research synthesis; see each file's own License/provenance
+# note and PROJECT-PLAN.md's B2.1 notes section for what was
+# investigated and deliberately left out (DRI numeric tables -- NASEM
+# copyright, not a federal work).
+DEFAULT_KNOWLEDGE_FILES_DIR = os.path.join(os.path.dirname(__file__), "data", "default_knowledge")
 
 MAIN_CHEF_PROMPT = """\
 You are a world-class culinary chef and nutritionist. You are responsible \
@@ -93,6 +107,87 @@ DEFAULT_KITCHEN_EQUIPMENT = [
     "blender",
 ]
 
+DEFAULT_KNOWLEDGE_FILE_DESCRIPTIONS = {
+    "dietary_guidelines_2025_2030.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "USDA/HHS Dietary Guidelines for Americans 2025-2030 summary -- "
+        "public domain federal source."
+    ),
+    "dash_eating_pattern.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "NIH/NHLBI DASH eating plan summary -- public domain federal source."
+    ),
+    "portfolio_diet_ldl_cholesterol.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "Original synthesis of published research on the Portfolio diet "
+        "for LDL cholesterol reduction -- not a government source, see "
+        "the file's own citations."
+    ),
+    "fda_major_food_allergens.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "FDA FALCPA/FASTER Act nine major food allergens reference -- "
+        "public domain federal source."
+    ),
+    "niaid_food_allergy_diagnosis_management.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "NIAID guidelines for diagnosis and management of food allergy -- "
+        "public domain federal source."
+    ),
+}
+
+
+def seed_default_knowledge_files(db) -> list[str]:
+    """Registers each bundled file under DEFAULT_KNOWLEDGE_FILES_DIR as an
+    inactive-by-default KnowledgeFile row, copying it into the live
+    knowledge_service storage dir via the same save_file()/extract_text()
+    path a normal upload uses (so a bundled file is indistinguishable from
+    a user upload once created -- same storage convention, same indexing
+    path once activated). Matches on filename, so re-running never
+    duplicates a row already present -- covers both "seed ran before" and
+    "the user already uploaded a same-named file themselves" the same
+    way. Deliberately does NOT index (embed) these at seed time: they are
+    inactive by default, and knowledge_service.ensure_indexed/
+    search_knowledge already skip inactive files and lazily index on
+    first use once a household enables one -- no live Ollama needed just
+    to seed a fresh database. Returns the list of filenames actually
+    added (empty on a re-run against an already-seeded DB), useful for
+    tests and for a future "what did seeding just do" log line."""
+    if not os.path.isdir(DEFAULT_KNOWLEDGE_FILES_DIR):
+        return []
+
+    added: list[str] = []
+    for filename in sorted(os.listdir(DEFAULT_KNOWLEDGE_FILES_DIR)):
+        if not filename.endswith(".md"):
+            continue
+        if db.query(KnowledgeFile).filter_by(filename=filename).first():
+            continue
+
+        source_path = os.path.join(DEFAULT_KNOWLEDGE_FILES_DIR, filename)
+        with open(source_path, "rb") as f:
+            raw_bytes = f.read()
+
+        storage_path = knowledge_service.save_file(filename, raw_bytes)
+        content = knowledge_service.extract_text(filename, "text/markdown", raw_bytes)
+
+        db.add(
+            KnowledgeFile(
+                filename=filename,
+                storage_path=storage_path,
+                content_type="text/markdown",
+                description=DEFAULT_KNOWLEDGE_FILE_DESCRIPTIONS.get(
+                    filename, "Bundled default (repo-shipped, inactive until enabled)."
+                ),
+                content=content,
+                is_active=False,
+            )
+        )
+        added.append(filename)
+
+    if added:
+        db.commit()
+    return added
+
+
 def seed() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -137,6 +232,10 @@ def seed() -> None:
                 continue
             seed_value = os.environ.get(spec.env_fallback, "") if spec.env_fallback else ""
             settings_service.set_setting(db, spec.key, seed_value or spec.default)
+
+        added_knowledge = seed_default_knowledge_files(db)
+        if added_knowledge:
+            print(f"Seeded {len(added_knowledge)} default knowledge file(s) (inactive): {', '.join(added_knowledge)}")
 
         print("Seed complete.")
     finally:
