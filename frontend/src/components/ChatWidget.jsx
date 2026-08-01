@@ -5,10 +5,47 @@ import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 const SESSION_STORAGE_KEY = "chef.chat.session_id";
 
+// crypto.randomUUID() is gated behind "secure contexts" (HTTPS or
+// localhost) per spec -- it's undefined, not merely missing, when the app
+// is reached over plain http:// at a LAN IP (e.g. a machine on the network
+// hitting the host by IP through a port-forward). That throws inside the
+// useState initializer below with no ErrorBoundary above it, which blanks
+// the entire app -- this was diagnosed 2026-08-01 as the actual cause of
+// "works on localhost, blank page from another device on the LAN".
+// crypto.getRandomValues() has no such restriction, so it's the fallback;
+// Math.random() is a last resort for environments without crypto at all.
+// None of this needs to be cryptographically strong -- it's only a
+// client-side chat session id, not a security boundary.
+function generateId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fall through to the manual implementations below.
+    }
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+    return (
+      `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-` +
+      `${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-` +
+      `${hex.slice(10, 16).join("")}`
+    );
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function getOrCreateSessionId() {
   let id = localStorage.getItem(SESSION_STORAGE_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateId();
     localStorage.setItem(SESSION_STORAGE_KEY, id);
   }
   return id;

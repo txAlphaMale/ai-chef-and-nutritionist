@@ -34,6 +34,20 @@ const PROVENANCE_INFO = {
   ai_estimated: { label: "AI estimate -- not verified against a food database", className: "provenance-estimated" },
 };
 
+// Backlog B6.1 -- same "distinguish a real number from an incomplete
+// guess" discipline as the nutrition provenance above, for cost.
+const COST_PROVENANCE_INFO = {
+  computed: { label: "Estimated from your own recent purchase prices", className: "provenance-computed" },
+  partial: {
+    label: "Partial estimate -- some ingredients have no priced purchase on record",
+    className: "provenance-partial",
+  },
+  no_data: {
+    label: "No cost estimate yet -- add prices via a receipt/order import or manual entry",
+    className: "provenance-estimated",
+  },
+};
+
 // Backlog B10.5 -- unit-system options for the display toggle. "weight"
 // is grams/kg for everything (including volume-measured ingredients
 // with a known density), not just already-mass ones -- see the backend's
@@ -63,6 +77,12 @@ export default function RecipeDetailPage() {
   // apply, persist as the new default" pattern as the Appearance theme
   // picker (SettingsPage.jsx).
   const [unitSystem, setUnitSystem] = useState("original");
+  // Backlog B6.1 -- fetched separately from the recipe itself: cost is
+  // computed live from currently-tracked inventory prices (see
+  // cost_service.py), not a stored recipe field, so it doesn't change
+  // with the servings/unit-system display toggles above and doesn't need
+  // to be refetched when those change.
+  const [cost, setCost] = useState(null);
 
   async function load(withServings, withUnitSystem) {
     setError(null);
@@ -97,6 +117,7 @@ export default function RecipeDetailPage() {
       }
       load(undefined, initialSystem);
     })();
+    api.get(`/recipes/${id}/cost`).then(setCost).catch(() => setCost(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -282,6 +303,26 @@ export default function RecipeDetailPage() {
             {computing ? "Computing..." : "Compute from ingredients"}
           </button>
           {computeError && <p className="error-text">{computeError}</p>}
+        </>
+      )}
+
+      {cost && cost.provenance !== "no_data" && (
+        <>
+          <h3>Estimated cost</h3>
+          <p className={`provenance-badge ${COST_PROVENANCE_INFO[cost.provenance].className}`}>
+            {COST_PROVENANCE_INFO[cost.provenance].label}
+          </p>
+          <p>
+            ${cost.cost_per_serving?.toFixed(2)} per serving -- $
+            {(cost.cost_per_serving * (recipe.servings_shown || cost.servings)).toFixed(2)} for {recipe.servings_shown || cost.servings}{" "}
+            servings
+            {cost.provenance === "partial" && (
+              <span className="hint">
+                {" "}
+                ({cost.resolved_count}/{cost.total_count} ingredients priced)
+              </span>
+            )}
+          </p>
         </>
       )}
 

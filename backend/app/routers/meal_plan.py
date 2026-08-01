@@ -35,6 +35,7 @@ from app.schemas.meal_plan import (
 )
 from app.services import (
     allergen_service,
+    cost_service,
     diet_quality_service,
     dri_service,
     inventory_service,
@@ -391,6 +392,20 @@ def get_grocery_list(plan_id: int, db: Session = Depends(get_db)):
         .order_by(GroceryListItem.is_purchased, GroceryListItem.ingredient_name)
         .all()
     )
+
+
+@router.get("/{plan_id}/grocery-list/cost")
+def get_grocery_list_cost(plan_id: int, db: Session = Depends(get_db)):
+    """Backlog B6.1 -- projected spend across this plan's still-unpurchased
+    grocery-list items, computed live from currently-tracked inventory
+    unit_price data (see cost_service's module docstring). Already-
+    purchased items are excluded -- they're spent money, not a
+    projection of what's left to buy."""
+    plan = db.get(MealPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Meal plan not found")
+    items = db.query(GroceryListItem).filter_by(meal_plan_id=plan_id).all()
+    return cost_service.compute_grocery_list_cost(db, items)
 
 
 @router.get("/{plan_id}/nutrition-summary", response_model=MealPlanNutritionSummary)

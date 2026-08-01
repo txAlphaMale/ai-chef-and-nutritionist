@@ -26,7 +26,15 @@ from app.schemas.recipe import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import allergen_service, food_data_service, job_queue, ollama_client, recipe_image_service, recipe_service
+from app.services import (
+    allergen_service,
+    cost_service,
+    food_data_service,
+    job_queue,
+    ollama_client,
+    recipe_image_service,
+    recipe_service,
+)
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -523,6 +531,19 @@ def compute_recipe_nutrition_endpoint(recipe_id: int, force: bool = False, db: S
     db.commit()
     db.refresh(recipe)
     return _to_read(recipe, db)
+
+
+@router.get("/{recipe_id}/cost")
+def get_recipe_cost(recipe_id: int, db: Session = Depends(get_db)):
+    """Backlog B6.1 -- cost per recipe and cost per serving, computed live
+    from currently-tracked inventory unit_price data (see cost_service's
+    module docstring for why this is never persisted the way nutrition
+    is). Deliberately not a RecipeRead field: this changes every time
+    inventory prices change, not just when the recipe itself is edited."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return cost_service.compute_recipe_cost(db, recipe)
 
 
 @router.post("/{recipe_id}/rating", response_model=RecipeRead)

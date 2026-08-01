@@ -54,6 +54,11 @@ export default function GroceryListPanel({ planId, refreshKey }) {
   const [newUnit, setNewUnit] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [busy, setBusy] = useState(false);
+  // Backlog B6.1 -- projected spend across still-unpurchased items,
+  // computed live from currently-tracked inventory prices; refetched
+  // alongside the list itself since checking an item off as purchased
+  // changes what's still "projected."
+  const [cost, setCost] = useState(null);
 
   async function refresh() {
     setLoading(true);
@@ -61,6 +66,10 @@ export default function GroceryListPanel({ planId, refreshKey }) {
     try {
       const list = await api.get(`/meal-plans/${planId}/grocery-list`);
       setItems(list);
+      api
+        .get(`/meal-plans/${planId}/grocery-list/cost`)
+        .then(setCost)
+        .catch(() => setCost(null));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -125,6 +134,12 @@ export default function GroceryListPanel({ planId, refreshKey }) {
         </button>
       </div>
       <p className="hint">Auto items are recipe ingredients still needed after what's already in inventory.</p>
+      {cost && cost.provenance !== "no_data" && cost.total_cost != null && (
+        <p className="hint">
+          Estimated remaining spend: ${cost.total_cost.toFixed(2)}
+          {cost.provenance === "partial" && ` (${cost.resolved_count}/${cost.total_count} items priced -- not the full list)`}
+        </p>
+      )}
       {error && <p className="error-text">{error}</p>}
       {loading ? (
         <p>Loading grocery list...</p>
