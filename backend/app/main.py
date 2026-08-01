@@ -25,7 +25,21 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import SessionLocal, get_db
 from app.models import HouseholdPreferences
-from app.routers import auth, chat, dining, health, household, inventory, jobs, kitchen, knowledge, meal_plan, recipes, system
+from app.routers import (
+    auth,
+    chat,
+    dining,
+    google_calendar,
+    health,
+    household,
+    inventory,
+    jobs,
+    kitchen,
+    knowledge,
+    meal_plan,
+    recipes,
+    system,
+)
 from app.services import auth_service
 
 app = FastAPI(title="Chef", version="0.1.0")
@@ -137,6 +151,7 @@ app.include_router(household.router)
 app.include_router(health.router)
 app.include_router(knowledge.router)
 app.include_router(chat.router)
+app.include_router(google_calendar.router)
 
 
 @app.get("/health")

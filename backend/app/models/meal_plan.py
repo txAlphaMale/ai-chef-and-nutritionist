@@ -91,6 +91,19 @@ class MealPlanEntry(Base, TimestampMixin):
         ForeignKey("meal_plan_entries.id"), nullable=True
     )
 
+    # Backlog B12.1 (2026-08-01) -- the Google Calendar event id this
+    # entry currently corresponds to in the household's dedicated "Chef
+    # Meal Plan" calendar, or None if it has never been pushed (sync is
+    # off, was off when this entry was created, or the push simply
+    # hasn't run yet). Lets google_calendar_service tell "create a new
+    # event" from "update/delete this existing one" apart per entry,
+    # and clean up a stale event when an entry is skipped or its plan is
+    # deleted, rather than orphaning events in the user's calendar.
+    # Deliberately not a FK/relationship -- it's an opaque id from an
+    # external system, same treatment as any other third-party
+    # reference this app doesn't otherwise model.
+    google_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     meal_plan: Mapped["MealPlan"] = relationship(back_populates="entries")
     recipe: Mapped["Recipe | None"] = relationship()
     leftover_entries: Mapped[list["MealPlanEntry"]] = relationship(

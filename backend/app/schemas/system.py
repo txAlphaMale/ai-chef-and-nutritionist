@@ -14,3 +14,9 @@ class SettingUpdate(BaseModel):
 class PromptUpdate(BaseModel):
     content: str | None = None
     is_active: bool | None = None
+
+
+class SyncEnabledUpdate(BaseModel):
+    """Backlog B12.1 -- the Google Calendar sync on/off toggle."""
+
+    enabled: bool

@@ -9,6 +9,7 @@ import MealPlanPage from "./pages/MealPlanPage";
 import DiningPage from "./pages/DiningPage";
 import HealthPage from "./pages/HealthPage";
 import SettingsPage from "./pages/SettingsPage";
+import WikiPage from "./pages/WikiPage";
 import ChatWidget from "./components/ChatWidget";
 import LoginGate from "./components/LoginGate";
 import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
@@ -84,6 +85,7 @@ export default function App() {
             <NavLink to="/dining">Dining Out</NavLink>
             <NavLink to="/health">Health</NavLink>
             <NavLink to="/settings">Settings</NavLink>
+            <NavLink to="/wiki">WIKI</NavLink>
           </nav>
         </header>
         <ExpiringDigestBanner />
@@ -102,6 +104,7 @@ export default function App() {
             <Route path="/dining" element={<DiningPage />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/wiki" element={<WikiPage />} />
           </Routes>
         </main>
         {/* Mounted here, outside <Routes>, so it stays alive (history,

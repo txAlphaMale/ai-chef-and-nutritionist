@@ -132,6 +132,100 @@ SETTING_SPECS: list[SettingSpec] = [
         ),
         env_fallback="USDA_FDC_API_KEY",
     ),
+    SettingSpec(
+        key="household_timezone",
+        label="Household timezone",
+        is_secret=False,
+        default="America/Chicago",
+        description=(
+            "IANA timezone name (e.g. America/Chicago, America/New_York, "
+            "Europe/London) for this household's kitchen. Backlog B12.1 -- "
+            "unlike the .ics export (B9.5), which deliberately uses 'floating' "
+            "times with no timezone, Google Calendar events need a real one so "
+            "a meal planned for 6pm actually shows at 6pm rather than shifting "
+            "with whichever timezone the viewing device happens to be in."
+        ),
+    ),
+    # ---- Backlog B12.1: Google Calendar push sync. Everything below is
+    # either a value the household types in once (client id/secret/
+    # redirect_uri, sourced from a Google Cloud OAuth client the household
+    # registers themselves -- see the in-app WIKI's Google Calendar setup
+    # guide) or a value google_calendar_service writes automatically as a
+    # side effect of the OAuth connect flow (refresh token, calendar id,
+    # account email, sync toggle) -- never hand-typed. All round-trip
+    # through the same generic settings API as every other setting; kept
+    # in the DB (not a dedicated table) since this is exactly the
+    # "GUI-editable config" this registry already exists for, and a
+    # household only ever has one Google connection, matching the
+    # existing single-row-of-truth shape of tavily_api_key etc.
+    SettingSpec(
+        key="google_calendar_client_id",
+        label="Google OAuth client ID",
+        is_secret=False,
+        default="",
+        description=(
+            "From your own Google Cloud project's OAuth client (Web application "
+            "type) -- see the in-app WIKI: Getting started -> Google Calendar "
+            "setup for the full walkthrough. Not a secret by itself (Google "
+            "treats it as a public identifier), but useless without the client "
+            "secret below."
+        ),
+    ),
+    SettingSpec(
+        key="google_calendar_client_secret",
+        label="Google OAuth client secret",
+        is_secret=True,
+        default="",
+        description="The client secret paired with the client ID above, from the same Google Cloud OAuth client.",
+    ),
+    SettingSpec(
+        key="google_calendar_redirect_uri",
+        label="Google OAuth redirect URI",
+        is_secret=False,
+        default="",
+        description=(
+            "Must exactly match one of the 'Authorized redirect URIs' registered "
+            "on your Google Cloud OAuth client -- typically "
+            "http://<this-machine's-address>:<backend port>/api/calendar/google/callback. "
+            "Left blank by default since it depends on your deployment's "
+            "reachable address; the WIKI guide shows how to work out the right value."
+        ),
+    ),
+    SettingSpec(
+        key="google_calendar_refresh_token",
+        label="Google Calendar refresh token",
+        is_secret=True,
+        default="",
+        description="Written automatically by the OAuth connect flow -- never entered by hand.",
+    ),
+    SettingSpec(
+        key="google_calendar_calendar_id",
+        label="Google Calendar dedicated calendar ID",
+        is_secret=False,
+        default="",
+        description=(
+            "The 'Chef Meal Plan' calendar google_calendar_service creates "
+            "automatically on first connect. Written automatically."
+        ),
+    ),
+    SettingSpec(
+        key="google_calendar_account_email",
+        label="Connected Google account",
+        is_secret=False,
+        default="",
+        description="Display-only -- which Google account is currently connected. Written automatically.",
+    ),
+    SettingSpec(
+        key="google_calendar_sync_enabled",
+        label="Google Calendar sync enabled",
+        is_secret=False,
+        default="false",
+        description=(
+            "\"true\"/\"false\". Whether meal-plan changes push to the connected "
+            "Google Calendar. Turned on automatically on first successful "
+            "connect; toggle off any time to pause pushing without disconnecting."
+        ),
+    ),
 ]
 
 _SPECS_BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SETTING_SPECS}

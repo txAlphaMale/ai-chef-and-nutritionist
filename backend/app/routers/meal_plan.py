@@ -40,6 +40,7 @@ from app.services import (
     cost_service,
     diet_quality_service,
     dri_service,
+    google_calendar_service,
     inventory_service,
     job_queue,
     meal_plan_service,
@@ -48,6 +49,68 @@ from app.services import (
 )
 
 router = APIRouter(prefix="/api/meal-plans", tags=["meal-plans"])
+
+
+# Backlog B12.1 -- every meal-plan/entry mutation that can change what's
+# on the calendar (a new plan, a swapped recipe/servings/meal-type, a
+# skip, a whole-plan delete) routes through one of these three tiny
+# helpers rather than duplicating the "is sync even on" check and job-
+# queue closure shape at each call site. The is_sync_enabled(db) check
+# runs on the REQUEST-scoped session (cheap, no network call) so the
+# overwhelmingly common case -- sync never configured -- costs one extra
+# settings read per mutation, not a job-queue round trip. Mirrors the
+# job-queue closure pattern every other job-enqueuing endpoint in this
+# app already uses: close over plain ids/values, never the request-scoped
+# `db` Session, and open a fresh SessionLocal() inside the closure.
+def _enqueue_plan_sync(db: Session, plan_id: int) -> None:
+    if not google_calendar_service.is_sync_enabled(db):
+        return
+
+    def _run() -> dict:
+        db2 = SessionLocal()
+        try:
+            plan = db2.get(MealPlan, plan_id)
+            if plan is not None:
+                google_calendar_service.sync_meal_plan(db2, plan)
+        finally:
+            db2.close()
+        return {}
+
+    job_queue.enqueue("google_calendar_sync", f"Sync meal plan {plan_id} to Google Calendar", _run)
+
+
+def _enqueue_entry_sync(db: Session, entry_id: int) -> None:
+    if not google_calendar_service.is_sync_enabled(db):
+        return
+
+    def _run() -> dict:
+        db2 = SessionLocal()
+        try:
+            entry = db2.get(MealPlanEntry, entry_id)
+            if entry is not None:
+                google_calendar_service.sync_entry(db2, entry)
+                db2.commit()
+        finally:
+            db2.close()
+        return {}
+
+    job_queue.enqueue("google_calendar_sync", f"Sync meal plan entry {entry_id} to Google Calendar", _run)
+
+
+def _enqueue_event_cleanup(db: Session, event_ids: list[str]) -> None:
+    if not event_ids or not google_calendar_service.is_sync_enabled(db):
+        return
+
+    def _run() -> dict:
+        db2 = SessionLocal()
+        try:
+            for event_id in event_ids:
+                google_calendar_service.delete_event(db2, event_id)
+        finally:
+            db2.close()
+        return {}
+
+    job_queue.enqueue("google_calendar_sync", f"Remove {len(event_ids)} calendar event(s) for a deleted plan", _run)
 
 
 def _to_entry_read(entry: MealPlanEntry) -> MealPlanEntryRead:
@@ -230,6 +293,7 @@ def create_meal_plan(payload: MealPlanCreate, db: Session = Depends(get_db)):
 
     _persist_grocery_list(db, plan)
     db.refresh(plan)
+    _enqueue_plan_sync(db, plan.id)
     return _to_plan_read(plan)
 
 
@@ -258,8 +322,10 @@ def delete_meal_plan(plan_id: int, db: Session = Depends(get_db)):
     plan = db.get(MealPlan, plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Meal plan not found")
+    event_ids = [e.google_event_id for e in plan.entries if e.google_event_id]
     db.delete(plan)
     db.commit()
+    _enqueue_event_cleanup(db, event_ids)
     return None
 
 
@@ -297,6 +363,7 @@ def update_meal_plan_entry(plan_id: int, entry_id: int, payload: MealPlanEntryUp
     # the plan needs to buy, so keep the auto grocery list in sync.
     _persist_grocery_list(db, entry.meal_plan)
     db.refresh(entry)
+    _enqueue_entry_sync(db, entry.id)
     return _to_entry_read(entry)
 
 
@@ -380,6 +447,7 @@ def skip_meal_plan_entry(plan_id: int, entry_id: int, db: Session = Depends(get_
     db.refresh(entry)
     _persist_grocery_list(db, entry.meal_plan)
     db.refresh(entry)
+    _enqueue_entry_sync(db, entry.id)  # removes this entry's calendar event, if any
     return _to_entry_read(entry)
 
 

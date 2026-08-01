@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
@@ -16,6 +16,18 @@ const PROMPT_LABELS = {
   main_chef: "Main chef system prompt",
   dietary_onboarding: "Dietary onboarding prompt",
 };
+
+// Backlog B12.1 -- these four settings are written automatically by
+// google_calendar_service.py's OAuth flow, never hand-typed, so they're
+// excluded from the generic settings loop below (which renders a plain
+// text/password box per key) and instead surfaced through the dedicated
+// Google Calendar card's proper connect/status/toggle UI.
+const GOOGLE_CALENDAR_MANAGED_KEYS = [
+  "google_calendar_refresh_token",
+  "google_calendar_calendar_id",
+  "google_calendar_account_email",
+  "google_calendar_sync_enabled",
+];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState([]);
@@ -101,7 +113,101 @@ export default function SettingsPage() {
   // renders for every other key -- so it's read out of `settings`
   // directly instead of duplicated in its own state.
   const currentTheme = settings.find((s) => s.key === "ui_theme")?.value || "default";
-  const otherSettings = settings.filter((s) => s.key !== "ui_theme");
+  const otherSettings = settings.filter((s) => s.key !== "ui_theme" && !GOOGLE_CALENDAR_MANAGED_KEYS.includes(s.key));
+
+  // Backlog B12.1 -- Google Calendar connection status + the OAuth
+  // connect/disconnect/sync-toggle/resync actions. Kept separate from
+  // the generic settings state above since this isn't a plain text-box
+  // edit -- it's a multi-step connection with server-driven state
+  // (connected?, which account, which calendar).
+  const [gcalStatus, setGcalStatus] = useState(null);
+  const [gcalBusy, setGcalBusy] = useState(false);
+  const [gcalError, setGcalError] = useState(null);
+  const [gcalBanner, setGcalBanner] = useState(null); // {type: "success"|"error", message}
+
+  async function refreshGcalStatus() {
+    try {
+      setGcalStatus(await api.get("/calendar/google/status"));
+    } catch (e) {
+      setGcalError(e.message);
+    }
+  }
+
+  useEffect(() => {
+    // The OAuth callback (backend) redirects back here with
+    // #/settings?google_calendar=connected|error&message=... -- read it
+    // once on mount, same "parse the hash's own query half" approach
+    // WikiPage's deep-link handling uses (HashRouter puts the route's
+    // query params after the route's own '?', not the page URL's).
+    const hashQuery = window.location.hash.split("?")[1] || "";
+    const params = new URLSearchParams(hashQuery);
+    const result = params.get("google_calendar");
+    if (result === "connected") {
+      setGcalBanner({ type: "success", message: "Google Calendar connected -- sync is now on." });
+    } else if (result === "error") {
+      setGcalBanner({ type: "error", message: params.get("message") || "Google Calendar connection failed." });
+    }
+    if (result) {
+      // Strip the query so a page refresh doesn't re-show a stale banner.
+      window.history.replaceState(null, "", window.location.pathname + window.location.search + "#/settings");
+    }
+    refreshGcalStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function connectGoogleCalendar() {
+    // A real browser navigation, not a fetch -- this has to follow
+    // Google's own redirect chain through the consent screen, which an
+    // XHR/fetch call can't do. return_to carries this device's own
+    // origin so the backend callback can send the browser back here
+    // specifically, regardless of which device on the LAN initiated it.
+    window.location.href = `${backendOrigin}/api/calendar/google/authorize?return_to=${encodeURIComponent(window.location.origin)}`;
+  }
+
+  async function disconnectGoogleCalendar() {
+    setGcalBusy(true);
+    setGcalError(null);
+    try {
+      await refreshAfter(api.post("/calendar/google/disconnect", {}));
+    } catch (e) {
+      setGcalError(e.message);
+    } finally {
+      setGcalBusy(false);
+    }
+  }
+
+  async function toggleGcalSync(enabled) {
+    setGcalBusy(true);
+    setGcalError(null);
+    try {
+      await refreshAfter(api.patch("/calendar/google/sync-enabled", { enabled }));
+    } catch (e) {
+      setGcalError(e.message);
+    } finally {
+      setGcalBusy(false);
+    }
+  }
+
+  async function resyncGoogleCalendar() {
+    setGcalBusy(true);
+    setGcalError(null);
+    try {
+      // Fire-and-forget -- the global JobsBadge (already mounted in
+      // App.jsx outside <Routes>) picks up the enqueued job and shows
+      // its progress, so there's nothing further to poll here.
+      await api.post("/calendar/google/resync", {});
+    } catch (e) {
+      setGcalError(e.message);
+    } finally {
+      setGcalBusy(false);
+    }
+  }
+
+  async function refreshAfter(promise) {
+    const result = await promise;
+    setGcalStatus(result);
+    return result;
+  }
   const themeGroups = useMemo(() => {
     const groups = [];
     for (const t of THEME_OPTIONS) {
@@ -386,6 +492,70 @@ export default function SettingsPage() {
               </div>
             </div>
           ))
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Google Calendar</h3>
+        <p className="hint">
+          Backlog B12.1 -- pushes your weekly meal plan into a dedicated "Chef Meal Plan" calendar in your Google
+          account, kept in sync automatically as the plan changes. Share that calendar with the rest of the
+          household from Google Calendar's own sharing settings. First-time setup needs your own free Google Cloud
+          OAuth client -- see the full walkthrough in the <a href="#/wiki?entry=google-calendar-setup">WIKI</a>.
+        </p>
+
+        {gcalBanner && (
+          <p className={`gcal-banner ${gcalBanner.type}`}>{gcalBanner.message}</p>
+        )}
+        {gcalError && <p className="error-text">{gcalError}</p>}
+
+        {gcalStatus ? (
+          gcalStatus.connected ? (
+            <>
+              <p>
+                Connected as <strong>{gcalStatus.account_email || "(unknown account)"}</strong>.{" "}
+                {gcalStatus.calendar_html_link && (
+                  <a href={gcalStatus.calendar_html_link} target="_blank" rel="noreferrer">
+                    Open "Chef Meal Plan" in Google Calendar
+                  </a>
+                )}
+              </p>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={gcalStatus.sync_enabled}
+                  disabled={gcalBusy}
+                  onChange={(e) => toggleGcalSync(e.target.checked)}
+                />
+                Sync meal-plan changes to Google Calendar
+              </label>
+              <div className="form-actions">
+                <button className="btn btn-secondary btn-sm" onClick={resyncGoogleCalendar} disabled={gcalBusy}>
+                  Force resync
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={disconnectGoogleCalendar} disabled={gcalBusy}>
+                  Disconnect
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="hint">
+                {gcalStatus.configured
+                  ? "OAuth client is configured -- click Connect to finish linking your Google account."
+                  : "Enter your Google OAuth client ID, secret, and redirect URI below first (see the WIKI guide above), then Connect."}
+              </p>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={connectGoogleCalendar}
+                disabled={!gcalStatus.configured}
+              >
+                Connect Google Calendar
+              </button>
+            </>
+          )
+        ) : (
+          <p className="hint">Loading...</p>
         )}
       </div>
 
