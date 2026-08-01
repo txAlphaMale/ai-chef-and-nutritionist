@@ -417,6 +417,73 @@ def _merge_same_name_group(ingredients: list[dict]) -> list[dict]:
     return buckets
 
 
+# Backlog B5.4 (2026-08-01) -- grocery-list aisle/category grouping.
+# GroceryListItem.category has existed since Phase 5 explicitly "for a
+# future group-by-aisle view" but nothing ever populated it for
+# auto-generated lines (only a manually-added item could carry one, and
+# even then only if the user typed it in themselves). Reuses the SAME
+# six-value taxonomy InventoryItem already uses (pantry/fridge/freezer/
+# produce/spice/other) rather than inventing a separate "aisle" taxonomy
+# -- those buckets already map reasonably well onto how a grocery store
+# is laid out (produce section, dairy case, freezer aisle, spice aisle,
+# dry-goods aisles), and reusing them means a household's own inventory
+# categorization stays the authoritative source whenever a name match
+# exists (see subtract_inventory below), with this keyword guesser only
+# filling in for ingredients that aren't already in inventory at all.
+#
+# Deliberately NOT held to the same "never guess" discipline as
+# allergen_service's matching -- an allergen miss can be a real safety
+# issue, a grocery item landing in the wrong aisle bucket is a minor
+# daily-use inconvenience, easily hand-corrected in the UI. Keyword lists
+# are intentionally not exhaustive; unmatched ingredients fall back to
+# "other" rather than a wrong guess in a more specific-sounding bucket.
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    # Checked before "fridge"/"pantry" below -- "pepper" alone would
+    # otherwise land ambiguously; multi-word produce items are listed
+    # first specifically to win over a generic "pepper"/"onion" spice-
+    # aisle false match.
+    "produce": [
+        "apple", "banana", "orange", "lemon", "lime", "grape", "melon", "berries", "strawberry",
+        "blueberry", "raspberry", "avocado", "tomato", "onion", "garlic", "potato", "sweet potato",
+        "carrot", "celery", "lettuce", "spinach", "kale", "broccoli", "cauliflower", "cucumber",
+        "zucchini", "squash", "cabbage", "mushroom", "bell pepper", "jalapeno", "cilantro", "parsley",
+        "fresh basil", "fresh herbs", "green onion", "scallion", "ginger root",
+    ],
+    "fridge": [
+        "milk", "cheese", "yogurt", "yoghurt", "butter", "cream", "egg", "eggs", "sour cream",
+        "cottage cheese", "cream cheese", "tofu", "hummus", "deli", "ham", "bacon", "sausage",
+        "chicken breast", "chicken thigh", "ground beef", "steak", "pork chop", "salmon", "shrimp",
+        "fish fillet", "tortilla",
+    ],
+    "freezer": ["frozen", "ice cream", "popsicle"],
+    "spice": [
+        "salt", "black pepper", "white pepper", "cumin", "paprika", "cinnamon", "oregano",
+        "dried basil", "cayenne", "turmeric", "nutmeg", "chili powder", "curry powder", "spice",
+        "seasoning", "vanilla extract", "bay leaf", "thyme", "rosemary",
+    ],
+    "pantry": [
+        "flour", "sugar", "rice", "pasta", "noodle", "bread", "oil", "vinegar", "canned",
+        "beans", "lentil", "broth", "stock", "cereal", "oats", "oatmeal", "nuts", "peanut butter",
+        "honey", "syrup", "sauce", "ketchup", "mustard", "mayonnaise", "soy sauce", "cracker",
+        "chip", "cookie", "baking powder", "baking soda", "yeast", "cornstarch",
+    ],
+}
+
+
+def guess_grocery_category(ingredient_name: str) -> str | None:
+    """Best-effort, keyword-based -- see the module note above for why
+    this is held to a lighter standard than allergen_service's matching.
+    Returns None (not "other") when nothing matches, so a caller can
+    distinguish "guessed other" from "no guess made" if that distinction
+    ever matters; `compute_grocery_list`/the manual-add endpoint both
+    treat None the same as "other" for display purposes today."""
+    name_lower = (ingredient_name or "").lower()
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in name_lower for kw in keywords):
+            return category
+    return None
+
+
 def aggregate_ingredients(ingredient_lists: list[list[dict]]) -> list[dict]:
     """Merges scaled ingredient dicts (ingredient_name/quantity/unit)
     across multiple recipes into one summed list. Two ingredient lines
@@ -474,9 +541,19 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
                 None,
             )
 
+        # Backlog B5.4 -- a real inventory row's own category is a better
+        # signal than a keyword guess (the household already classified
+        # it themselves), so it wins whenever a name match exists at all,
+        # even a partial one that still leaves a remaining quantity to
+        # buy below. Only fall back to guessing when nothing in
+        # inventory matches this ingredient name at all.
+        category = match.category if match is not None else guess_grocery_category(ing["ingredient_name"])
+
         if ing["quantity"] is None:
             if match is None:
-                remaining.append(dict(ing))
+                item = dict(ing)
+                item["category"] = category
+                remaining.append(item)
             continue
 
         on_hand = 0.0
@@ -491,6 +568,7 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
         if needed > 0:
             item = dict(ing)
             item["quantity"] = needed
+            item["category"] = category
             remaining.append(item)
     return remaining
 

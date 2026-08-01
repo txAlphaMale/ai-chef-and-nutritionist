@@ -102,13 +102,18 @@ def test_subtract_inventory_same_unit_unchanged_behavior():
     aggregated = [{"ingredient_name": "rice", "quantity": 3, "unit": "cup"}]
     inventory = [_item("rice", 1, "cup")]
     result = meal_plan_service.subtract_inventory(aggregated, inventory)
-    assert result == [{"ingredient_name": "rice", "quantity": 2, "unit": "cup"}]
+    # Backlog B5.4 -- category now rides along, sourced from the matched
+    # inventory row's own category (see test_grocery_category.py for
+    # dedicated coverage of that behavior).
+    assert result == [{"ingredient_name": "rice", "quantity": 2, "unit": "cup", "category": "pantry"}]
 
 
 def test_subtract_inventory_no_match_uses_full_quantity():
     aggregated = [{"ingredient_name": "saffron", "quantity": 1, "unit": "tsp"}]
     result = meal_plan_service.subtract_inventory(aggregated, [])
-    assert result == [{"ingredient_name": "saffron", "quantity": 1, "unit": "tsp"}]
+    # "saffron" matches none of guess_grocery_category's keyword lists,
+    # so category is None here -- see test_grocery_category.py.
+    assert result == [{"ingredient_name": "saffron", "quantity": 1, "unit": "tsp", "category": None}]
 
 
 # --- inventory_service.deduct_by_name: unit-aware deduction --------------

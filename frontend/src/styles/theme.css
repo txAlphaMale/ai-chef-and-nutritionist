@@ -798,6 +798,19 @@ tr.urgency-low td {
 }
 
 /* --- Grocery list --- */
+/* Backlog B5.4 -- grocery list grouped by aisle/category. */
+.grocery-category-group {
+  margin-bottom: var(--spacing-2);
+}
+
+.grocery-category-heading {
+  margin: var(--spacing-2) 0 var(--spacing-1);
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
 .grocery-list {
   list-style: none;
   padding: 0;

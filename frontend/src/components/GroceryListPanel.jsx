@@ -1,6 +1,46 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
+// Backlog B5.4 -- same six-value taxonomy InventoryItem already uses,
+// in a sensible shop-the-store order (produce/fridge/freezer first,
+// since those are usually the outer ring of a grocery store; pantry/
+// spice aisles last; "other" and uncategorized always at the very end).
+const CATEGORY_ORDER = ["produce", "fridge", "freezer", "spice", "pantry", "other"];
+const CATEGORY_LABELS = {
+  produce: "Produce",
+  fridge: "Fridge",
+  freezer: "Freezer",
+  spice: "Spice aisle",
+  pantry: "Pantry",
+  other: "Other",
+};
+const UNCATEGORIZED_LABEL = "Uncategorized";
+
+function groupByCategory(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = item.category || null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const ordered = [];
+  for (const key of CATEGORY_ORDER) {
+    if (groups.has(key)) {
+      ordered.push([key, groups.get(key)]);
+      groups.delete(key);
+    }
+  }
+  if (groups.has(null)) {
+    ordered.push([null, groups.get(null)]);
+    groups.delete(null);
+  }
+  // Any category value not in CATEGORY_ORDER (shouldn't happen via this
+  // app's own UI, but a hand-edited DB row could have anything) -- shown
+  // rather than silently dropped.
+  for (const [key, value] of groups) ordered.push([key, value]);
+  return ordered;
+}
+
 /** Self-contained grocery list for one meal plan: fetches its own items
  * given `planId`, and re-fetches whenever `refreshKey` changes (bumped
  * by the parent after actions that could change what's needed, like
@@ -12,6 +52,7 @@ export default function GroceryListPanel({ planId, refreshKey }) {
   const [newName, setNewName] = useState("");
   const [newQty, setNewQty] = useState("");
   const [newUnit, setNewUnit] = useState("");
+  const [newCategory, setNewCategory] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -51,10 +92,12 @@ export default function GroceryListPanel({ planId, refreshKey }) {
         ingredient_name: newName.trim(),
         quantity: newQty === "" ? null : Number(newQty),
         unit: newUnit || null,
+        category: newCategory || null,
       });
       setNewName("");
       setNewQty("");
       setNewUnit("");
+      setNewCategory("");
       refresh();
     } finally {
       setBusy(false);
@@ -88,28 +131,41 @@ export default function GroceryListPanel({ planId, refreshKey }) {
       ) : items.length === 0 ? (
         <p>Nothing needed -- inventory already covers this plan.</p>
       ) : (
-        <ul className="grocery-list">
-          {items.map((item) => (
-            <li key={item.id} className={item.is_purchased ? "grocery-item purchased" : "grocery-item"}>
-              <label className="checkbox-label inline">
-                <input type="checkbox" checked={item.is_purchased} onChange={() => togglePurchased(item)} />
-                <span>
-                  {item.ingredient_name}
-                  {item.quantity != null && ` — ${item.quantity}${item.unit ? " " + item.unit : ""}`}
-                  {item.source === "manual" && <span className="tag">manual</span>}
-                </span>
-              </label>
-              <button className="btn-link btn-link-danger" onClick={() => removeItem(item)}>
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
+        groupByCategory(items).map(([category, groupItems]) => (
+          <div className="grocery-category-group" key={category ?? "uncategorized"}>
+            <h4 className="grocery-category-heading">{category ? CATEGORY_LABELS[category] || category : UNCATEGORIZED_LABEL}</h4>
+            <ul className="grocery-list">
+              {groupItems.map((item) => (
+                <li key={item.id} className={item.is_purchased ? "grocery-item purchased" : "grocery-item"}>
+                  <label className="checkbox-label inline">
+                    <input type="checkbox" checked={item.is_purchased} onChange={() => togglePurchased(item)} />
+                    <span>
+                      {item.ingredient_name}
+                      {item.quantity != null && ` — ${item.quantity}${item.unit ? " " + item.unit : ""}`}
+                      {item.source === "manual" && <span className="tag">manual</span>}
+                    </span>
+                  </label>
+                  <button className="btn-link btn-link-danger" onClick={() => removeItem(item)}>
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
       )}
       <form className="form-row" onSubmit={addItem}>
         <input placeholder="Add item" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <input placeholder="qty" type="number" step="any" value={newQty} onChange={(e) => setNewQty(e.target.value)} style={{ maxWidth: 90 }} />
         <input placeholder="unit" value={newUnit} onChange={(e) => setNewUnit(e.target.value)} style={{ maxWidth: 90 }} />
+        <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} style={{ maxWidth: 130 }}>
+          <option value="">(guess aisle)</option>
+          {CATEGORY_ORDER.map((c) => (
+            <option key={c} value={c}>
+              {CATEGORY_LABELS[c]}
+            </option>
+          ))}
+        </select>
         <button className="btn btn-secondary btn-sm" type="submit" disabled={busy || !newName.trim()}>
           Add
         </button>

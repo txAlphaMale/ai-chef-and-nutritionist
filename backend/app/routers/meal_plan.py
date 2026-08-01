@@ -90,6 +90,10 @@ def _persist_grocery_list(db: Session, plan: MealPlan) -> None:
                 ingredient_name=item["ingredient_name"],
                 quantity=item["quantity"],
                 unit=item["unit"],
+                # Backlog B5.4 -- category was always available on the
+                # computed dict (subtract_inventory sets it), just never
+                # carried through to the persisted row.
+                category=item.get("category"),
                 source="auto",
             )
         )
@@ -377,7 +381,15 @@ def add_grocery_list_item(plan_id: int, payload: GroceryListItemCreate, db: Sess
     plan = db.get(MealPlan, plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Meal plan not found")
-    item = GroceryListItem(meal_plan_id=plan_id, source="manual", **payload.model_dump())
+    data = payload.model_dump()
+    # Backlog B5.4 -- a manually-typed item has no recipe/inventory
+    # context to draw a category from, so apply the same best-effort
+    # keyword guess auto-generated lines get, rather than leaving every
+    # hand-added item permanently uncategorized. The user can always
+    # correct it afterward (PATCH already supports category).
+    if not data.get("category"):
+        data["category"] = meal_plan_service.guess_grocery_category(data["ingredient_name"])
+    item = GroceryListItem(meal_plan_id=plan_id, source="manual", **data)
     db.add(item)
     db.commit()
     db.refresh(item)
