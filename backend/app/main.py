@@ -16,6 +16,7 @@ see auth_gate's own docstring for why that specific mistake (checked on
 only a subset of endpoints) is the one this design avoids.
 """
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,10 +40,23 @@ from app.routers import (
     meal_plan,
     recipes,
     system,
+    tls,
 )
-from app.services import auth_service
+from app.services import auth_service, tls_service
 
-app = FastAPI(title="Chef", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Backlog B15.1 -- whatever certificate exists on disk right now is,
+    # by definition, what run_server.py just chose to serve for this
+    # process, so any earlier 'restart_required' flag left over from a
+    # tls_service mutation is stale the instant we're actually running.
+    # Mirrors Fiduciary's own app.py startup call to the same effect.
+    tls_service.mark_applied()
+    yield
+
+
+app = FastAPI(title="Chef", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -152,6 +166,7 @@ app.include_router(health.router)
 app.include_router(knowledge.router)
 app.include_router(chat.router)
 app.include_router(google_calendar.router)
+app.include_router(tls.router)
 
 
 @app.get("/health")

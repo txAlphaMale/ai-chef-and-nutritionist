@@ -175,6 +175,115 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [disableCurrentPassword, setDisableCurrentPassword] = useState("");
 
+  // Backlog B15.1 (author-reported 2026-08-01) -- HTTPS certificate
+  // management. Kept separate from the generic settings loop (like the
+  // Google Calendar card) since this isn't a plain value edit: it's a
+  // multi-step generate/import flow with server-driven status (active?,
+  // method, SANs, expiry) and a self-triggered backend restart. See
+  // backend/app/services/tls_service.py's module docstring for the full
+  // two-container architecture this UI is driving.
+  const [tlsStatus, setTlsStatus] = useState(null);
+  const [tlsBusy, setTlsBusy] = useState(false);
+  const [tlsError, setTlsError] = useState(null);
+  const [tlsNotice, setTlsNotice] = useState(null);
+  const [selfSignedHosts, setSelfSignedHosts] = useState("");
+  const [csrCommonName, setCsrCommonName] = useState("");
+  const [csrSans, setCsrSans] = useState("");
+  const [csrResult, setCsrResult] = useState(null);
+  const [importCertPem, setImportCertPem] = useState("");
+  const [importChainPem, setImportChainPem] = useState("");
+
+  async function refreshTlsStatus() {
+    try {
+      setTlsStatus(await api.get("/tls/status"));
+    } catch (e) {
+      setTlsError(e.message);
+    }
+  }
+
+  async function generateSelfSigned(e) {
+    e.preventDefault();
+    const hostnames = selfSignedHosts
+      .split(/[,\s]+/)
+      .map((h) => h.trim())
+      .filter(Boolean);
+    setTlsBusy(true);
+    setTlsError(null);
+    setTlsNotice(null);
+    try {
+      const result = await api.post("/tls/self-signed", { hostnames });
+      setTlsStatus(result.status);
+      setTlsNotice(
+        "Self-signed certificate generated -- the backend is restarting now to apply it (a few seconds), and " +
+          "the frontend will pick it up on its own next check shortly after. See the note below about trusting " +
+          "it in your browser."
+      );
+    } catch (err) {
+      setTlsError(err.message);
+    } finally {
+      setTlsBusy(false);
+    }
+  }
+
+  async function generateCsr(e) {
+    e.preventDefault();
+    const sans = csrSans
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setTlsBusy(true);
+    setTlsError(null);
+    setTlsNotice(null);
+    try {
+      const result = await api.post("/tls/csr", { common_name: csrCommonName.trim(), sans });
+      setCsrResult(result);
+    } catch (err) {
+      setTlsError(err.message);
+    } finally {
+      setTlsBusy(false);
+    }
+  }
+
+  async function importTlsCert(e) {
+    e.preventDefault();
+    setTlsBusy(true);
+    setTlsError(null);
+    setTlsNotice(null);
+    try {
+      const result = await api.post("/tls/import-cert", {
+        cert_pem: importCertPem,
+        chain_pem: importChainPem.trim() ? importChainPem : null,
+      });
+      setTlsStatus(result.status);
+      setImportCertPem("");
+      setImportChainPem("");
+      setCsrResult(null);
+      setTlsNotice("Certificate installed -- the backend is restarting now to apply it (a few seconds).");
+    } catch (err) {
+      setTlsError(err.message);
+    } finally {
+      setTlsBusy(false);
+    }
+  }
+
+  async function clearTlsCert() {
+    if (!window.confirm("Remove the active certificate and revert to plain HTTP? Camera scanning and location features will stop working until a new certificate is installed.")) {
+      return;
+    }
+    setTlsBusy(true);
+    setTlsError(null);
+    setTlsNotice(null);
+    try {
+      const result = await api.post("/tls/clear", {});
+      setTlsStatus(result.status);
+      setTlsNotice("Certificate cleared -- reverting to plain HTTP now (a few seconds).");
+    } catch (err) {
+      setTlsError(err.message);
+    } finally {
+      setTlsBusy(false);
+    }
+  }
+
   // Backlog B9.2 -- one-click backup. The manifest is just a cheap
   // preview of what the archive currently contains (see
   // backup_service.backup_manifest) so the button isn't a total black
@@ -455,6 +564,23 @@ export default function SettingsPage() {
     refreshStatus();
     refreshAuthStatus();
     refreshBackupManifest();
+    refreshTlsStatus();
+    // Backlog B15.1 -- prefill the self-signed hostname/CSR common-name
+    // fields with the address this browser is already using to reach
+    // Chef (same source as the Google Calendar redirect-URI suggestion
+    // above: backendOrigin, derived from window.location). A household
+    // usually wants the cert to cover exactly the address they already
+    // type into a browser -- only prefills empty fields, never
+    // overwrites something the household typed.
+    if (backendOrigin) {
+      try {
+        const host = new URL(backendOrigin).hostname;
+        setSelfSignedHosts((prev) => prev || host);
+        setCsrCommonName((prev) => prev || host);
+      } catch {
+        // backendOrigin not a parseable URL (e.g. dev mode's "") -- leave fields blank
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -932,6 +1058,177 @@ export default function SettingsPage() {
           ) : (
             <p className="hint">{authError || "Loading..."}</p>
           )}
+        </div>
+      )}
+
+      {activeTab === "security" && (
+        <div className="card">
+          <div className="page-toolbar">
+            <h3 style={{ margin: 0 }}>Certificate (HTTPS)</h3>
+            <button className="btn btn-secondary btn-sm" onClick={refreshTlsStatus} disabled={tlsBusy}>
+              Refresh
+            </button>
+          </div>
+          <p className="hint">
+            Backlog B15.1 (author-reported 2026-08-01) -- most browsers block the camera (barcode scanner) and
+            device location (Dining Out) unless the page is loaded over HTTPS, or from <code>localhost</code>.
+            A self-signed certificate is the quickest fix for a LAN-only setup like this one -- it's not signed
+            by a public authority, so browsers show a one-time "not trusted" warning to click through (see the
+            note at the bottom of this card), which is expected and safe on your own private network.
+          </p>
+
+          {tlsError && <p className="error-text">{tlsError}</p>}
+          {tlsNotice && <p className="hint">{tlsNotice}</p>}
+
+          {tlsStatus ? (
+            <>
+              <div className="settings-status-grid">
+                <span className={`status-dot ${tlsStatus.active ? "status-ok" : "status-bad"}`} />
+                <span>
+                  {tlsStatus.active
+                    ? `HTTPS certificate active (${tlsStatus.method === "self_signed" ? "self-signed" : "CA-signed, imported"})`
+                    : "No certificate installed -- Chef is serving plain HTTP"}
+                </span>
+              </div>
+              {tlsStatus.active && !tlsStatus.error && (
+                <p className="hint">
+                  Common name: <strong>{tlsStatus.common_name}</strong>
+                  {tlsStatus.sans?.length > 0 && <> · Covers: {tlsStatus.sans.join(", ")}</>}
+                  {" · "}
+                  {tlsStatus.expired ? (
+                    <span className="error-text">expired</span>
+                  ) : (
+                    `expires ${new Date(tlsStatus.expires_at * 1000).toLocaleDateString()} (${tlsStatus.days_remaining} days)`
+                  )}
+                </p>
+              )}
+              {tlsStatus.error && <p className="error-text">{tlsStatus.error}</p>}
+              {tlsStatus.restart_required && (
+                <p className="hint">Applying the new certificate now -- this page may briefly disconnect and reconnect.</p>
+              )}
+              <p className="hint">
+                Backend: plain HTTP on port {tlsStatus.http_port}, HTTPS on port {tlsStatus.https_port} once a
+                certificate is active. The frontend (this page) has its own matching HTTP/HTTPS ports -- see the{" "}
+                <a href="#/wiki?entry=https-setup">WIKI's HTTPS entry</a> for the exact addresses.
+              </p>
+            </>
+          ) : (
+            <p className="hint">Loading...</p>
+          )}
+
+          <form onSubmit={generateSelfSigned} className="settings-row">
+            <label>
+              Hostnames / IP addresses to cover
+              <input
+                type="text"
+                value={selfSignedHosts}
+                onChange={(e) => setSelfSignedHosts(e.target.value)}
+                placeholder="e.g. 10.11.24.21, chef.local, localhost"
+              />
+            </label>
+            <p className="hint">
+              Comma or space separated. Include every address you actually type into a browser to reach Chef -- a
+              browser rejects a certificate that doesn't list the exact address in its URL bar, even if the
+              certificate is otherwise valid and trusted.
+            </p>
+            <div className="form-actions">
+              <button className="btn btn-primary btn-sm" type="submit" disabled={tlsBusy || !selfSignedHosts.trim()}>
+                {tlsBusy
+                  ? "Generating..."
+                  : tlsStatus?.active
+                    ? "Replace with new self-signed certificate"
+                    : "Generate self-signed certificate"}
+              </button>
+            </div>
+          </form>
+
+          {tlsStatus?.active && (
+            <div className="form-actions">
+              <button className="btn btn-link-danger" onClick={clearTlsCert} disabled={tlsBusy}>
+                Remove certificate (revert to plain HTTP)
+              </button>
+            </div>
+          )}
+
+          <details className="settings-row">
+            <summary>Advanced: use a certificate from your own Certificate Authority</summary>
+            <p className="hint">
+              Generates a private key (stays on this server, never downloaded) and a Certificate Signing Request
+              you submit to any CA -- an internal/self-signed CA is fine for a LAN-only deployment. Come back and
+              paste the signed certificate below once you have it.
+            </p>
+            <form onSubmit={generateCsr} className="settings-row">
+              <label>
+                Common name (primary address)
+                <input
+                  type="text"
+                  value={csrCommonName}
+                  onChange={(e) => setCsrCommonName(e.target.value)}
+                  placeholder="e.g. 10.11.24.21"
+                />
+              </label>
+              <label>
+                Additional names/IPs (optional)
+                <input
+                  type="text"
+                  value={csrSans}
+                  onChange={(e) => setCsrSans(e.target.value)}
+                  placeholder="comma or space separated"
+                />
+              </label>
+              <div className="form-actions">
+                <button className="btn btn-secondary btn-sm" type="submit" disabled={tlsBusy || !csrCommonName.trim()}>
+                  {tlsBusy ? "Generating..." : "Generate CSR"}
+                </button>
+              </div>
+            </form>
+
+            {csrResult && (
+              <div className="settings-row">
+                <label>
+                  Certificate Signing Request (submit this to your CA)
+                  <textarea rows={8} readOnly value={csrResult.csr_pem} onFocus={(e) => e.target.select()} />
+                </label>
+                <p className="hint">{csrResult.note}</p>
+              </div>
+            )}
+
+            <form onSubmit={importTlsCert} className="settings-row">
+              <label>
+                Signed certificate (PEM)
+                <textarea
+                  rows={6}
+                  value={importCertPem}
+                  onChange={(e) => setImportCertPem(e.target.value)}
+                  placeholder="-----BEGIN CERTIFICATE-----"
+                />
+              </label>
+              <label>
+                Certificate chain (optional, PEM)
+                <textarea
+                  rows={4}
+                  value={importChainPem}
+                  onChange={(e) => setImportChainPem(e.target.value)}
+                  placeholder="-----BEGIN CERTIFICATE----- (intermediate CA, if your CA provided one)"
+                />
+              </label>
+              <div className="form-actions">
+                <button className="btn btn-primary btn-sm" type="submit" disabled={tlsBusy || !importCertPem.trim()}>
+                  {tlsBusy ? "Installing..." : "Install certificate"}
+                </button>
+              </div>
+            </form>
+          </details>
+
+          <p className="hint">
+            <strong>After generating or installing a certificate, visit and accept the browser warning at BOTH
+            addresses separately</strong> -- this page and the backend API it calls run as two different
+            origins/ports, and a self-signed certificate's "not trusted" warning only shows up on a full page
+            load, not on the background API calls this page makes. If you skip the backend address, every page
+            will look broken (stuck "Loading...") even though the certificate installed correctly. See the{" "}
+            <a href="#/wiki?entry=https-setup">WIKI's HTTPS / secure context entry</a> for the exact addresses to
+            visit and a full walkthrough.
+          </p>
         </div>
       )}
 

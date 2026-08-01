@@ -27,6 +27,16 @@ _tmp_secrets_dir = tempfile.mkdtemp(prefix="chef-test-secrets-")
 os.environ.setdefault("SECRETS_KEY_FILE", os.path.join(_tmp_secrets_dir, "secrets.key"))
 os.environ.setdefault("SECRETS_KEYRING_FILE", os.path.join(_tmp_secrets_dir, "secrets_keyring.json"))
 
+# Backlog B15.1 (2026-08-01) -- main.py's session-cookie secret and
+# tls_service's TLS_DIR both default to real container paths (/app/data,
+# /app/tls) for the same reason as SECRETS_KEY_FILE above. Redirected
+# here (not per-test) since both are read/computed once at import time
+# (main.py's SessionMiddleware setup call, tls_service's module-level
+# TLS_DIR constant) -- this is what makes a plain `import app.main`
+# possible at all outside a real container.
+os.environ.setdefault("SESSION_SECRET_FILE", os.path.join(_tmp_secrets_dir, "session_secret.key"))
+os.environ.setdefault("TLS_DIR", tempfile.mkdtemp(prefix="chef-test-tls-"))
+
 import pytest  # noqa: E402
 
 from app.database import Base, SessionLocal, engine  # noqa: E402

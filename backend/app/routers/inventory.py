@@ -53,12 +53,14 @@ from app.schemas.inventory import (
     OrderImportProfileUpdate,
     PrioritySuggestion,
     RecallStatusResponse,
+    ShelfLifeSuggestionResponse,
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
 from app.schemas.jobs import JobEnqueuedResponse
 from app.services import (
     food_data_service,
+    foodkeeper_service,
     inventory_service,
     job_queue,
     meal_plan_service,
@@ -207,6 +209,41 @@ def barcode_lookup(barcode: str):
         image_url=image_url,
         confidence_note=None if name else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
     )
+
+
+@router.get("/shelf-life-suggestion", response_model=ShelfLifeSuggestionResponse)
+def shelf_life_suggestion(name: str, category: str = "pantry", purchased_date: str | None = None):
+    """Backlog B4.3 (2026-08-01): auto-suggests an expiration date from
+    the shipped USDA FoodKeeper catalog (foodkeeper_service) so the
+    household doesn't have to know or look up a shelf life themselves --
+    the frontend calls this as the item name is typed on the inventory
+    add form and, when a suggestion comes back, prefills the (still
+    freely editable) expiration-date field. Deliberately a plain sync
+    `def` with no DB access at all -- the FoodKeeper catalog is a fixed,
+    in-memory-cached CSV (see foodkeeper_service._load_entries), so this
+    is a pure, fast lookup, not something that needs job_queue's
+    background-job treatment.
+
+    `purchased_date` is accepted as a plain `YYYY-MM-DD` string (not a
+    typed `date`) since the frontend calls this from a partially-filled
+    form where the purchased-date field may be empty or not yet a valid
+    date -- an unparseable or missing value just falls back to today,
+    same as foodkeeper_service.suggest_expiration_date's own default."""
+    name = (name or "").strip()
+    if not name:
+        return ShelfLifeSuggestionResponse(found=False)
+    parsed_purchased_date = None
+    if purchased_date:
+        try:
+            from datetime import date as _date
+
+            parsed_purchased_date = _date.fromisoformat(purchased_date)
+        except ValueError:
+            pass
+    result = foodkeeper_service.suggest_expiration_date(name, category, parsed_purchased_date)
+    if result is None:
+        return ShelfLifeSuggestionResponse(found=False)
+    return ShelfLifeSuggestionResponse(found=True, **result)
 
 
 @router.get("/recalls", response_model=RecallStatusResponse)

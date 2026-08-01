@@ -19,7 +19,17 @@ RUN chmod +x docker-entrypoint.sh
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
-EXPOSE 8095
+# Backlog B15.1 (2026-08-01) -- shared with the frontend container via
+# the chef-tls volume, so both can serve the same certificate. See
+# app/services/tls_service.py's module docstring.
+RUN mkdir -p /app/tls
+VOLUME ["/app/tls"]
+
+EXPOSE 8095 8446
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8095"]
+# Backlog B15.1 -- run_server.py (not uvicorn directly) decides plain-
+# HTTP vs. HTTPS at launch, and can re-exec itself in place when a
+# certificate is generated/imported/cleared. See its own module
+# docstring and tls_service.py's restart_to_apply().
+CMD ["python", "-m", "app.run_server"]

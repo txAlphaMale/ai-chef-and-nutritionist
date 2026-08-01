@@ -26,7 +26,7 @@
 // the app (inventory vision intake, recipe import, the auth gate, etc.)
 // is real, reasonable future work -- see PROJECT-PLAN.md's B12 notes.
 
-export const WIKI_CATEGORIES = ["Getting started", "Integrations", "Data"];
+export const WIKI_CATEGORIES = ["Getting started", "Integrations", "Data", "Security"];
 
 export const WIKI_ENTRIES = [
   {
@@ -266,6 +266,104 @@ export const WIKI_ENTRIES = [
           "over potentially dozens of images at once; import a photo one at a time from the Recipes page instead. " +
           "A single scan is capped at 300 files and skips anything over 5 MB, to keep one click from turning into " +
           "an unbounded job -- narrow the folder (e.g. by cuisine or subfolder) if you hit that cap.",
+      },
+    ],
+  },
+  {
+    id: "https-setup",
+    category: "Security",
+    title: "HTTPS / secure context: fixing the camera and location warnings",
+    body: [
+      {
+        type: "p",
+        text:
+          "**Why this exists:** the barcode scanner's camera and the Dining Out page's \"use my location\" button " +
+          "both rely on browser APIs (`getUserMedia`, `navigator.geolocation`) that most browsers only allow on a " +
+          "**secure context** -- a page loaded over HTTPS, or from `localhost` specifically. Chef has served plain " +
+          "HTTP over your LAN IP since it was first set up, which is exactly what those two features can't work " +
+          "over. Nothing else in the app needs this -- meal planning, inventory, recipes, chat, and everything " +
+          "else work fine over plain HTTP.",
+      },
+      {
+        type: "p",
+        text:
+          "**A self-signed certificate is the right fix for a LAN-only household setup like this one** -- it's " +
+          "free, works entirely offline, and takes under a minute from the **Settings > Security** tab. The " +
+          "trade-off: since it isn't signed by a public Certificate Authority, every browser that connects shows " +
+          "a one-time \"your connection isn't private\" warning that has to be clicked through -- expected and " +
+          "safe on your own private network, not a sign anything is wrong.",
+      },
+      {
+        type: "steps",
+        items: [
+          "Open **Settings > Security** and, under **Certificate (HTTPS)**, check the **Hostnames / IP " +
+            "addresses to cover** field -- it's pre-filled with the address this browser is already using to " +
+            "reach Chef. Add any OTHER address you also use (e.g. both a LAN IP and a `.local` hostname, or " +
+            "`localhost` if you sometimes browse from the server itself) -- separated by commas or spaces. A " +
+            "browser rejects the certificate on any address not listed here, even if it's otherwise valid.",
+          "Click **Generate self-signed certificate**. The backend restarts itself in place within a couple of " +
+            "seconds to start serving HTTPS; the frontend container notices the same shared certificate " +
+            "independently and switches over shortly after (it polls every few seconds, no action needed).",
+          "**This is the step almost everyone misses:** visit and click through the browser warning at BOTH " +
+            "addresses separately, not just one. Chef's frontend (the page you're using) and its backend API run " +
+            "as two different origins/ports -- accepting the warning on one does NOT also trust the other, and " +
+            "the background API calls this page makes fail silently as generic network errors if only the " +
+            "frontend is trusted, which looks exactly like a stuck \"Loading...\" screen with no obvious cause.",
+          "Visit `https://<the address you chose>:5174` (the frontend's default HTTPS port -- see the note below " +
+            "if you changed `FRONTEND_HTTPS_PORT` in `.env`) and click through the warning (**Advanced > Proceed** " +
+            "in Chrome; **Advanced > Accept the Risk and Continue** in Firefox; similar wording elsewhere).",
+          "Then separately visit `https://<the same address>:8446` (the backend's default HTTPS port -- " +
+            "`BACKEND_HTTPS_PORT` in `.env` if changed) and click through the SAME warning there too. You'll " +
+            "land on a bare JSON response (`{\"status\":\"ok\"}` or similar) -- that's expected, this address is " +
+            "the API, not a page meant to be browsed. Trusting it is all that matters.",
+          "Reload the frontend address from step 4 (not a hard requirement, but clears up any page that loaded " +
+            "mid-transition). The camera and location features now work. Bookmark the new `https://...:5174` " +
+            "address going forward -- the old plain-HTTP address on port 5173 still works for everything except " +
+            "camera/location (Chef deliberately doesn't auto-redirect the frontend's HTTP port to HTTPS; see the " +
+            "note in `docker-entrypoint.sh` for why), so it's easy to accidentally end up back on it via an old " +
+            "bookmark or browser history entry.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "**Every device that connects needs to repeat the \"visit both addresses\" step once**, not just the " +
+          "device used to generate the certificate -- a self-signed certificate has no automatic way to tell a " +
+          "phone or tablet's browser to trust it. This is a one-time step per device, not per visit.",
+      },
+      {
+        type: "p",
+        text:
+          "**Certificate expiry:** self-signed certificates generated here are valid for about 2.25 years. The " +
+          "Settings page shows the exact expiry date and a days-remaining count -- when it's getting close, " +
+          "generate a new one the same way (it replaces the old one and every device just needs to click through " +
+          "the trust warning once more).",
+      },
+      {
+        type: "p",
+        text:
+          "**Advanced: certificates from your own Certificate Authority.** If your household already runs an " +
+          "internal CA (or you'd rather avoid the per-device trust-warning step by installing your CA's root " +
+          "certificate on each device once, which makes every cert it issues automatically trusted with no " +
+          "warning), the same Settings card has a **Generate CSR** flow under \"Advanced\": Chef generates a " +
+          "private key (which never leaves the server) and a Certificate Signing Request you submit to your CA, " +
+          "then paste the signed certificate back in to install it.",
+      },
+      {
+        type: "p",
+        text:
+          "**Reverting to plain HTTP:** click **Remove certificate** on the Settings page. Both containers " +
+          "revert to plain HTTP within a few seconds -- camera and location features stop working again, exactly " +
+          "as before any of this was set up.",
+      },
+      {
+        type: "note",
+        text:
+          "**Troubleshooting a stuck \"Loading...\" page after generating a certificate:** this almost always " +
+          "means the backend address (port 8446 by default) hasn't been trusted yet -- see step 5 above. Open " +
+          "your browser's developer console (F12) and check the Network tab for a request to port 8446 failing " +
+          "with something like `ERR_CERT_AUTHORITY_INVALID` -- visiting that exact address directly and clicking " +
+          "through the warning resolves it immediately, no restart needed.",
       },
     ],
   },

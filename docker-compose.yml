@@ -17,8 +17,24 @@ services:
       - .env
     ports:
       - "${BACKEND_PORT:-8095}:8095"
+      # Backlog B15.1 (2026-08-01) -- only actually listening once a
+      # certificate is generated/imported under Settings > Security >
+      # Certificate (see app/services/tls_service.py). Until then the
+      # backend serves plain HTTP on BACKEND_PORT above, same as always;
+      # once a cert exists, BACKEND_PORT switches to a redirect-only
+      # listener and this becomes the real one.
+      - "${BACKEND_HTTPS_PORT:-8446}:8446"
     volumes:
       - chef-data:/app/data
+      # Backlog B15.1 -- where the backend writes the active TLS
+      # certificate/key (self-signed or imported). Shared read-only with
+      # the frontend container below so both can serve the SAME
+      # certificate -- a browser's camera/geolocation Secure Context
+      # check is about the origin the PAGE itself loaded from, not just
+      # the API it calls, so the frontend needs HTTPS too, not only the
+      # backend. See tls_service.py's module docstring for the full
+      # architecture writeup.
+      - chef-tls:/app/tls
       # Backlog B13.1 (optional) -- batch recipe import from a folder on
       # this host (e.g. a OneDrive/Dropbox/Google Drive folder that
       # already syncs here as a normal directory). Uncomment and point
@@ -39,9 +55,25 @@ services:
       - .env
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
+      # Backlog B15.1 -- see the matching backend port above; the
+      # frontend independently watches the same chef-tls volume and
+      # switches to serving HTTPS here once a certificate appears (see
+      # frontend/docker-entrypoint.sh). Known simplification: unlike the
+      # backend, the frontend does NOT run a plain-HTTP-to-HTTPS
+      # redirect listener on FRONTEND_PORT once HTTPS takes over -- a
+      # bookmarked http://host:5173 link will need to be manually
+      # updated to https://host:5174 rather than auto-redirecting. See
+      # the in-app WIKI's HTTPS entry.
+      - "${FRONTEND_HTTPS_PORT:-5174}:5174"
+    volumes:
+      # Backlog B15.1 -- read-only: the frontend only ever READS the
+      # certificate the backend generated/imported, never writes one.
+      - chef-tls:/app/tls:ro
     depends_on:
       - backend
 
 volumes:
   chef-data:
+    driver: local
+  chef-tls:
     driver: local

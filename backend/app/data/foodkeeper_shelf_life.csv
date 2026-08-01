@@ -1,0 +1,662 @@
+ID|Category|Name|NameSubtitle|Keywords|PantryDaysMin|PantryDaysMax|FridgeDaysMin|FridgeDaysMax|FreezerDaysMin|FreezerDaysMax|PantryAfterOpenDaysMin|PantryAfterOpenDaysMax|FridgeAfterOpenDaysMin|FridgeAfterOpenDaysMax
+1|Dairy Products & Eggs|Butter||Butter|||30|60|180|270||||
+2|Dairy Products & Eggs|Buttermilk||Buttermilk|||7|14|90|90||||
+3|Dairy Products & Eggs|Cheese|hard such as cheddar, swiss, block parmesan|Cheese,cheddar, swiss,parmesan|||180|180|180|180|||21|28
+4|Dairy Products & Eggs|Cheese|parmesan; shredded or grated|Cheese,parmesan,shredded,grated|||360|360||||||
+5|Dairy Products & Eggs|Cheese|shredded; cheddar, mozzarella, etc.|Cheese,shredded,cheddar,mozzarella|||30|30|90|120||||
+6|Dairy Products & Eggs|Cheese|processed slices|Cheese,processed slices,slices,slice|||21|28||||||
+7|Dairy Products & Eggs|Cheese|soft such as brie, bel paese, goat|Cheese,brie, bel paese, goat|||7|14|180|180||||
+8|Dairy Products & Eggs|Coffee creamer|liquid refrigerated|Coffee creamer,Coffee, creamer,liquid refrigerated|||21|21||||||
+9|Dairy Products & Eggs|Cottage cheese||Cottage cheese,cheese|||14|14|||||7|7
+10|Dairy Products & Eggs|Cream cheese|||||14|14||||||
+11|Dairy Products & Eggs|Cream|whipping, ultrapasteurized|Cream,whipping,ultrapasteurized|||30|30|||||7|7
+12|Dairy Products & Eggs|Cream|whipped, sweetened|Cream,whipped, sweetened|||1|1|30|60||||
+13|Dairy Products & Eggs|Cream|half and half|Cream,half|||3|4|120|120||||
+14|Dairy Products & Eggs|Cream|heavy|Cream,heavy|||10|10|90|120||||
+15|Dairy Products & Eggs|Cream|light|Cream,light|||7|7|90|120||||
+16|Dairy Products & Eggs|Dips|sour cream based|Dips,sour cream based,sour,cream based,cream,dip|||14|14||||||
+17|Dairy Products & Eggs|Egg substitutes|liquid|Egg substitutes,liquid,egg,substitutes,substitute|||7|7|||||3|3
+20|Dairy Products & Eggs|Eggnog|commercial|Eggnog,commercial,egg,nog|||3|5|180|180||||
+21|Dairy Products & Eggs|Eggs|in shell|Eggs,in shell,egg,shell|||21|35||||||
+22|Dairy Products & Eggs|Eggs|raw whites, yolks|Eggs,raw whites, yolks,egg,whites|||2|4|360|360||||
+23|Dairy Products & Eggs|Eggs|hard boiled cooked|Eggs,egg,hard boiled cooked,boiled,hard boiled|||7|7||||||
+24|Dairy Products & Eggs|Egg dishes||Egg dishes,egg,dishes|||3|4|60|90||||
+25|Dairy Products & Eggs|Kefir|fermented milk|Kefir,fermented milk,milk,fermented|||7|7|||||1|2
+26|Dairy Products & Eggs|Margarine||Margarine|||180|180|360|360||||
+27|Dairy Products & Eggs|Milk|plain or flavored|Milk,plain,flavored,flavor|||||90|90||||
+28|Dairy Products & Eggs|Pudding||Pudding|||||||||2|2
+29|Dairy Products & Eggs|Sour cream||Sour cream,cream,sour||||||||||
+30|Dairy Products & Eggs|Whipped cream|aerosol can|Whipped cream,cream,aerosol can,can|||21|28||||||
+31|Dairy Products & Eggs|Whipped topping|aerosol can|Whipped topping,topping,aerosol can,can,whipped|||90|90||||||
+32|Dairy Products & Eggs|Whipped topping|tub|Whipped topping,topping,tub,whipped|||14|14|420|420||||
+33|Dairy Products & Eggs|Yogurt||Yogurt|||7|14|30|60||||
+34|Meat|Beef|rib roast, bone-in|Beef,rib roast,bone-in,roast,bone,rib|||3|5|120|360||||
+35|Meat|Beef|rib roast; boneless, rolled|Beef,rib roast,boneless,rolled,roast,rib|||3|5|120|360||||
+36|Meat|Beef|round or rump roast|Beef,round,rump roast,roast|||3|5|120|360||||
+37|Meat|Beef|tenderloin, whole|Beef,tenderloin,whole|||3|5|120|360||||
+38|Meat|Beef|tenderloin, half|Beef,tenderloin,half|||3|5|120|360||||
+39|Meat|Beef|chuck roast, brisket|Beef,chuck roast,roast,brisket|||3|5|120|360||||
+40|Meat|Beef|steaks|Beef,steaks,steak|||3|5|120|360||||
+41|Meat|Beef|stew, cubes|Beef,stew, cubes,cube|||3|5|120|360||||
+42|Meat|Beef|short ribs|Beef,short ribs,ribs,rib|||3|5|120|360||||
+43|Meat|Beef|ground|Beef,ground|||1|2|90|120||||
+44|Meat|Lamb|leg, bone-in - small|Lamb,leg,bone-in - small,bone-in,bone|||3|5|120|360||||
+45|Meat|Lamb|leg, bone-in - large|Lamb,leg,bone-in - large,bone-in,bone|||3|5|120|360||||
+46|Meat|Lamb|leg; boneless, rolled|Lamb,leg,boneless,rolled,bone|||3|5|120|360||||
+47|Meat|Lamb|crown roast|Lamb,crown roast,roast|||3|5|120|360||||
+48|Meat|Lamb|shoulder roast or shank leg half|Lamb,shoulder roast,roast,shoulder,shank leg half,half,shank,shank leg,leg|||3|5|120|360||||
+49|Meat|Lamb|cubes for kabobs|Lamb,cubes,kabobs,cube,kabob|||3|5|120|360||||
+50|Meat|Lamb|ground|Lamb,ground|||1|2|90|120||||
+51|Meat|Lamb|chops, ribs, or loin|Lamb,chops,ribs,loin,rib|||3|5|120|360||||
+52|Meat|Lamb|leg steaks|Lamb,leg steaks,steaks,steak,leg|||3|5|120|360||||
+53|Meat|Lamb|stew meat, pieces|Lamb,stew,pieces,stew meat,meat,piece|||3|5|120|360||||
+54|Meat|Lamb|shanks|Lamb,shanks,shank|||3|5|120|360||||
+55|Meat|Lamb|breast, rolled|Lamb,breast,rolled|||3|5|120|360||||
+56|Meat|Veal|shoulder roast, boneless|Veal,shoulder,boneless,shoulder roast,roast|||3|5|120|360||||
+57|Meat|Veal|leg rump or round roast, boneless|Veal,leg rump,rump,leg,round,round roast,roast,boneless|||3|5|120|360||||
+58|Meat|Veal|loin roast, bone-in|Veal,loin roast,bone-in,roast,bone,loin|||3|5|120|360||||
+59|Meat|Veal|ground|Veal,ground|||1|2|90|120||||
+60|Meat|Pork|loin roast, bone-in|Pork,loin roast,bone-in,roast,bone,loin|||3|5|120|360||||
+61|Meat|Pork|loin roast, boneless|Pork,loin,boneless,loin roast,roast|||3|5|120|360||||
+63|Meat|Pork|loin chops, bone-in|Pork,loin chops,bone-in,chops,bone,loin|||3|5|120|360||||
+64|Meat|Pork|loin chops, boneless|Pork,loin,boneless,loin chops,chops|||3|5|120|360||||
+65|Meat|Pork|crown roast - small|Pork,roast,crown,crown roast - small,small,crown roast|||3|5|120|360||||
+66|Meat|Pork|crown roast - large|Pork,roast,crown,crown roast - large,large,crown roast|||3|5|120|360||||
+67|Meat|Pork|tenderloin|Pork,tenderloin|||3|5|120|360||||
+69|Meat|Pork|tenderloin medallions or loin cubes|Pork,tenderloin,tenderloin medallions,loin cubes,medallion,loin cube,loin,medallions,cube,cubes|||3|5|120|360||||
+70|Meat|Goat|tender whole cuts (legs, ribs, shoulder, loin)|Goat,tender whole cuts,legs,ribs,shoulder,loin,tender,whole cuts,leg,rib|||3|5|120|360||||
+71|Meat|Goat|less tender whole cuts (stew meat, riblets, shanks)|Goat,less tender whole cuts,stew meat,stew,meat,riblets,shanks,whole cuts,tender,less tender|||3|5|120|360||||
+72|Meat|Pork|ribs|Pork,ribs,rib|||3|5|120|360||||
+73|Meat|Pork|ground|Pork,ground|||1|2|90|120||||
+74|Meat|Pork|shoulder|Pork,shoulder|||3|5|120|360||||
+75|Meat|Pork|loin, cubes|Pork,loin,cubes,cube|||3|5|120|360||||
+76|Meat|Venison|round, rump, loin, or rib roast|Venison,rump,round,loin,rib,rib roast,roast|||3|5|120|360||||
+77|Meat|Variety meats|liver, tongue, chitterlings, etc.|Variety meats,liver,tongue,chitterlings,meats,meat,chitterling|||1|2|90|120||||
+78|Meat|Goat|ground|Goat,ground|||1|2|90|120||||
+79|Meat|Bacon||Bacon|||7|7|30|30|||7|7
+81|Meat|Corned beef|in pouch with pickling juices|Corned beef,pouch,pickling juices,juices,juice|||5|7|30|30||||
+82|Meat|Ham|canned (“keep refrigerated” label)|Ham,canned,keep refrigerated,label,refrigerated|||180|270||||||
+83|Meat|Ham|fully cooked, bone-in, whole|Ham,fully cooked,bone-in,whole,cooked,bone|||7|7|30|60||||
+84|Meat|Ham|fully cooked, bone-in, half|Ham,fully cooked,bone-in,half,cooked,bone|||7|7|30|60||||
+85|Meat|Ham|fully cooked, slices, half, or spiral cut|Ham,fully cooked,slices,half,spiral cut,cooked,slice|||3|4|30|60||||
+86|Meat|Ham|fully cooked, arm picnic shoulder, boneless|Ham,fully cooked,cooked,arm picnic shoulder,boneless,shoulder,arm picnic|||7|7|30|60||||
+87|Meat|Ham|fully cooked, canned, boneless (refrigerated)|Ham,fully cooked,cooked,canned,boneless,refrigerated|||180|270|30|60|||3|5
+88|Meat|Ham|fully cooked, vacuum packed, boneless|Ham,fully cooked,cooked,vacuum packed,boneless|||14|14|30|60||||
+89|Meat|Ham|fresh, cook-before-eating, bone-in, whole|Ham,fresh,cook-before-eating,bone-in,whole,bone|||7|7|30|60||||
+90|Meat|Ham|fresh, cook-before-eating, bone-in, half|Ham,fresh,cook-before-eating,bone-in,half,bone|||7|7|30|60||||
+91|Meat|Ham|fresh, cook-before-eating, shank or butt portion, bone-in|Ham,fresh,cook-before-eating,shank,butt portion,bone-in,bone|||7|7|30|60||||
+92|Meat|Ham|fresh, cook-before-eating, arm picnic shoulder, boneless|Ham,fresh,cook-before-eating,before-eating,arm picnic shoulder,boneless,arm picnic,shoulder|||7|7|30|60||||
+93|Meat|Ham|fresh, cook-before-eating, shoulder roll (butt), boneless|Ham,fresh,cook-before-eating,before-eating,shoulder roll,butt,boneless,roll|||7|7|30|60||||
+94|Meat|Ham|fresh, uncooked, whole leg, bone-in|Ham,fresh,uncooked,whole leg,bone-in,cooked,leg,bone|||7|7|30|60||||
+95|Meat|Ham|fresh, uncooked, whole leg, boneless|Ham,fresh,uncooked,whole leg,boneless,cooked,leg,bone|||7|7|30|60||||
+96|Meat|Ham|fresh, uncooked, half leg, bone-in|Ham,fresh,uncooked,half leg,bone-in,bone,leg,cooked|||7|7|30|60||||
+97|Meat|Ham|country ham (whole or half)|Ham,country ham,whole,half|||7|7|30|60||||
+98|Meat|Hot dogs||Hot dogs,hot|||14|14|30|60|||7|7
+102|Meat|Sausage|raw bulk type or patties|Sausage,raw bulk type,patties,raw,patty|||1|2|30|60||||
+103|Meat|Sausage|fully cooked smoked links, kielbasa|Sausage,fully cooked smoked links,kielbasa,smoked links,links,fully cooked,link|||7|7|30|60||||
+104|Meat|Sausage|hard, dry (pepperoni), sliced|Sausage,hard,dry,pepperoni,sliced,slice,dry pepperoni|||14|21|30|60||||
+105|Meat|Stuffed, raw pork chops||Stuffed,raw pork chops,chops,raw pork,pork|||1|2|270|270||||
+106|Meat|Raw kabobs with vegetables||Raw kabobs,vegetables,kabobs,kabob|||1|2|90|120||||
+107|Meat|Bacon|fully cooked|Bacon,fully cooked,cooked|180|180|||||||5|14
+108|Meat|Ham|shelf-stable cans|Ham,shelf stable cans,cans,shelf stable,shelf,stable,can|180|270|||||||5|14
+109|Meat|Jerky|commercially dried|Jerky,commercially dried,dried|360|360|||||||60|90
+110|Meat|Jerky|homemade|Jerky,homemade|30|60|30|60||||||
+111|Meat|Meat products|canned|Meat products,products,canned,meat,product|1825|1825|||||||3|4
+112|Meat|Retort pouches or boxes||Retort pouches,boxes,box,retort,pouch|||||||||3|4
+113|Poultry|Chicken|whole|Chicken,whole|||1|2|360|360||||
+114|Poultry|Turkey|whole|Turkey,whole|||1|2|360|360||||
+115|Poultry|Ground turkey or chicken||Ground turkey,chicken,turkey|||1|2|90|120||||
+116|Poultry|Chicken parts|breast halves, bone-in|Chicken parts,breast halves,bone-in,halves,bone,breast,chicken,half|||1|2|270|270||||
+117|Poultry|Chicken parts|breast halves, boneless|Chicken parts,breast halves,boneless,chicken,breast,halves,half,bone|||1|2|270|270||||
+118|Poultry|Chicken parts|legs or thighs|Chicken parts,legs,thighs,chicken,leg,thigh|||1|2|270|270||||
+119|Poultry|Turkey parts|breast halves, bone-in|Turkey parts,breast halves,bone-in,halves,bone,breast,half,turkey|||1|2|270|270||||
+120|Poultry|Turkey parts|breast halves, boneless|Turkey parts,breast,boneless,bone,turkey|||1|2|270|270||||
+121|Poultry|Turkey parts|legs or thighs|Turkey parts,legs,thighs,turkey,leg,thigh|||1|2|270|270||||
+123|Poultry|Duckling|domestic or wild, whole|Duckling,domestic,wild,whole|||1|2|180|180||||
+125|Poultry|Goose|domestic or wild, whole|Goose,domestic,wild,whole|||1|2|180|180||||
+126|Poultry|Pheasant|young, whole|Pheasant,young,whole|||1|2|180|180||||
+127|Poultry|Quail|whole|Quail,whole|||1|2|180|180||||
+128|Poultry|Capon|whole|Capon,whole|||1|2|360|360||||
+129|Poultry|Cornish Hens|whole|Cornish Hens,Hens,whole,Hen|||1|2|360|360||||
+130|Poultry|Giblets||Giblets,giblet|||1|2|90|120||||
+131|Poultry|Stuffed, raw chicken breasts||Stuffed,raw chicken breasts,breast,chicken,chicken breasts|||1|2|270|270||||
+132|Poultry|Raw kabobs with vegetables||Raw kabobs,vegetables,kabobs,kabob,vegetable|||1|2|90|120||||
+133|Poultry|Turducken||Turducken|||||270|270||||
+134|Poultry|Chicken nuggets, patties||Chicken nuggets, patties,chicken,nuggets,nugget,patty|||||30|90||||
+135|Poultry|Cooked poultry dishes||Cooked poultry dishes,poultry dishes,poultry|||3|4|120|180||||
+136|Poultry|Fried chicken||Fried chicken,chicken|||3|4|120|120||||
+140|Deli & Prepared Foods|Poultry pieces|covered with gravy or broth|Poultry pieces,gravy,broth,poultry,pieces,piece|||3|4|30|60||||
+141|Poultry|Rotisserie chicken||Rotisserie chicken,chicken,Rotisserie|||3|4|120|120||||
+142|Poultry|Canned chicken||Canned chicken,chicken,canned,can|1825|1825|||||||3|4
+143|Poultry|Retort pouches or boxes||Retort pouches,boxes,box,retort,pouch|||||||||3|4
+144|Seafood|Lean fish|cod, flounder, haddock, halibut, sole, etc.|Lean fish,cod, flounder,haddock,halibut,sole,fish|||1|2|180|240||||
+145|Seafood|Lean fish|pollock, ocean perch, rockfish, sea trout.|Lean fish,pollock,ocean,rockfish, sea,sea trout,fish,ocean perch,perch,trout,rock|||1|2|120|240||||
+146|Seafood|Fatty fish|bluefish, catfish, mackerel, mullet, salmon, tuna, etc.|Fatty fish,bluefish,catfish,mackerel,mullet,salmon,tuna,fish,fatty,blue,cat|||1|2|60|90||||
+147|Seafood|Caviar|fresh, in jar|Caviar,fresh,jar|||7|28|||||2|2
+148|Seafood|Cooked fish|all|Cooked fish,fish,all|||3|4|30|60||||
+149|Seafood|Surimi seafood||Surimi seafood,surimi,sea,food|||||270|270||||
+150|Seafood|Scallops||Scallops,scallop|||1|3|180|540||||
+151|Seafood|Shrimp, crayfish||Shrimp,crayfish,cray,fish|||1|3|180|540||||
+152|Seafood|Squid||Squid|||1|3|180|540||||
+153|Seafood|Shucked clams, mussels, and oysters||Shucked clams,mussels,oysters,clams,clam,mussels,mussel,oyster|||3|10|90|120||||
+154|Seafood|Crab meat|fresh|Crab meat,meat,fresh,crab|||1|3|60|120||||
+155|Seafood|Crab meat|pasteurized|Crab meat,meat,pasteurized,crab|||300|360|120|300|||3|5
+156|Seafood|Crab legs|king, dungeness, snow|Crab legs,king,dungeness,snow,crab,legs,leg|||2|4|270|360||||
+157|Seafood|Live clams, mussels, crab, and oysters||Live clams,mussels,crab,oysters,clams,clam,mussel,oyster|||1|2|60|90||||
+158|Seafood|Fresh whole lobster|live|Fresh whole lobster,lobster,live,whole lobster|||1|1||||||
+159|Seafood|Fresh lobster tails|cooked|Fresh lobster tails,tails,cooked,lobster tails,tail|||2|3|14|28||||
+160|Seafood|Fresh clams, mussels, oysters||Fresh clams,clams,oysters,clam,mussels,mussel,oyster|||5|10||||||
+161|Seafood|Fresh whole lobster|frozen|Fresh whole lobster,lobster,frozen,whole lobster|||1|2|14|28||||
+162|Seafood|Cooked shellfish|all|Cooked shellfish,shellfish,fish,cooked|||3|4|30|90||||
+163|Seafood|Herring|glass packed, in wine sauce|Herring,glass packed,wine sauce,packed,glass,wine,sauce|||120|180||||||
+164|Seafood|Fish|hot smoked, air pack|Fish,hot smoked,air pack,hot,smoked,pack|||14|45|270|360||||
+165|Seafood|Fish|hot smoked, vacuum pack|Fish,hot smoked,vacuum pack,hot,smoked,vacuum,pack|||14|45|180|360||||
+166|Seafood|Fish|cold smoked, air pack|Fish,cold smoked,air pack,cold,smoked,pack|||14|30|270|360||||
+167|Seafood|Fish|cold smoked, vacuum pack|Fish,cold smoked,vacuum pack,cold,smoked,vacuum,pack|||21|30|270|360||||
+168|Vegetarian Proteins|Tofu||Tofu|||7|7|150|150||||
+169|Vegetarian Proteins|Miso||Miso|||365|365||||||
+170|Vegetarian Proteins|Soy flour|full-fat|Soy flour,full fat,soy,flour,fat|60|60|180|180||||||
+171|Vegetarian Proteins|Textured soy protein|(TSP)|Textured soy protein,protein,TSP,soy protein,soy|730|730|||||90|120||
+172|Vegetarian Proteins|Re-hydrated textured soy protein|(TSP)|Re hydrated textured soy protein,protein,TSP,soy,soy protein,textured soy protein,Re hydrated|90|120|3|4||||||
+173|Deli & Prepared Foods|Leftovers|with meat, fish, poultry, or egg|Leftovers,meat,fish,poultry,egg,leftover|||3|4|60|90||||
+174|Deli & Prepared Foods|Leftovers|without meat, fish, poultry, or egg (such as cooked vegitables, rice, or potatoes)|leftover,leftovers,without meat,fish,poultry,egg,cooked vegetables,rice,potatoes,meat,vegetables,potato,vegetable|||3|4|30|60||||
+175|Deli & Prepared Foods|Leftovers|pizza|Leftovers,pizza|||3|4|30|60||||
+176|Deli & Prepared Foods|Commercial brand vacuum-packed dinners|with USDA seal|Commercial brand vacuum-packed dinners,brand vacuum packed dinners,USDA seal,USDA,seal,dinners,dinner,vacuum packed,vacuum packed dinner,packed dinner,packed|||14|14||||||
+177|Deli & Prepared Foods|Cooked pasta||Cooked pasta,pasta|||3|5|30|60||||
+178|Deli & Prepared Foods|Cooked rice||Cooked rice,rice|||4|6|180|180||||
+179|Deli & Prepared Foods|Fruit, cut||Fruit,cut|||||||||4|4
+180|Deli & Prepared Foods|Guacamole||Guacamole|||3|4|90|120||||
+181|Deli & Prepared Foods|Hummus|commercial (pasteurized, with preservatives)|Hummus,commercial,pasteurized,preservatives,preservative|||90|90|||||7|7
+183|Deli & Prepared Foods|Hummus|traditional (no preservatives, not pasteurized)|Hummus,traditional,no preservatives,not pasteurized,no preservative,preservatives,preservative,pasteurized|||7|7||||||
+184|Deli & Prepared Foods|Luncheon meat or poultry|store-sliced|Luncheon meat,poultry,store sliced,meat,luncheon,store,sliced|||3|5|30|60||||
+185|Deli & Prepared Foods|Main dishes or meals|hot or refrigerated|Main dishes,meals,hot,refrigerated,dishes,dish,meal|||3|4|60|90||||
+186|Deli & Prepared Foods|Meats|covered with gravy or broth|Meats,gravy,broth,meat|||3|4|180|180||||
+187|Deli & Prepared Foods|Olives|from olive bar|Olives,bar,olive|||14|14||||||
+188|Deli & Prepared Foods|Pate||Pate|||1|2|30|60||||
+192|Deli & Prepared Foods|Luncheon meat or poultry|pre-packaged|Luncheon meat,luncheon,meat,poultry,packaged,pre packaged|||14|14|30|60|||3|5
+193|Deli & Prepared Foods|Soup, stews||Soup,stews,stew|||3|4|60|90||||
+194|Deli & Prepared Foods|Casseroles||Casseroles,Casserole|||3|4||||||
+195|Baked Goods|Commercial bread products|including pan breads, flat breads, rolls, and buns|Commercial bread products,pan breads,flat breads,rolls,buns,bread products,bread,products,product,pan,breads,bread,flat,roll,bun|14|18|||90|150|||14|21
+196|Grains, Beans & Pasta|Tortillas|flour|Tortillas,Tortilla|90|90|||180|180|||90|90
+197|Baked Goods|Commercial cakes and muffins||Commercial cakes,cake,muffin,muffins|3|7|||180|180|||7|10
+198|Baked Goods|Cheesecake||Cheesecake,cake,cheese|||||90|180|||5|7
+199|Baked Goods|Cookies|soft|Cookies,soft,cookie|60|90|||240|360||||
+200|Baked Goods|Cookies|crispy|Cookies,crispy,cookie|120|180|||240|360||||
+201|Baked Goods|Dairy filled eclairs||Dairy filled eclairs,dairy filled,eclairs,éclair,dairy|||||90|90|||2|3
+202|Baked Goods|Doughnuts||Doughnuts,doughnut,dough,nut|1|2|||||||2|2
+203|Baked Goods|Fruit cake||Fruit cake,fruit,cake|180|180|||360|360|||360|360
+204|Baked Goods|Pastries, danish||Pastries,danish,pastry|5|10|||||||420|420
+205|Baked Goods|Cream pies|banana cream, coconut cream, butterscotch|Pies,cream,pie, banana, banana cream,coconut,coconut cream,butterscotch|||||||||3|4
+206|Baked Goods|Chiffon pies|chocolate, lemon|Pies,chiffon,pie,chocolate,lemon,chocolate pie,lemon pie|||||||||1|2
+207|Baked Goods|Fruit pies|apple, peach, blueberry, apricot, cherry, blackberry|Pies,fruit,pie,apple,apple pie,peach,peach pie,blueberry,blueberry pie,cherry,cherry pie,apricot,apricot pie,blackberry,blackberry pie|1|2|||240|240|||7|7
+208|Baked Goods|Pies|mincemeat|Pies,mincemeat,pie,meat,mince|||||240|240|||7|7
+209|Baked Goods|Pies|pecan|Pies,Pie,pecan|||||30|60|||3|4
+210|Baked Goods|Pies|pumpkin|Pies,Pie,pumpkin|||||30|60|||3|4
+211|Baked Goods|Quiche||Quiche|||||60|90|||3|5
+212|Baked Goods|Baking powder||Baking powder,baking,powder|180|540|||||90|180||
+213|Baked Goods|Baking soda||Baking soda,soda,baking|730|1095|||||180|180||
+214|Baked Goods|Biscuit or pancake mix||Biscuit,pancake mix,pancake,mix,cake|270|270||||||||
+215|Baked Goods|Cake, brownie, bread mixes||Cake,brownie,bread mixes,bread,mixes,mix|360|540||||||||
+216|Baked Goods|Chocolate|unsweetened and semi-sweet, solid|Chocolate,unsweetened,semi sweet,solid,sweet|365|730|||||365|365||
+217|Baked Goods|Cocoa and cocoa mixes||Cocoa,cocoa mixes,mixes,mix|||||||365|365||
+218|Baked Goods|Cornmeal|regular, degerminated|Cornmeal,regular,degerminated,germinated,germinate,corn,meal|180|360|||||730|730||
+219|Baked Goods|Cornmeal|stone ground or blue|Cornmeal,stone ground,blue,ground,stone,corn,meal|30|30|||||||60|120
+220|Baked Goods|Cornstarch||Cornstarch,corn,starch|540|720|||||540|540||
+222|Baked Goods|Flour|white|Flour,white|180|360|||||180|240||
+223|Baked Goods|Flour|whole wheat|Flour,whole wheat,wheat|90|180|||||||180|240
+224|Baked Goods|Frosting or icing||Frosting,icing,frost,ice|300|360|||||||14|21
+225|Baked Goods|Gelatin|flavored|Gelatin,flavor,flavored|300|360|||||90|120||
+226|Baked Goods|Gelatin|unflavored|Gelatin,unflavor,unflavored|1095|1095||||||||
+227|Baked Goods|Oils|olive or vegetable|Oils,olive,vegetable,oil|180|360|||||90|150|120|120
+228|Baked Goods|Nut oils||Nut oils,nut,oils,oil|180|360|||||90|240|180|240
+229|Baked Goods|Vegetable oil sprays||Vegetable oil sprays,sprays,oil,vegetable,vegetable oil|730|730|||||365|365||
+230|Baked Goods|Shortening|solid|Shortening,solid|365|730|||||180|360||
+231|Baked Goods|Tamarind paste||Tamarind paste,paste,tamarind|180|360|||||180|180|60|90
+232|Baked Goods|Chili powder||Chili powder,powder,chili|730|730|||||730|730||
+233|Baked Goods|Seasoning blends||Seasoning blends,blends,seasoning,blend|365|730|||||365|730||
+234|Baked Goods|Flavored or herb mixes||Flavored,herb mixes,herb,flavor,mixes,mix|180|180||||||||
+235|Baked Goods|Garlic|chopped, commercial jars|Garlic,chopped,jars,commercial jars,jar|240|360||||||||
+236|Baked Goods|Herbs|dried|Herbs,dried,herb|365|730|||||365|730||
+237|Baked Goods|Spice/spices|whole|Spice,spices,whole|1095|1460|||||1095|1460||
+238|Baked Goods|Spice/spices|ground|Spice,spices,ground|730|1095|||||730|1095||
+239|Baked Goods|Sugar|brown|Sugar,brown|||||||540|720||
+240|Baked Goods|Sugar|granulated|Sugar,granulated|||||||540|720||
+241|Baked Goods|Sugar|confectioners|Sugar,confectioners,confectioner|||||||540|720||
+242|Baked Goods|Sugar substitutes||Sugar substitutes,sugar,substitutes,substitute|730|730||||||||
+243|Baked Goods|Tapiocas||Tapiocas,Tapioca|360|360|||||360|360||
+245|Baked Goods|Tube cans|of biscuits, rolls, pizza dough, etc.|Tube cans,biscuits,biscuit,rolls,roll,pizza,pizza dough,dough,tube can,can,tube||||||||||
+246|Baked Goods|Ready-to-bake pie crust||Ready to bake pie crust,pie,crust,bake,ready|||||60|60||||
+247|Baked Goods|Cookie dough||Cookie dough,cookie,dough|||||60|60||||
+248|Produce|Apples||Apples,apple|21|21|28|42|240|240||||
+249|Produce|Apricots||Apricots,Apricot|||2|5||||||
+250|Produce|Avocados||Avocados,Avocado|||3|4||||||
+251|Produce|Bananas||Bananas,banana|||3|3|60|90||||
+252|Produce|Berries|cherries, goose berries, lychee|Berries,berry,cherries,cherry,goose berries,goose berry,lychee,gooseberries|||7|7|360|360||||
+253|Produce|Berries|blackberries, boysenberries, currant|Berries,berry,blackberries,blackberry,boysenberries,boysenberry,currant|||3|6|360|360||||
+254|Produce|Blueberries||Blueberries,blueberry,berries,berry|||7|14|240|360||||
+255|Produce|Cherimoya||Cherimoya|||4|4|300|360||||
+256|Produce|Citrus fruit|lemon, lime, orange, grapefruit, tangerines, clementines|Citrus fruit,fruit,citrus,lemon,lime,orange,grape,grapefruit,tangerines,tangerine,clementines,clementine|10|10|10|21||||||
+257|Produce|Coconut|shredded|Coconut,shredded|365|365|||365|365|||240|240
+258|Produce|Coconuts|fresh|Coconuts,Coconut,fresh|7|7|14|21||||||
+259|Produce|Cranberries||Cranberries,cranberry|||60|60|360|360||||
+260|Produce|Dates||Dates|60|60|360|360|365|730||||
+261|Produce|Grapes||Grapes,grape|1|1|7|7|30|30||||
+262|Produce|Guava||Guava|||2|4||||||
+263|Produce|Kiwi fruit||Kiwi fruit,kiwi,fruit|||3|6||||||
+264|Produce|Melons||Melons,melon|||14|14|30|30|||2|4
+265|Produce|Papaya, mango, feijoa, passionfruit, casaha melon||Papaya,mango,feijoa,passionfruit,casaha melon,melon,fruit,passion|3|5|7|7|180|240||||
+266|Produce|Peaches, nectarines, plums, pears, sapote||Peaches,nectarines,plums,pears,sapote,peach,nectarine,plum,pear|||3|5|60|60||||
+267|Produce|Pineapple||Pineapple|||5|7|300|360||||
+268|Produce|Plantains||Plantains,plantain|||3|5|300|360||||
+269|Produce|Pomegranate||Pomegranate|2|5|30|90|300|360||||
+270|Produce|Artichokes, whole||Artichokes,artichoke,whole|1|2|7|14||||||
+271|Produce|Asparagus||Asparagus|||3|4|150|150||||
+272|Produce|Bamboo shoots||Bamboo shoots,bamboo,shoots,shoot|||14|14|||||5|5
+273|Produce|Beans and peas|green, fava, lima, soybean, wax, snow, sugar snap|Beans,peas,green,fava,lima,soybean,wax,snow,sugar snap,sugar,pea,soya|||3|5|240|240||||
+274|Produce|Beets||Beets|1|1|7|14|180|240||||
+275|Produce|Bok choy||Bok choy|||2|3|300|360||||
+276|Produce|Broccoli and broccoli raab (rapini)||Broccoli,broccoli raab,rapini,raab|||3|5|300|360||||
+277|Produce|Brussels sprouts||Brussels sprouts,brussels,sprouts,sprout,brussel|||3|5|300|360||||
+278|Produce|Cabbage||Cabbage|||7|14|300|360||||
+279|Produce|Carrots, parsnips||Carrots,parsnips,carrot,parsnip|||14|21|300|360||||
+280|Produce|Cauliflower||Cauliflower|||3|5|300|360||||
+281|Produce|Celery||Celery|||7|14|300|360||||
+282|Produce|Corn on the cob||Corn,cob|||1|2|240|240||||
+283|Produce|Cucumbers||Cucumbers,cucumber|||4|6||||||
+284|Produce|Eggplant||Eggplant,egg|1|1|4|7|180|240||||
+285|Produce|Garlic||Garlic|30|30|3|14|30|30||||
+286|Produce|Ginger root||Ginger root,ginger,root|2|5|14|21|180|180||||
+287|Produce|Greens||Greens,green|||1|4|300|360||||
+288|Produce|Herbs||Herbs,herb|||7|10|30|60||||
+289|Produce|Leeks||Leeks,leek|||7|14|300|360||||
+290|Produce|Lettuce|iceberg, romaine|Lettuce,iceberg,romaine|||7|14||||||
+291|Produce|Lettuce|leaf, spinach|Lettuce,leaf,spinach|||3|7||||||
+292|Produce|Mushrooms||Mushroom,mushrooms|||3|7|300|360||||
+293|Produce|Okra||Okra|1|1|2|3|300|360||||
+294|Produce|Onions|yellow, white, red, etc.|Onions,yellow,white,red,onion|30|30|60|60|300|360||||
+295|Produce|Onions|spring or green|Onions,spring,green,onion|30|30|7|7|300|360||||
+296|Produce|Peppers||Peppers,pepper|||4|14|180|240||||
+297|Produce|Potatoes||Potatoes,potato|30|60|7|14|300|360||||
+298|Produce|Pumpkins||Pumpkins,pumpkin|60|90|90|150||||||
+299|Produce|Radishes||Radishes,radish|||10|14||||||
+300|Produce|Rhubarb||Rhubarb|||3|7||||||
+301|Produce|Rutabagas||Rutabagas|7|7|14|21|240|300||||
+302|Produce|Squash|summer and zucchini|Squash,summer,zucchini|1|5|4|5|300|360||||
+303|Produce|Squash|winter|Squash,winter|14|42|30|90|300|360||||
+304|Produce|Tamarind||Tamarind|7|21|180|180|365|365||||
+305|Produce|Taro||Taro|7|7|2|3||||||
+306|Produce|Tomatoes||Tomatoes,tomato|||||60|60||||
+307|Produce|Turnips||Turnips,turnip|||14|14|240|300||||
+308|Produce|Yuca/cassava||Yuca,cassava|7|7|3|3|30|60||||
+309|Food Purchased Frozen|Dough|commercial (bread or cookie)|Dough,commercial,bread,cookie|||3|4|360|360||||
+310|Food Purchased Frozen|Egg substitutes||Egg substitutes,egg,substitute,Egg substitute|||3|4|360|360||||
+311|Food Purchased Frozen|Fish|breaded|Fish,breaded,bread|||||540|540||||
+312|Food Purchased Frozen|Fish|raw but headed and gutted|Fish,raw,headed,gutted|||3|4|180|180||||
+313|Food Purchased Frozen|Frozen potato products|fries, hashbrowns, tater tots|Frozen potato products,fries,hashbrowns,tater tots,potato products,products,product,frozen potato,hashbrown,tater tot|||||360|360||||
+314|Food Purchased Frozen|Frozen pretzels||Frozen pretzels,frozen,pretzels,pretzel|||3|4|270|270||||
+315|Food Purchased Frozen|Fruits|such as berries, melons|Fruits,berries,melons,berry,melon|||||300|540||||
+317|Food Purchased Frozen|Ice cream||Ice cream,ice,cream|||||180|180||||
+318|Food Purchased Frozen|Ice pops||Ice pops,ice,pops,pop|||||270|270||||
+319|Food Purchased Frozen|Juice concentrates||Juice concentrates,juice,concentrate|||||730|730||||
+320|Food Purchased Frozen|Lobster tails||Lobster tails,tail,lobster,Lobster tail|||3|4|240|240||||
+321|Food Purchased Frozen|Pancakes, waffles||Pancakes,waffles,pancake|||||90|90||||
+322|Food Purchased Frozen|Sausages|uncooked|Sausages,Sausage,uncooked,cooked|||3|4|30|60||||
+323|Food Purchased Frozen|Sausages|precooked|Sausages,Sausage,precooked,cooked|||3|4|30|60||||
+324|Food Purchased Frozen|Sherbet, sorbet||Sherbet,sorbet|||||270|270||||
+325|Food Purchased Frozen|Shrimp, shellfish||Shrimp,shellfish,fish|||3|4|360|540||||
+326|Food Purchased Frozen|Soy crumbles and hot dogs||Soy crumbles,hot dogs,hot dog,soy,soy crumble|||3|4|30|60||||
+327|Food Purchased Frozen|Soy meat substitutes||Soy meat substitutes,soy,meat,soy meat,meat substitutes,substitutes,substitute|||3|4|360|540||||
+328|Food Purchased Frozen|Tempeh||Tempeh|||3|4|180|180||||
+330|Food Purchased Frozen|Frozen entrees|prepared meals|TV dinners,entrees,breakfast,dinners,dinner,entry,TV|||||360|360||||
+331|Food Purchased Frozen|Vegetables||Vegetables,vegetable|||3|4|300|540||||
+332|Grains, Beans & Pasta|Fresh pasta||Fresh pasta,pasta|||1|2|60|60||||
+333|Grains, Beans & Pasta|Beans|dried|Beans,dried|365|730|||||365|365||
+334|Grains, Beans & Pasta|Lentils|dried|Lentils,dried|365|365|||||365|365||
+335|Grains, Beans & Pasta|Pasta|dry, without eggs|Pasta,dry,eggs,egg,without egg,without eggs|730|730|||||365|365||
+336|Grains, Beans & Pasta|Dry egg noodles||Dry egg noodles,egg noodles,egg,noodles,noodle,dry|730|730|||||30|60||
+337|Grains, Beans & Pasta|Peas|dried split|Peas,Pea,dried split,split|365|365|||||365|365||
+338|Grains, Beans & Pasta|Rice|white or wild|Rice,white,wild|730|730|||||365|365|180|180
+339|Grains, Beans & Pasta|Rice|brown|Rice,brown|365|365|||||365|365|180|180
+340|Condiments, Sauces & Canned Goods|Barbecue sauce|bottled|Barbecue sauce,sauce,bottled,Barbecue|365|365|||||||120|120
+341|Condiments, Sauces & Canned Goods|Chutney||Chutney|365|365|||||||30|60
+342|Condiments, Sauces & Canned Goods|Cream sauces, milk solids||Cream sauces,milk solids,sauce,solids,cream,sauces,milk,solid|180|360||||||||
+343|Condiments, Sauces & Canned Goods|Dry gravy mixes||Dry gravy mixes,gravy,mixes,mix,dry|730|730|1|2||||||
+344|Condiments, Sauces & Canned Goods|Gravy|jars and cans|Gravy,jars,cans,jar,can|730|1825|||||||1|2
+345|Condiments, Sauces & Canned Goods|Honey||Honey|730|730||||||||
+346|Condiments, Sauces & Canned Goods|Horseradish|in jar|Horseradish,jar|||360|360|||||90|120
+347|Condiments, Sauces & Canned Goods|Jams, jellies, and preserves||Jams,jellies,preserves,jam,jelly,preserve|180|540|||||||180|360
+348|Condiments, Sauces & Canned Goods|Ketchup, cocktail, or chili sauce||Ketchup,cocktail,chili sauce,sauce,chili|365|365|||||||180|180
+349|Condiments, Sauces & Canned Goods|Marinades||Marinades,marinade|365|365|||||||180|180
+350|Condiments, Sauces & Canned Goods|Mayonnaise|commercial|Mayonnaise,commercial|90|180|||||||60|60
+351|Condiments, Sauces & Canned Goods|Mustard||Mustard|365|730|||||||365|365
+352|Condiments, Sauces & Canned Goods|Olives|black and green|Olives,black,green,olive|360|540|||||||14|14
+353|Condiments, Sauces & Canned Goods|Pickles||Pickles,pickle|365|365|||||||30|90
+354|Condiments, Sauces & Canned Goods|Pesto|jarred|Pesto,jarred,jar|||180|180|30|30|||3|3
+356|Condiments, Sauces & Canned Goods|Salad dressings|commercial, bottled|Salad dressings,dressings,dressing,commercial,bottled,bottle,salad|300|360|||||||30|90
+357|Condiments, Sauces & Canned Goods|Salsa|picante and taco sauces|Salsa,picante,taco sauces,taco,sauces,sauce|365|365|||||||30|30
+358|Condiments, Sauces & Canned Goods|Sauce mixes|nondairy (spaghetti, taco, etc.)|Sauce mixes,sauce,mixes,mix,nondairy,dairy,spaghetti,taco|730|730||||||||
+359|Condiments, Sauces & Canned Goods|Spaghetti sauce|in jars|Spaghetti sauce,sauce,in jars,jars,jar,spaghetti|540|540|||||||4|4
+360|Condiments, Sauces & Canned Goods|Soy sauce or teriyaki sauce||Soy sauce,teriyaki sauce,sauce,soy,teriyaki|1095|1095|||||||30|30
+361|Condiments, Sauces & Canned Goods|Vinegar||Vinegar|730|730||||||||
+362|Condiments, Sauces & Canned Goods|Worcestershire sauce||Worcestershire sauce,Worcestershire,sauce|365|365||||||||
+363|Baby Food|Jars or pouches||Jars,pouches,jar,pouch|||||||||2|3
+364|Baby Food|Fruit||Fruit|||||||||3|3
+365|Baby Food|Vegetables||Vegetables,vegetable|||||||||2|2
+366|Baby Food|Dinners||Dinners,dinner|||||||||2|2
+367|Baby Food|Cereal, dry mixes||Cereal,dry mixes,mixes,mix,dry|||||||30|30||
+368|Baby Food|Formula|prepared|Formula,prepared,prepare|||||||||1|1
+369|Baby Food|Liquid concentrate or ready-to-feed formula||Liquid concentrate,ready to feed formula,concentrate,liquid,formula,feed,ready to feed,feed formula|||||||||2|2
+370|Shelf Stable Foods|Applesauce|commercial|Applesauce,Apple,sauce,commercial|360|540|||||||7|10
+371|Shelf Stable Foods|Bacon bits|imitation|Bacon bits,bits,imitation,bacon,bit|365|365||||||||
+372|Shelf Stable Foods|Canned goods|low acid (such as meat, poultry, fish, gravy, stew, soups, beans, carrots, corn, pasta, peas, potatoes, spinach)|Canned goods,canned,can,goods,low acid,low,meat,poultry,fish,gravy,stew,soups,soup,beans,bean,carrots,carrot,corn,pasta,peas,pea,potatoes,potato,spinach|730|1825|||||||3|4
+373|Shelf Stable Foods|Canned goods|high acid (such as juices, fruit, pickles, sauerkraut, tomato soup, and foods in vinegar-based sauce)|Canned goods,canned,can,goods,high acid,high,juices,juice,fruit,fruits,pickles,pickle,sauerkraut,tomato soup,soup,tomato,foods in vinegar based sauce,sauce,foods,food,vinegar based,vinegar|360|540|||||||5|7
+374|Shelf Stable Foods|Cereal|ready-to-eat|Cereal,ready,eat|180|360|||||60|90||
+375|Shelf Stable Foods|Cereal|cook before eating (oatmeal, etc.)|Cereal,cook before eating,oatmeal,oats,oat,meal|360|360|||||180|360||
+376|Shelf Stable Foods|Chocolate syrup||Chocolate syrup,Chocolate,syrup|730|730|||||||180|180
+377|Shelf Stable Foods|Crackers||Crackers,cracker|240|240|||90|120|30|30|90|120
+378|Shelf Stable Foods|Graham cracker/animal cracker||Graham cracker,animal cracker,Graham,cracker,animal|180|270||||||||
+379|Shelf Stable Foods|Fruits, dried|raisins, apricots, mangoes, cranberries, etc.|Fruits,fruit,dried,raisins,raisin,apricots,apricot,mangoes,mangoe,cranberries,cranberry|180|180|||||30|30|180|180
+380|Shelf Stable Foods|Gummy (fruit) snacks||fruit snack,gummy,fruit,snacks,snack,gummy snacks,fruit snacks,gummy snack|180|270||||||||
+381|Shelf Stable Foods|Marshmallows||Marshmallows,Marshmallow|365|365|||||30|30||
+382|Shelf Stable Foods|Marshmallow crème||Marshmallow crème,Marshmallow,crème|60|150|||||30|30||
+383|Shelf Stable Foods|Milk|canned evaporated or condensed|Milk,can,canned,evaporated,condensed,evaporate,condense|360|360|||||||4|5
+384|Shelf Stable Foods|Molasses||Molasses|365|730|||||180|180||
+385|Shelf Stable Foods|Mushrooms|dried|Mushrooms,Mushroom,dried|365|730|||||90|90||
+386|Shelf Stable Foods|Nuts|jars or cans|Nuts,nut,jar,jars,cans,can|365|365|||180|360|60|270|120|180
+387|Shelf Stable Foods|Peanut butter|commercial|Peanut butter,butter,commercial,peanut|180|720|||||60|90||
+388|Shelf Stable Foods|Pectin||Pectin|||||||30|30||
+389|Shelf Stable Foods|Popcorn|dry kernels in jar|Popcorn,dry kernels in jar,jar,dry kernels,kernels,in jar,kernel,chips,chip|730|730|||||365|365||
+390|Shelf Stable Foods|Popcorn|commercially popped in bags|Popcorn,commercially,popped in bags,bags,bag,in bags|60|90|||||7|14||
+391|Shelf Stable Foods|Popcorn|microwave packets|Popcorn,microwave packets,packets,microwave,packet|180|360|||||1|2||
+392|Shelf Stable Foods|Potato chips||Potato chips,potato,chips,chip,potatoes|60|60|||||7|14||
+393|Shelf Stable Foods|Potatoes|instant|Potatoes,Potato,instant|300|450|||||180|360||
+394|Shelf Stable Foods|Pretzels||Pretzels,Pretzel|120|270|||||21|21||
+395|Shelf Stable Foods|Pudding mixes||Pudding mixes,Pudding,mixes,mix|365|365|||||90|120||
+396|Shelf Stable Foods|Soup mixes|dry bouillon|Soup mixes,mixes,mix,soup,dry bouillon,bouillon|365|365|||||365|365||
+397|Shelf Stable Foods|Sun dried tomatoes|jar|Sun dried tomatoes,dried tomatoes,sun,sun dried,dried,tomatoes,tomato|365|365|||||90|180|90|180
+398|Shelf Stable Foods|Syrup||Syrup|365|365|||||||180|180
+399|Shelf Stable Foods|Toaster pastries||Toaster pastries,pastry,Toaster,pastries|180|360|||||7|14||
+400|Beverages|Coffee|whole beans|Coffee,whole beans,beans,whole,bean|90|150|||||90|150|90|120
+401|Beverages|Coffee|home ground, non-vacuum|Coffee,home ground,non vacuum,ground,home,vacuum|90|150|||365|730|21|35||
+402|Beverages|Coffee|instant|Coffee,instant|365|365|||||60|90||
+403|Beverages|Diet powder mixes and drink mixes||Diet powder mixes,drink mixes,mixes,drink,powder mixes,diet powder,mix|540|720|||||30|90||
+404|Beverages|Fruit Juice in cartons, fruit drinks, punch||Fruit Juice in cartons,fruit drinks,punch,fruit,fruit juice,juice in cartons,cartons,carton,drinks,drink|21|21|||||7|12|8|12
+405|Beverages|Juice, boxes||Juice, boxes,box|||||||||8|12
+406|Beverages|Nectar|papaya, mango, guava, or guavabana|Nectar,papaya,mango,guava,guavabana,mangoes|360|540||||||||
+407|Beverages|Soda|carbonated cola drinks, mixers, diet sodas; bottles or cans|Soda,carbonated cola drinks,mixers,diet sodas,bottles,cans,cola drinks,drinks,drink,cola,carbonated,carbonated cola,mixer,diet,sodas,bottle,can|||||||||2|3
+408|Beverages|Soy or rice beverage||Soy,rice beverage,rice,beverage|||||||||7|10
+410|Beverages|Tea|bags|Tea,bags,bag|540|1080|||||180|360||
+411|Beverages|Tea|instant|Tea,instant|730|1095|||||180|360||
+412|Beverages|Tea|loose|Tea,loose|730|730|||||180|360||
+413|Beverages|Water|commercially bottled|Water,commercially bottled,bottled,commercially,bottle,commercial||||||||||
+414|Produce|Kumquats||Kumquats|||21|21||||||
+415|Produce|Bagged greens|leaf, spinach, lettuce, etc.|Bagged greens,leaf,spinach,lettuce,bagged,greens,green|||3|5|||||2|2
+416|Condiments, Sauces & Canned Goods|Tahini||Tahini|365|365|||||||21|21
+190|Deli & Prepared Foods|Egg salad||Egg salad,egg,salad|||3|4||||||
+191|Deli & Prepared Foods|Potato salad||Potato salad,potato,salad|||3|5||||||
+417|Deli & Prepared Foods|Seafood salads|(tuna salad, shrimp salad, salmon salad, mixed seafood salad, etc.)|Seafood salads,tuna salad, shrimp salad, salmon salad, mixed seafood salad,seafood,salads,salad,tuna,shrimp,salmon,mixed,mixed seafood,seafood salad,|||3|4||||||
+418|Deli & Prepared Foods|Chicken salad||Chicken salad,chicken,salad|||3|4||||||
+419|Deli & Prepared Foods|Ham salad||Ham salad,ham,salad|||3|4||||||
+420|Deli & Prepared Foods|Pasta salad||Pasta salad,pasta,salad|||3|5||||||
+421|Dairy Products & Eggs|Soy milk||Soy milk,soy,milk|||||||||7|10
+422|Produce|Yams/sweet potatoes||Yams,sweet potatoes,potatoes,potato,yam|14|21||||||||
+423|Produce|Kale||Kale|||3|5|240|360||||
+425|Grains, Beans & Pasta|Quinoa|uncooked|Quinoa,cooked,uncooked,cook|730|1095||||||||
+426|Grains, Beans & Pasta|Quinoa|cooked|Quinoa,cook,cooked|||6|7|180|360||||
+427|Dairy Products & Eggs|Almond milk||Almond milk,milk,almond|||||||||7|10
+428|Dairy Products & Eggs|Rice milk||Rice milk,rice,milk|||||||||7|10
+429|Dairy Products & Eggs|Coconut milk||Coconut milk,coconut,milk|||||||||7|10
+430|Dairy Products & Eggs|Coffee creamer|powdered|Coffee creamer,creamer,cream,coffee,powdered,powder|730|730|||||60|90||
+431|Poultry|Turkey bacon||Turkey bacon,turkey,bacon|||14|14|60|120|||7|7
+432|Shelf Stable Foods|Fruit cocktail|canned|Fruit cocktail,cocktail,fruit,canned,can||540||||||||
+433|Condiments, Sauces & Canned Goods|Black bean sauce||Black bean sauce,sauce,bean,black,black bean,bean sauce|540|720|||||||90|180
+434|Condiments, Sauces & Canned Goods|Oyster sauce||Oyster sauce,oyster,sauce|540|720|||||||90|180
+435|Condiments, Sauces & Canned Goods|Hoisin sauce||Hoisin sauce,sauce,Hoisin|540|720|||||||90|180
+436|Meat|Pork roll||Pork roll,Pork,roll|||||||||7|7
+437|Shelf Stable Foods|Almonds|shell|Almonds,Almond,shell|180|180|480|480|600|600||||
+438|Shelf Stable Foods|Almonds|no shell|Almonds,Almond,no shell,shell|120|120|240|240|300|300||||
+439|Shelf Stable Foods|Cashews|no shell|Cashews,Cashew,no shell,shell|14|28|180|180|360|360||||
+440|Shelf Stable Foods|Macadamias|no shell|Macadamias,Macadamia,no shell,shell|14|28|360|360|720|720||||
+441|Shelf Stable Foods|Peanuts|shell|Peanuts,Peanut,shell,nut|120|120|360|360|720|720||||
+442|Shelf Stable Foods|Peanuts|no shell|Peanuts,Peanut,no shell,shell,nut|28|28|360|360|720|720||||
+443|Shelf Stable Foods|Pecans|shell|Pecans,Pecan,shell|14|28|360|360|720|720||||
+444|Shelf Stable Foods|Pecans|no shell|Pecans,Pecan,no shell,shell|14|28|270|270|720|720||||
+445|Shelf Stable Foods|Pistachios|shell or no shell|Pistachios,shell,no shell,Pistachio,pista|21|21|360|360|720|720||||
+446|Shelf Stable Foods|Walnuts|shell or no shell|Walnuts,shell,no shell,walnut|14|28|270|360|720|720||||
+447|Beverages|Lime juice||Lime juice,lime,juice|360|540|||||||60|60
+448|Beverages|Lemon juice||Lemon juice,lemon,juice|360|540|||||||60|60
+449|Baked Goods|Bagel|fresh baked|Bagel,fresh baked,baked|1|2|||90|90||||
+450|Baked Goods|Bagel|commercially frozen|Bagel,commercially frozen,frozen|||||90|90||||
+451|Baked Goods|Muffin|homemade - including bran, blueberry, banana, corn, chocolate chip|Muffin,homemade including bran,homemade,bran,blueberry,banana,corn,chocolate chip,including bran,chocolate,chip|3|7|||60|90||||
+452|Baked Goods|Muffin|commercially packaged|Muffin,commercially packaged,packaged|3|7|||90|90||||
+453|Baked Goods|Muffin|mix, dry, commercially packaged|Muffin,mix,dry,commercially packaged,packaged,commercially,commercial|270|270||||||||
+454|Shelf Stable Foods|Coconut oil||Coconut oil,coconut,oil|1095|1095||||||||
+455|Beverages|Orange juice|commercially packaged carton|Orange juice,commercially packaged carton,orange,juice,commercially,packaged,carton,packaged carton,commercially packaged,commercial|||||240|360|||7|10
+456|Beverages|Orange juice|commercially frozen concentrate|Orange juice,commercially frozen concentrate,orange,juice,commercially,frozen,concentrate,commercially frozen,frozen concentrate|||||360|360||||
+457|Beverages|Orange juice|freshly squeezed|Orange juice,orange,juice,freshly squeezed,squeezed,freshly,fresh,sqeeze|||2|3|14|21||||
+458|Shelf Stable Foods|Roasted red peppers|jar|Roasted red peppers,roasted,red,peppers,jar,Roasted red,red peppers,pepper|||120|180||||||
+459|Baked Goods|Whole wheat flour||Whole wheat flour,Whole,wheat,flour,wheat flour,whole wheat|360|360|730|730|730|730||||
+460|Grains, Beans & Pasta|Whole wheat bread|homemade|Whole wheat bread,Whole,wheat,bread,homemade,whole wheat,wheat bread|3|5|||90|90||||
+461|Grains, Beans & Pasta|Whole wheat bread|commercially baked & pre-sliced|Whole wheat flour,Whole,wheat,flour,wheat flour,whole wheat,commercially baked,pre sliced,sliced,slice,baked,commercially,commercial|3|5|||90|90||||
+462|Beverages|Red wine||Red wine,red,wine|1095|1825|||||||1|3
+463|Beverages|White wine||White wine,white,wine|365|730|||||||1|3
+464|Shelf Stable Foods|Dry stuffing mix|commercially packaged|Dry stuffing mix,Dry stuffing,stuffing mix,Dry,stuffing,mix,commercially packaged,packaged,commercially,commercial,pack|270|360||||||||
+465|Dairy Products & Eggs|Powdered milk||Powdered milk,Powdered,milk,powder|1095|1825|||||90|90||
+466|Shelf Stable Foods|Almond butter||Almond butter,Almond,butter|365|365||||||||
+467|Shelf Stable Foods|Cashew butter||Cashew butter,Cashew,butter|90|90||||||||
+468|Shelf Stable Foods|Salt|table, plain, or iodized|Salt,table,plain,iodized||||||||||
+469|Shelf Stable Foods|Black pepper|ground, dried, commercially bottled or purchased in bulk|Black pepper,black,pepper,ground,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|730|730||||||||
+470|Shelf Stable Foods|Black pepper|cracked, dried, commercially bottled or purchased in bulk|Black pepper,black,pepper,crack,cracked,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|730|1095||||||||
+471|Shelf Stable Foods|Cajun seasoning blend|ground, dried, commercially bottled or purchased in bulk|Cajun seasoning blend,Cajun,seasoning,blend,Cajun seasoning,seasoning blend,ground,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|365|730||||||||
+472|Shelf Stable Foods|Cinnamon|ground, dried, commercially bottled or purchased in bulk|Cinnamon,ground,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|1095|1460||||||||
+473|Shelf Stable Foods|Cumin|ground, dried, commercially bottled or purchased in bulk, opened or unopened|Cumin,ground,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase,opened,unopened,open,unopen|1095|1460||||||||
+474|Shelf Stable Foods|Garlic powder|dried, commercially bottled or purchased in bulk|Garlic powder,garlic,powder,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|1095|1460||||||||
+475|Shelf Stable Foods|Onion powder|dried, commercially bottled or purchased in bulk|Onion powder,onion,powder,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|1095|1460||||||||
+476|Shelf Stable Foods|Nutmeg|ground, dried, commercially bottled or purchased in bulk|Nutmeg,ground,dried,commercially bottled,commercially,bottled,bottle,commercial,purchased in bulk,bulk,purchased,purchase|1095|1460||||||||
+477|Dairy Products & Eggs|Nacho cheese|store bought|Nacho cheese,nacho,cheese,store bought,store|730|730|||90|90|||14|14
+478|Produce|Star fruit||Star fruit,fruit,fruits|7|7|7|14|300|360||||
+479|Produce|Prickly pear||Prickly pear,pear,pickle|2|5|7|14|300|360||||
+480|Produce|Pitaya/dragon fruit||Pitaya,dragon fruit,fruit,fruits|2|5|14|21|300|360||||
+481|Produce|Strawberries||Strawberries,strawberry|||2|3|240|360||||
+482|Produce|Raspberries||Raspberries,raspberry|||2|3|240|360||||
+483|Produce|Cherries||Cherries,cherry|||2|3|240|360||||
+484|Condiments, Sauces & Canned Goods|Broth|homemade|Broth,homemade|||3|4|60|90||||
+485|Condiments, Sauces & Canned Goods|Beef broth/stock/consommé|commercially produced|Beef broth, beef stock,beef consommé,consommé,commercially produced|||7|7|60|90|||3|4
+486|Condiments, Sauces & Canned Goods|Chicken broth/stock/consommé|commercially produced|Chicken broth,chicken stock,consommé,commercially produced|||7|7|60|90|||3|4
+487|Condiments, Sauces & Canned Goods|Vegetable stock/broth|commercially produced|Vegetable stock,Vegetable broth,broth,commercial vegetable stock,commercial vegetable broth,vegetable|||7|7|60|90|||3|4
+488|Shelf Stable Foods|Peanut butter|commercially produced, containing hydrogenated fat or other stabilizers|Peanut butter,butter,commercial peanut butter, hydrogenated fat,fat,stabilizers,stabilizer|180|270|360|360|||60|90|90|120
+489|Shelf Stable Foods|Peanut butter|natural|Peanut butter,butter,natural|||360|360|||||90|120
+490|Dairy Products & Eggs|Ricotta||Ricotta|||14|14|||||7|7
+491|Produce|Baby carrots||Baby carrots, carrot,baby carrot|4|4|28|28|90|90||||
+492|Produce|Jicama|fresh|Jicama,fresh|120|120|14|21||||||
+493|Produce|Kimchi||Kimchi|||180|360||||||
+494|Produce|Kohlrabi||Kohlrabi|||7|7|240|360||||
+495|Produce|Watermelon||Watermelon|1|2|3|4|360|360||||
+496|Produce|Cantaloupe||Cantaloupe|2|4|5|15|360|360||||
+497|Produce|Honeydew||Honeydew|2|7|3|4|360|360||||
+498|Grains, Beans & Pasta|Peanuts|boiled, shelled|Peanuts,boiled, shelled,peanut|1095|1095|||||||7|7
+499|Grains, Beans & Pasta|Refried beans||Refried beans,refried bean|1095|1095|||||||2|3
+500|Condiments, Sauces & Canned Goods|Relish||Relish|900|900|270|270||||||
+501|Shelf Stable Foods|Tomato paste||Tomato paste|810|810|||60|90|||5|5
+502|Shelf Stable Foods|Tapenade||Tapenade|270|270|270|270||||||
+503|Shelf Stable Foods|Flaxseed|whole seed|Flaxseed,whole seed,seed|730|730||||||||
+504|Shelf Stable Foods|Flaxseed|ground|Flaxseed,ground|||360|360|360|360||||
+505|Produce|Lemongrass||Lemongrass|||7|9|180|180||||
+506|Produce|Cilantro||Cilantro|7|14|14|21||||||
+507|Produce|Mint||Mint|7|14|14|21||||||
+508|Produce|Basil|dried|Basil,dried|360|360||||||||
+509|Produce|Basil|fresh|Basil,fresh|5|5|10|10||||||
+510|Produce|Oregano||Oregano|7|14|14|21||||||
+511|Produce|Rosemary||Rosemary|7|14|14|21||||||
+512|Produce|Chives||Chives|7|14|14|21||||||
+513|Produce|Thyme||Thyme|7|14|14|21||||||
+514|Deli & Prepared Foods|Turkey|pre-packaged, luncheon/deli meat|Turkey,pre-packaged,luncheon/deli meat,packaged,luncheon,deli|||14|14|30|60|||3|5
+515|Deli & Prepared Foods|Ham|pre-packaged, luncheon/deli meat|Ham,pre-packaged,luncheon/deli meat,packaged,luncheon,deli|||14|14|30|60|||3|5
+516|Deli & Prepared Foods|Salami|pre-packaged, luncheon/deli meat|Salami,pre-packaged,luncheon meat,deli meat,packaged,luncheon/deli,pre|||14|14|30|60|||3|5
+517|Deli & Prepared Foods|Chicken|pre-packaged, luncheon/deli meat|Chicken,pre-packaged,luncheon meat,deli meat,packaged|||14|14|30|60|||3|5
+518|Deli & Prepared Foods|Canadian bacon|whole|Canadian bacon,bacon,whole|||14|14|60|60||||
+519|Deli & Prepared Foods|Canadian bacon|sliced|Canadian bacon,bacon,sliced|||80|80|360|360||||
+520|Shelf Stable Foods|Canola oil||Canola oil,canola|365|365||||||||
+521|Shelf Stable Foods|Almond oil||Almond oil,almond|365|365|730|730||||||
+522|Shelf Stable Foods|Sunflower oil||Sunflower oil,oil,sunflower|365|365||||||||
+523|Shelf Stable Foods|Grapeseed oil||Grapeseed oil,grapeseed,oil|365|365||||||||
+524|Condiments, Sauces & Canned Goods|Duck fat||Duck fat,duck|||30|30||||||
+525|Condiments, Sauces & Canned Goods|Bacon grease||Bacon grease,bacon,grease|||180|180|360|360||||
+526|Condiments, Sauces & Canned Goods|Frying oil|re-used|Frying oil,re-used oil,oil|||30|30|180|270||||
+527|Baked Goods|Almond extract||Almond extract|730|730|||||360|360||
+528|Baked Goods|Cinnamon extract||Cinnamon extract|730|730|||||360|360||
+529|Baked Goods|Lemon extract||Lemon extract,lemon|730|730|||||360|360||
+530|Baked Goods|Pure vanilla extract||vanilla,vanila extract|730|730|||||360|360||
+531|Baked Goods|Butter flavor||Butter flavor,butter|730|730|||||360|360||
+532|Baked Goods|Coconut flavor||Coconut flavor,coconut|730|730|||||360|360||
+533|Shelf Stable Foods|"Genuine" Maple syrup|unopened, glass|Genuine Maple syrup,syrup,unopened, glass|1460|1460||||||||
+534|Shelf Stable Foods|"Genuine" Maple syrup|unopened, plastic|Genuine Maple syrup,syrup,unopened, plastic|730|730|540|720||||||
+536|Beverages|Lemon juice|fresh squeezed|Lemon juice,juice,fresh squeezed,squeezed,juices|||6|6|360|360||||
+537|Beverages|Apple juice|fresh squeezed|Apple juice,juice,fresh squeezed,squeezed,juices,apple|||6|6|360|360||||
+538|Beverages|Carrot juice|fresh squeezed|Carrot juice,juice,fresh squeezed,squeezed,juices|||6|6|360|360||||
+539|Beverages|Hard liquors||Hard liquors,liquor||||||||||
+540|Beverages|Cream liquors|unopened|Cream liquors,liquors,unopened,liquor|180|240||||||||
+541|Beverages|Coffee|commercial ground, non-vacuum|Coffee,commercial ground, non-vacuum|730|730|||180|360|14|14|30|30
+542|Baked Goods|Macaroons|french|Macaroons,Macaroon,french|1|2|||90|90||||
+543|Dairy Products & Eggs|Milk|lactose-free|Milk,lactose,lactose-free|||||||||7|7
+544|Dairy Products & Eggs|String Cheese||String Cheese,cheese|||150|150||||||
+545|Dairy Products & Eggs|Vegan Cheddar Cheese||Vegan Cheddar Cheese,cheese,cheddar|||120|120|||||3|7
+546|Dairy Products & Eggs|Quark|fresh cheese|Quark,fresh cheese,cheese|||7|10||||||
+547|Produce|Zucchini|fresh, whole|Zucchini,fresh, whole|||7|7|300|300||||
+548|Produce|Hot peppers||Hot peppers,pepper|||7|7|270|270||||
+549|Produce|Bean sprouts||Bean sprouts,bean,sprouts|||5|10||||||
+550|Produce|Swiss chard||Swiss chard,chard|||7|14||||||
+551|Baked Goods|Puff pastry||Puff pastry,pastry,pastries,puff|||||360|360||||
+552|Baked Goods|Biscuits|refrigerated|Biscuits,Biscuits,refrigerated||||||||||
+553|Grains, Beans & Pasta|Tortillas|corn|Tortillas,corn|25|45|60|90||||||
+554|Baked Goods|Pie crust|refrigerated|Pie crust,crust,refrigerated,pie|||||60|60||||
+555|Shelf Stable Foods|Granola||Granola|180|270||||||||
+556|Shelf Stable Foods|Pork rinds||Pork rinds,pork,rinds|120|120||||||||
+557|Condiments, Sauces & Canned Goods|Apple cider vinegar||Apple cider vinegar,Apple cider, vinegar,cider,apple||||||||||
+558|Beverages|Nutrition supplement drinks|canned|Nutrition supplement drinks,drinks,canned,supplement,Boost,Ensure|730|1825|||||||2|2
+559|Condiments, Sauces & Canned Goods|Hot sauce||Hot sauce,sauce|180|180||||||||
+560|Condiments, Sauces & Canned Goods|Thai red curry paste||Thai red curry paste,red curry paste,curry paste,paste,curry|730|730|||||||5|5
+561|Baked Goods|Yeast|packaged|Yeast,packaged|730|730|||180|180|||120|120
+562|Produce|Applesauce|homemade|Applesauce,homemade|||21|21|240|360||||
+563|Meat|Pate|meat|Pate,meat|||7|7||||||
+564|Poultry|Pate|poultry|Pate,poultry|||7|7||||||
+565|Condiments, Sauces & Canned Goods|Cranberry sauce|canned|Cranberry sauce,sauce,canned|730|730|||||||7|14
+566|Condiments, Sauces & Canned Goods|Cranberry sauce|homemade|Cranberry sauce,sauce,homemade|||7|10||||||
+567|Beverages|Vegetable juice|shelf-stable|Vegetable juice,stable,shelf,shelf-stable|540|540||||||||
+568|Beverages|Vegetable juice|commercial, sold refrigerated|Vegetable juice,commercial,refrigerated,vegetable|||30|30||||||
+569|Beverages|Vegetable juice|homemade|Vegetable juice,juices,homemade,vegetable|||||||||3|5
+570|Produce|Marinated vegetables|in oil|Marinated vegetables,vegetables,oil,vegetable|||3|4||||||
+571|Food Purchased Frozen|Pizza|frozen|Pizza,frozen|||3|4|360|360||||
+572|Deli & Prepared Foods|Salsa|fresh|Salsa,fresh|||4|7||||||
+573|Shelf Stable Foods|Chia seeds||Chia seeds,chia,seed,seeds|540|540||||||||
+574|Baked Goods|Bread|homemade|Bread,Breads,homemade|3|5|60|90||||||
+575|Grains, Beans & Pasta|Amaranth|whole grain|Amaranth,whole grain,grain|120|120|||240|240||||
+576|Baked Goods|Amaranth|flour, meal|Amaranth,flour,meal|60|60|||120|120||||
+577|Grains, Beans & Pasta|Barley|whole grain|Barley,whole grain,grain|180|180|||360|360||||
+578|Baked Goods|Barley|flour, meal|Barley,flour, meal|90|90|||180|180||||
+579|Grains, Beans & Pasta|Buckwheat|whole grain|Buckwheat,whole grain,grain|60|60|||120|120||||
+580|Baked Goods|Buckwheat|flour, meal|Buckwheat,flour, meal,meal|30|30|||60|60||||
+581|Grains, Beans & Pasta|Farro|whole grain|Farro,whole grain,grain|180|180|||360|360||||
+582|Baked Goods|Farro|flour, meal|Farro,flour, meal|90|90|||180|180||||
+583|Grains, Beans & Pasta|Millet|whole grain|Millet,whole grain,grain|60|60|||120|120||||
+584|Baked Goods|Millet|flour, meal|Millet,flour, meal|30|30|||60|60||||
+585|Grains, Beans & Pasta|Oats|whole grain|Oat,Oats,whole grain,grain|120|120|||240|240||||
+586|Baked Goods|Oats|flour, meal|Oats,Oat,flour, meal|60|60|||120|120||||
+587|Grains, Beans & Pasta|Rye|whole grain|Rye,whole grain,grain|180|180|||360|360||||
+588|Baked Goods|Rye|flour, meal|Rye,flour, meal|90|90|||180|180||||
+589|Grains, Beans & Pasta|Sorghum|whole grain|Sorghum,whole grain,grain|120|120|||240|240||||
+590|Baked Goods|Sorghum|flour, meal|Sorghum,flour, meal|60|60|||120|120||||
+591|Grains, Beans & Pasta|Spelt|whole grain|Spelt,whole grain,grain|180|180|||360|360||||
+592|Baked Goods|Spelt|flour, meal|Spelt,flour, meal|90|90|||180|180||||
+593|Grains, Beans & Pasta|Teff|whole grain|Teff,whole grain,grain|120|120|||240|240||||
+594|Baked Goods|Teff|flour, meal|Teff,flour, meal|60|60|||120|120||||
+595|Meat|Rabbit|whole, fresh|Rabbit,whole, fresh|||2|2|270|270||||
+596|Produce|Spaghetti squash|whole|Spaghetti squash,squash,whole|60|60|7|14||||||
+597|Produce|Spaghetti squash|cut|Spaghetti squash,squash,cut|||4|5||||||
+598|Baked Goods|Garam masala||Garam masala|365|365||||||||
+599|Condiments, Sauces & Canned Goods|Tomato sauce|spaghetti, pizza|Tomato sauce,sauce,spaghetti, pizza|||||||||3|5
+600|Produce|Cherry tomatoes||Cherry, tomatoes,tomato|10|10|5|5||||||
+601|Shelf Stable Foods|Coconut cream|canned|coconut cream,coconut,cream,canned,can|730|1825|||90|90|||4|4
+602|Shelf Stable Foods|Coconut milk|canned|coconut milk,coconut,milk,canned,can|730|1825|||90|90|||4|4
+603|Deli & Prepared Foods|Coleslaw|homemade, prepared|coleslaw,homemade,homemade coleslaw,prepared,prepared coleslaw|||3|5||||||
+604|Shelf Stable Foods|Pumpkin seeds|raw, no shell|pumpkin,pumpkin seed,pumpkin seeds,seed,seeds|180|180|180|180||||||
+605|Shelf Stable Foods|Pumpkin seeds|raw, in-shell|pumpkin,pumpkin seed,pumpkin seeds,seed,seeds|180|180||||||||
+606|Shelf Stable Foods|Pumpkin seeds|roasted, no-shell|pumpkin,pumpkin seed,pumpkin seeds,seed,seeds|180|180||||||||
+607|Shelf Stable Foods|Pumpkin seeds|roasted, in-shell|pumpkin,pumpkin seed,pumpkin seeds,seed,seeds|180|180||||||||
+608|Shelf Stable Foods|Sunflower seeds|raw, unsalted, no shell|sunflower,sunflower seed,sunflower seeds,seed,seeds|360|360||||||||
+609|Shelf Stable Foods|Sunflower seeds|roasted, no shell|sunflower,sunflower seed,sunflower seeds,seed,seeds,kernal,shell|360|360|||||90|120|210|240
+610|Shelf Stable Foods|Sunflower seeds|roasted, salted, in shell|sunflower,sunflower seed,sunflower seeds,seed,seeds||||||||||
+611|Produce|Parsley|fresh|parsley|||2|3|90|120||||
+612|Shelf Stable Foods|Sesame oil||sesame oil,sesame,oil|730|730|||||180|180||
+613|Shelf Stable Foods|Sesame seeds||sesame seeds,sesame,seeds,seed|1825|1825||||||||
+614|Shelf Stable Foods|Capers|in jar|capers,caper,jar capers,in jar,jar||||||||||
+615|Shelf Stable Foods|Chocolate hazlenut spread||hazelnut spread, spread, hazelnut, chocolate spread, chocolate,Nutella,cocoa,cocoa spread||||||||||
+616|Shelf Stable Foods|Roasted nuts (peanuts, cashews, almonds)||roasted nuts,roasted,nuts,roasted peanuts,roasted almonds,roasted cashews,almonds,cashews,peanuts|||||||7|14|28|28
+617|Shelf Stable Foods|Tuna|packet|tuna packet,tuna,packet,retort,retort packaging|540|540|||||||3|4
+618|Shelf Stable Foods|Tuna|canned|canned tuna,tuna,canned|1095|1095||||||||
+619|Shelf Stable Foods|Seafood|canned|canned seafood,seafood,canned|365|365|||||||1|2
+620|Dairy Products & Eggs|Pimento cheese|packaged|pimento cheese,pimento,cheese|||||||||28|28
+621|Meat|Bison|whole|bison whole,bison,whole|||3|5|180|270||||
+622|Meat|Bison|ground|ground bison,bison,ground|||1|2|90|120||||
+623|Condiments, Sauces & Canned Goods|Salad dressing|creamy|creamy salad dressing,salad,dressing,salad dressing,creamy|180|180|||||||21|28
+624|Condiments, Sauces & Canned Goods|Salad dressing|vinaigrette,homemade|salad dressing,vinaigrette,salad,dressing,homemade|||14|21||||||
+625|Condiments, Sauces & Canned Goods|Salad dressing|vinaigrette|salad dressing,vinaigrette,salad,dressing|180|180|||||||28|28
+626|Condiments, Sauces & Canned Goods|Salad dressing|dry,packaged|salad dressing,salad,dressing,dry,packaged,package,powdered,powder|||||||||28|28
+627|Shelf Stable Foods|Grits|boxed|boxed grits,grits,boxed,box|360|360||||||||
+628|Dairy Products & Eggs|Cheese Curds|fresh, unaged|cheese curd,cheese,curd,curds,cheese curds|||14|14|120|120||||
+629|Deli & Prepared Foods|Vegetable soup|homemade|vegetable soup,vegetable,soup|||3|4|90|90||||
+630|Meat|Chorizo|fresh|fresh chorizo,chorizo|||1|2|30|60||||
+631|Meat|Chorizo|smoked and processed, uncooked|smoked chorizo,chorizo,processed chorizo,smoked,processed,uncooked,uncooked processed chorizo,uncooked smoked chorizo|||7|7|30|60||||
+632|Meat|Chorizo|smoked and processed, cooked|smoked chorizo,chorizo,processed chorizo,smoked,processed,cooked,cooked processed chorizo,cooked smoked chorizo|365|365|||180|180|||30|30
+633|Shelf Stable Foods|Beets|pickled|pickled beets,beets,pickled|365|365|||||||30|60
+634|Baked Goods|Cinnamon rolls|unbaked, tube|cinnamon rolls,cinnamon roll,cinnamon,roll,rolls||||||||||
+635|Baked Goods|Cinnamon rolls|baked|cinnamon rolls,cinnamon roll,cinnamon,roll,rolls|1|3|||90|90||||
+636|Condiments, Sauces & Canned Goods|Cooking wine||cooking wine,wine,cooking||||||||||
+637|Grains, Beans & Pasta|Bulgur||bulgur|180|360||||||||
+638|Meat|Bratwurst|fresh|fresh brautwurst,brautwurst,fresh|||2|3|60|90||||
+639|Meat|Bratwurst|smoked and processed|smoked brautwurst,processed brautwurst,bratwurst,smoked,processed|||5|7|60|90||||
+640|Produce|Edamame|fresh|edamame,fresh,fresh edamame,soybeans,soybean|||4|5||||||
+641|Food Purchased Frozen|Edamame|frozen|edamame,frozen,frozen edamame,soybean,soybeans|||||730|730||||
+642|Shelf Stable Foods|Edamame|salted, dry roasted, out of pod|edamame,soybean,soybeans,salted,roasted,dry roasted|360|360|180|180||||||
+643|Shelf Stable Foods|Breadcrumbs|commercial|breadcrumbs,breadcrumb|180|180||||||||
+644|Shelf Stable Foods|Milk|shelf-stable|shelf stable milk,milk,shelf,stable,UHT,ultrapasteurized,aseptic packaging|180|360|||||||5|7
+645|Deli & Prepared Foods|Salsa|homemade, fresh|homemade salsa,homemade,salsa|||5|7|360|360||||
+646|Condiments, Sauces & Canned Goods|Salsa|homemade, canned|homemade salsa,homemade,salsa|270|360||||||||
+647|Condiments, Sauces & Canned Goods|Tomato Sauce|homemade, canned|homemade tomato sauce,homemade sauce,homemade spaghetti sauce,spaghetti sauce,tomato sauce,homemade|270|360||||||||
+648|Condiments, Sauces & Canned Goods|Barbecue Sauce|homemade, canned|homemade barbecue sauce,homemade sauce,homemade BBQ sauce,BBQ sauce,barbecue sauce|270|360||||||||
+649|Dairy Products & Eggs|Ghee||ghee,clarified butter,clarified,butter|180|240|365|730||||||
+650|Shelf Stable Foods|Corn syrup||corn syrup,corn,syrup|1095|1095||||||||
+651|Shelf Stable Foods|Nutrition supplement drinks|bottled|Nutrition supplement drinks,drinks,bottled,supplement||||||||||
+652|Shelf Stable Foods|Instant breakfast drinks|bottled|instant breakfast drinks,instant,breakfast,drinks,instant breakfast,instant drink,carnation,bottled instant breakfast drink,bottled instant breakfast,bottled breakfast|180|180||||||||
+653|Shelf Stable Foods|Pine nuts||pine nuts,pine nut,pine,nut,nuts|14|21|90|90|270|270||||
+654|Baked Goods|Coconut flour||coconut flour,coconut,flour|||270|360|270|360||||
+655|Shelf Stable Foods|Pecans|chopped|chopped pecans,pecan,pecans,chopped|||360|360|730|730||||
+656|Shelf Stable Foods|Polenta|shelf-stable|polenta,shelf stable,shelf stable polenta|||||||||5|7
+657|Food Purchased Frozen|Polenta|frozen|polenta,frozen,frozen polenta|||||360|360||||
+658|Shelf Stable Foods|Cereal or granola bars||bars,bar,granola bars,granola bar,granola,cereal bars,cereal bar,nutrition bars,nutrition bar,energy bars,energy bar,health bars,health bar,fruit bars,fruit bar,snack bars,snack barsnack,,nut bars,nut bar,seed bars,seed bar,crunchy bars,crunchy bar,breakfast,breakfast bar,breakfast bars|180|360||||||||
+659|Shelf Stable Foods|Milk|ultra-pasteurized|ultra pasteurized milk,milk,pasteurized,ultra|||30|90|||||7|10
+660|Beverages|Coconut water||coconut water,coconut,water|360|360|||||||1|2
+661|Produce|Celery root||celeriac,celery root,celery|||7|7||||||
+662|Beverages|Apple cider|fresh|apple cider,apple,cider|2|3|14|21||||||
+663|Beverages|Yuzu juice||yuzu juice,yuzu,juice|120|180|270|360|365|730|||90|120
+664|Beverages|Yuzu|fruit, fresh|yuzu,yuzu fruit|||5|7||||||
+665|Meat|Pastrami||pastrami|||40|40||||||
+666|Food Purchased Frozen|Kugel|commercial|kugel,commercial,commercial kugel|||||365|365||||
+667|Deli & Prepared Foods|Kugel|homemade|kugel,homemade,homemade kugel|||3|4|30|30||||
+668|Shelf Stable Foods|Avocado Oil||avodaco oil,avocado,oil|730|730|||||180|180||
+669|Condiments, Sauces & Canned Goods|Balsamic vinegar||balsamic vinegar,balsamic,vinegar|1095|1825|||||||540|540
+670|Condiments, Sauces & Canned Goods|Aioli|homemade|garlic aioli,aioli,garlic,mayonnaise,mayo,garlic mayo,garlic mayonnaise,mayo|||3|4||||||
+671|Condiments, Sauces & Canned Goods|Salad dressing|homemade|homemade salad dressing,homemade,salad dressing,salad,dressing|||||||||14|14
+672|Shelf Stable Foods|Base|beef, vegetable|beef base,vegetable base,base,beef,vegetable||||||||||
+673|Condiments, Sauces & Canned Goods|Anchovies|canned|anchovies,anchovy,canned anchovies|1825|1825|||60|60|||3|4
+674|Produce|Radicchio||radicchio|||14|21||||||
+675|Meat|Prosciutto||prosciutto|||60|90|30|30||||
+676|Meat|Ham|uncured, fresh, cooked|ham,uncured,fresh,cooked,uncured ham,fully cooked,fully cooked uncured ham|||3|4|90|120||||
+677|Meat|Ham|uncured, fresh, uncooked|ham,uncured,fresh,uncooked,uncured ham,uncured ham uncooked|||3|5|180|180||||
+678|Produce|Arugula||arugula,greens,salad greens,salad|||3|7||||||
+679|Grains, Beans & Pasta|Mung bean|sprouts|sprouted mung beans,sprouted mung bean,sprout,mung beans,mung bean,mung,bean,mungbean,sprouts|||28|42||||||
+680|Grains, Beans & Pasta|Mung bean|dry, food-grade bags|mung beans,mung bean,mung,bean,dry mung beans,dry,bag,bagged mung beans|365|365|365|365|365|365||||
+681|Grains, Beans & Pasta|Mung bean|dry, vacuum-sealed|mung beans,mung bean,mung,bean,dry mung beans,dry,vacuum sealed,vacuum sealed mung beans|2920|3650||||||||
+682|Shelf Stable Foods|Croutons||croutons,crouton,bread|150|180|150|180|330|360||||
+683|Meat|Bacon|uncured|uncured bacon,nitrite-free bacon,natural bacon,uncured,nitrite-free,nitrite,natural,bacon|||4|7|21|28||||
+684|Shelf Stable Foods|Mustard|dried, ground|mustard,dried mustard,ground mustard,dried ground mustard|180|180|||365|730||||

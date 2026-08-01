@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api } from "../api";
 
 const CATEGORIES = ["pantry", "fridge", "freezer", "produce", "spice", "other"];
 
@@ -21,6 +22,52 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
+  }
+
+  // Backlog B4.3 (2026-08-01): auto-suggests an expiration date from the
+  // shipped USDA FoodKeeper catalog as the household types a name --
+  // directly serves the brief's "keep expiration information as much as
+  // reasonably possible" plus the author's own stated forgotten-pantry-
+  // item problem. Deliberately NEVER auto-fills the field itself (that
+  // would silently override a value the household might already be
+  // mid-typing) -- shows the suggestion alongside an explicit "Use this
+  // date" button instead, same pattern as SettingsPage's Google Calendar
+  // redirect-URI suggestion buttons. Debounced (500ms) so it doesn't fire
+  // a request on every keystroke, and only looks up once the name is at
+  // least 3 characters (avoids a flood of near-meaningless single-letter
+  // lookups). Skipped entirely once the household has already set an
+  // expiration date -- nothing to suggest at that point.
+  const [suggestion, setSuggestion] = useState(null);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    setSuggestion(null);
+    if (form.expiration_date || form.name.trim().length < 3) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSuggestionLoading(true);
+      try {
+        const params = new URLSearchParams({ name: form.name.trim(), category: form.category });
+        const result = await api.get(`/inventory/shelf-life-suggestion?${params.toString()}`);
+        if (result.found) setSuggestion(result);
+      } catch {
+        // Silent -- this is a nice-to-have suggestion, not a required
+        // field; a failed lookup just means no suggestion shows, same as
+        // an unmatched item name.
+      } finally {
+        setSuggestionLoading(false);
+      }
+    }, 500);
+    return () => clearTimeout(debounceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.name, form.category, form.expiration_date]);
+
+  function applySuggestedDate() {
+    if (suggestion?.suggested_expiration_date) {
+      set("expiration_date", suggestion.suggested_expiration_date);
+      setSuggestion(null);
+    }
   }
 
   function handleSubmit(e) {
@@ -70,6 +117,17 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
           <input type="date" value={form.expiration_date || ""} onChange={(e) => set("expiration_date", e.target.value)} />
         </label>
       </div>
+      {suggestionLoading && <p className="hint">Checking USDA FoodKeeper for a shelf-life estimate...</p>}
+      {suggestion && (
+        <p className="hint">
+          Estimated ({suggestion.days_min ?? "?"}
+          {suggestion.days_max && suggestion.days_max !== suggestion.days_min ? `-${suggestion.days_max}` : ""} days,
+          USDA FoodKeeper match: "{suggestion.matched_name}"):{" "}
+          <button type="button" className="btn-link" onClick={applySuggestedDate}>
+            Use {suggestion.suggested_expiration_date}
+          </button>
+        </p>
+      )}
       <div className="form-row">
         <label>
           Location

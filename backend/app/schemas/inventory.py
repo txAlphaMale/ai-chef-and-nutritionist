@@ -101,6 +101,27 @@ class RecallStatusResponse(BaseModel):
     check_due: bool
 
 
+class ShelfLifeSuggestionResponse(BaseModel):
+    """Backlog B4.3 (2026-08-01): result of GET /api/inventory/
+    shelf-life-suggestion?name=X&category=Y&purchased_date=Z against the
+    shipped USDA FoodKeeper catalog (foodkeeper_service). `found=False`
+    means no confident FoodKeeper match (an unusual/branded item name, or
+    a category FoodKeeper doesn't map cleanly onto -- see
+    foodkeeper_service.CATEGORY_FIELD_ORDER) -- the frontend should treat
+    this the same as "no suggestion available," not an error, and just
+    leave the expiration-date field for the household to fill in
+    themselves as always. Always an estimate, never authoritative -- see
+    the module docstring's food-safety framing."""
+
+    found: bool
+    matched_name: str | None = None
+    foodkeeper_id: int | None = None
+    storage: str | None = None  # pantry|fridge|freezer -- which FoodKeeper range this came from
+    days_min: int | None = None
+    days_max: int | None = None
+    suggested_expiration_date: date | None = None
+
+
 class BarcodeLookupResponse(BaseModel):
     """Backlog B4.1 (2026-08-01): result of GET /api/inventory/barcode-
     lookup?barcode=X against Open Food Facts (food_data_service.
