@@ -30,6 +30,16 @@ class SettingSpec:
     default: str
     description: str
     env_fallback: str | None = None  # optional env var read only at first-run seed time
+    # Fixed set of valid values, e.g. ["original", "metric", "imperial",
+    # "weight"] for default_unit_system -- when set, the Settings UI
+    # renders a <select> instead of a free-text box, since a value
+    # outside this set isn't just "unusual", it's silently ignored by
+    # every consumer (recipe_service.scale_ingredients/apply_unit_system
+    # already only recognize these exact strings and pass through
+    # anything else as a no-op "original"). None means "no fixed set" --
+    # arbitrary text is genuinely correct there (an Ollama model name, a
+    # URL, an API key).
+    options: list[str] | None = None
 
 
 SETTING_SPECS: list[SettingSpec] = [
@@ -117,6 +127,12 @@ SETTING_SPECS: list[SettingSpec] = [
             "via the unit selector on a recipe's detail page, which saves back "
             "here the same way the Appearance theme picker does."
         ),
+        # Fixed 2026-08-01 -- this was rendering as a free-text box with no
+        # indication of what values actually do anything (recipe_service's
+        # apply_unit_system only recognizes these four exact strings; any
+        # other typed value silently behaves like "original"). The author
+        # flagged this directly from a screenshot.
+        options=["original", "metric", "imperial", "weight"],
     ),
     SettingSpec(
         key="usda_fdc_api_key",
@@ -297,6 +313,7 @@ def list_settings_for_display(db: Session) -> list[dict]:
                 "description": spec.description,
                 "value": "********" if spec.is_secret and has_value else (row.value if row else spec.default),
                 "is_set": has_value,
+                "options": spec.options,
             }
         )
     return out

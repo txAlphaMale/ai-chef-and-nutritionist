@@ -472,12 +472,29 @@ export default function SettingsPage() {
             <div className="settings-row" key={spec.key}>
               <label>
                 {spec.label}
-                <input
-                  type={spec.is_secret ? "password" : "text"}
-                  placeholder={spec.is_secret ? (spec.is_set ? "•••••••• (set -- enter a new value to change)" : "not set") : ""}
-                  value={settingEdits[spec.key] ?? ""}
-                  onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
-                />
+                {spec.options ? (
+                  // Backlog fix 2026-08-01 -- a setting with a fixed,
+                  // enumerated set of valid values (e.g. default_unit_system)
+                  // gets a <select>, not a free-text box the user has no way
+                  // to know the accepted values for.
+                  <select
+                    value={settingEdits[spec.key] ?? spec.value}
+                    onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+                  >
+                    {spec.options.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={spec.is_secret ? "password" : "text"}
+                    placeholder={spec.is_secret ? (spec.is_set ? "•••••••• (set -- enter a new value to change)" : "not set") : ""}
+                    value={settingEdits[spec.key] ?? ""}
+                    onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+                  />
+                )}
               </label>
               <p className="hint">{spec.description}</p>
               <div className="form-actions">
