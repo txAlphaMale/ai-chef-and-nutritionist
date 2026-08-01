@@ -6,13 +6,16 @@ settings page needs -- no new machinery, both PATCHes just call the
 service/model layer Phase 2 already built."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.system import PromptUpdate, SettingUpdate
-from app.services import ollama_client, settings_service, tavily_client
+from app.services import backup_service, ollama_client, settings_service, tavily_client
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -63,3 +66,26 @@ def status(db: Session = Depends(get_db)):
         "ollama_reachable": ollama_client.ping(db),
         "tavily_configured": tavily_client.is_configured(db),
     }
+
+
+@router.get("/backup/manifest")
+def get_backup_manifest():
+    """Backlog B9.2 -- a cheap, display-only preview of what a backup
+    download currently contains, so the Settings UI can show something
+    more useful than a bare button before the user clicks it."""
+    return backup_service.backup_manifest()
+
+
+@router.get("/backup")
+def download_backup():
+    """Backlog B9.2 -- streams a full .tar.gz backup (database + secret
+    key files + recipe images + knowledge files) as a downloadable file.
+    See backup_service.py's module docstring for exactly what's included
+    and, importantly, why this endpoint does not also offer restore."""
+    archive = backup_service.build_backup_archive()
+    filename = f"chef-backup-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
+    return Response(
+        content=archive,
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

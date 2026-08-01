@@ -74,6 +74,23 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [disableCurrentPassword, setDisableCurrentPassword] = useState("");
 
+  // Backlog B9.2 -- one-click backup. The manifest is just a cheap
+  // preview of what the archive currently contains (see
+  // backup_service.backup_manifest) so the button isn't a total black
+  // box; the actual download is a plain <a href> to the backend
+  // endpoint (same pattern MealPlanPage.jsx already uses for the .ics
+  // feed) rather than routed through api.js's fetch wrapper, since that
+  // wrapper always parses the response as JSON.
+  const [backupManifest, setBackupManifest] = useState(null);
+
+  async function refreshBackupManifest() {
+    try {
+      setBackupManifest(await api.get("/system/backup/manifest"));
+    } catch (e) {
+      setBackupManifest(null);
+    }
+  }
+
   async function refreshAuthStatus() {
     try {
       setAuthStatus(await api.get("/auth/status"));
@@ -323,6 +340,7 @@ export default function SettingsPage() {
     })();
     refreshStatus();
     refreshAuthStatus();
+    refreshBackupManifest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -425,6 +443,31 @@ export default function SettingsPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <div className="page-toolbar">
+          <h3 style={{ margin: 0 }}>Backup</h3>
+          <button className="btn btn-secondary btn-sm" onClick={refreshBackupManifest}>
+            Refresh
+          </button>
+        </div>
+        <p className="hint">
+          Downloads everything Chef stores as one file: the database, encrypted secrets (and the key that decrypts
+          them), and any uploaded recipe images / knowledge files.{" "}
+          {backupManifest && backupManifest.included.length > 0
+            ? `Currently includes: ${backupManifest.included.join(", ")}.`
+            : "Nothing to back up yet."}
+        </p>
+        <p className="hint">
+          <strong>Treat the downloaded file like a password export</strong> -- it contains both your encrypted
+          settings (Tavily/USDA/Google OAuth keys, etc.) and the key that decrypts them, so anyone with the file can
+          read those secrets. There's no in-app restore button by design; see the WIKI for how to restore a backup
+          by replacing the files in Chef's data volume.
+        </p>
+        <a className="btn btn-primary btn-sm" href={`${backendOrigin}/api/system/backup`}>
+          Download backup (.tar.gz)
+        </a>
       </div>
 
       <div className="card">

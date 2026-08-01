@@ -26,7 +26,7 @@
 // the app (inventory vision intake, recipe import, the auth gate, etc.)
 // is real, reasonable future work -- see PROJECT-PLAN.md's B12 notes.
 
-export const WIKI_CATEGORIES = ["Getting started", "Integrations"];
+export const WIKI_CATEGORIES = ["Getting started", "Integrations", "Data"];
 
 export const WIKI_ENTRIES = [
   {
@@ -173,6 +173,71 @@ export const WIKI_ENTRIES = [
           "means the signed-in Google account isn't on the Audience tab's Test users list yet. If sync ever seems " +
           "stuck or out of date, use the **Force resync** button on the Settings page -- it re-pushes every " +
           "current meal-plan entry to Google and cleans up anything stale.",
+      },
+    ],
+  },
+  {
+    id: "backup-and-restore",
+    category: "Data",
+    title: "Backups: what's included, and how to restore one",
+    body: [
+      {
+        type: "p",
+        text:
+          "The **Backup** card on the Settings page downloads a single `.tar.gz` containing everything Chef " +
+          "stores: the SQLite database (a consistent point-in-time snapshot, not a raw file copy, so it's safe " +
+          "to download while the app is in normal use), the encryption key and keyring that decrypt every " +
+          "secret setting (Tavily/USDA/Google OAuth client secret/refresh token, etc.), the session-cookie " +
+          "signing key, and any uploaded recipe images or knowledge files.",
+      },
+      {
+        type: "note",
+        text:
+          "**Treat the downloaded file like a password export.** It contains both your encrypted settings and " +
+          "the key that decrypts them together, in the same archive -- anyone who gets the file has everything " +
+          "needed to read those secrets. Store or transmit it with the same care you'd give an exported password " +
+          "vault, not like an ordinary document backup.",
+      },
+      {
+        type: "p",
+        text:
+          "**There is deliberately no in-app restore button.** Restoring means overwriting a live database and " +
+          "key files out from under a running app -- real, destructive, and easy to get wrong with a one-click " +
+          "UI. Restoring by replacing the files in Chef's own Docker volume, with the container stopped first, " +
+          "is safer and just as effective for a self-hosted single-household app.",
+      },
+      {
+        type: "steps",
+        items: [
+          "From the same directory as `docker-compose.yml`, stop the stack: `docker compose down`.",
+          "Find the exact name of Chef's data volume -- Docker Compose prefixes it with a project name derived " +
+            "from the folder the repo was cloned into, so it usually isn't just `chef-data`. Run `docker volume " +
+            "ls` and look for whatever ends in `chef-data` (e.g. `chef_chef-data`) -- confirm it rather than " +
+            "guessing, since a wrong volume name silently does nothing rather than erroring loudly.",
+          "Extract the backup into that volume using a throwaway container (replace `<volume-name>` with what " +
+            "you found above, and run this from the directory containing the downloaded backup file): " +
+            "`docker run --rm -v <volume-name>:/app/data -v \"$(pwd)\":/backup alpine sh -c \"cd /app/data && " +
+            "tar xzf /backup/chef-backup-<timestamp>.tar.gz\"`.",
+          "Restart the stack: `docker compose up -d`.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "This extracts (overlays) the backup's files into the volume -- it overwrites `chef.db` and the other " +
+          "backed-up files by name, but doesn't first erase anything else already in the volume. That's the " +
+          "right behavior for restoring onto a fresh volume or recovering after a problem, but it is not a " +
+          "guaranteed byte-for-byte return to exactly the state at backup time if other files have since been " +
+          "added outside of what this app itself writes there.",
+      },
+      {
+        type: "p",
+        text:
+          "**Recipe export** is a separate, lighter-weight option for just recipes: every recipe detail page has " +
+          "an **Export recipe (JSON-LD)** button, and a full-collection export is available at " +
+          "`/api/recipes/export/jsonld`. This uses the same schema.org format Chef's own URL/file importer " +
+          "reads, so an exported recipe -- from this Chef install or, in principle, another one -- can be " +
+          "brought back in through the normal **Import recipe** flow rather than needing a full backup restore.",
       },
     ],
   },

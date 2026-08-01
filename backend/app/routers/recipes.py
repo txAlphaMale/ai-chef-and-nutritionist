@@ -7,10 +7,12 @@ swallow them.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -245,7 +247,42 @@ async def import_recipe(
                 raw_output = _run_text_extraction(db, text)
                 default_source = "import_text"
             else:
-                if content_type.startswith("image/"):
+                # Backlog B9.2: a raw .json/.ld+json upload is checked for
+                # structured schema.org Recipe data FIRST, the same
+                # jsonld-before-LLM preference the URL import path (B9.3)
+                # already applies -- this is specifically what makes a
+                # recipe exported via recipe_to_jsonld() (Settings/recipe
+                # detail page "Export recipe (JSON-LD)") a genuine round
+                # trip back through this same "Import recipe" flow, not
+                # just a one-way archive dump. extract_jsonld_recipe_from_
+                # json() never raises for "not a recipe"/"not JSON", only
+                # returns None, so this falls through to the generic file
+                # handling below exactly like a non-JSON upload would.
+                if content_type in ("application/json", "application/ld+json") or filename.endswith(".json"):
+                    try:
+                        json_text = raw_bytes.decode("utf-8")
+                    except UnicodeDecodeError:
+                        json_text = ""
+                    if json_text:
+                        jsonld_parsed = recipe_service.extract_jsonld_recipe_from_json(json_text)
+
+                if jsonld_parsed is not None:
+                    citation = {"source_author": jsonld_parsed.get("_source_author")}
+                    image_url = jsonld_parsed.get("_image_url")
+                    if image_url:
+                        fetched = recipe_service.fetch_image_bytes(image_url)
+                        if fetched:
+                            raw_image_bytes, image_content_type = fetched
+                            try:
+                                image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+                            except ValueError:
+                                pass  # unsupported content type -- skip, not fatal to the import
+                    raw_output = (
+                        "(parsed directly from the uploaded file's structured schema.org Recipe data -- "
+                        "Ollama was not used for this import)"
+                    )
+                    default_source = "import_file_jsonld"
+                elif content_type.startswith("image/"):
                     response = ollama_client.describe_image(
                         db, raw_bytes, recipe_service.RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
                     )
@@ -511,6 +548,58 @@ def get_recipe_image(recipe_id: int, db: Session = Depends(get_db)):
     if recipe is None or not recipe.image_path or not os.path.exists(recipe.image_path):
         raise HTTPException(status_code=404, detail="No image for this recipe")
     return FileResponse(recipe.image_path, media_type=recipe_image_service.guess_content_type(recipe.image_path))
+
+
+def _recipe_image_url(request: Request, recipe: Recipe) -> str | None:
+    if not recipe.image_path or not os.path.exists(recipe.image_path):
+        return None
+    return f"{str(request.base_url).rstrip('/')}/api/recipes/{recipe.id}/image"
+
+
+@router.get("/{recipe_id}/export/jsonld")
+def export_recipe_jsonld(recipe_id: int, request: Request, db: Session = Depends(get_db)):
+    """Backlog B9.2: a single recipe as a schema.org Recipe JSON-LD
+    document -- see recipe_service.recipe_to_jsonld's docstring for why
+    this format specifically (it's what the URL/file importer already
+    reads on the way back in). Returned as a downloadable file rather
+    than a plain JSON API response so a browser click produces a real
+    file, consistent with the .ics export's own Content-Disposition
+    pattern (routers/meal_plan.py's get_meal_plan_calendar)."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    doc = recipe_service.recipe_to_jsonld(recipe, image_url=_recipe_image_url(request, recipe))
+    slug = re.sub(r"[^a-z0-9]+", "-", recipe.title.lower()).strip("-") or "recipe"
+    return Response(
+        content=json.dumps(doc, indent=2),
+        media_type="application/ld+json",
+        headers={"Content-Disposition": f'attachment; filename="{slug}.json"'},
+    )
+
+
+@router.get("/export/jsonld")
+def export_all_recipes_jsonld(request: Request, db: Session = Depends(get_db)):
+    """Every recipe in the database as one schema.org JSON-LD document
+    (an @graph array of Recipe nodes) -- the bulk counterpart to the
+    single-recipe export above, and part of backlog B9.2's "recipe
+    export in a portable format" goal. A two-segment path
+    ('/export/jsonld'), so it never collides with the single-segment
+    'GET /{recipe_id}' route above regardless of declaration order --
+    FastAPI's path matching requires the same number of segments, and
+    there's no existing 'GET /{recipe_id}/export' route in this router
+    to shadow it either."""
+    recipes = db.query(Recipe).all()
+    doc = {
+        "@context": "https://schema.org",
+        "@graph": [
+            recipe_service.recipe_to_jsonld(r, image_url=_recipe_image_url(request, r)) for r in recipes
+        ],
+    }
+    return Response(
+        content=json.dumps(doc, indent=2),
+        media_type="application/ld+json",
+        headers={"Content-Disposition": 'attachment; filename="chef-recipes-export.json"'},
+    )
 
 
 @router.post("/{recipe_id}/resolve-nutrition", response_model=RecipeRead)

@@ -372,6 +372,13 @@ export default function RecipeDetailPage() {
         <button className="btn btn-secondary" onClick={() => window.print()}>
           Print recipe
         </button>
+        {/* Backlog B9.2 -- a plain <a href> to the backend, not routed through api.js's fetch
+            wrapper (which always parses JSON), same download pattern as the meal plan's .ics
+            link and the Settings page's backup download. schema.org JSON-LD is the same format
+            the URL/file importer reads, so an exported recipe round-trips back in. */}
+        <a className="btn btn-secondary" href={`${backendOrigin}/api/recipes/${id}/export/jsonld`}>
+          Export recipe (JSON-LD)
+        </a>
         <button className="btn-link btn-link-danger" onClick={handleDelete}>
           Delete recipe
         </button>

@@ -548,6 +548,54 @@ def _is_recipe_node(node: dict) -> bool:
     return str(node_type).lower() == "recipe"
 
 
+def _recipe_dict_from_jsonld_document(data) -> dict | None:
+    """Shared core of extract_jsonld_recipe() and
+    extract_jsonld_recipe_from_json() below -- given an already-parsed
+    JSON-LD document (a dict/list, not raw text), finds the first usable
+    Recipe node and converts it to a coerce_recipe_fields()-input-shaped
+    dict. Split out so a raw uploaded .json file (backlog B9.2's export
+    round trip -- see routers/recipes.py's import_recipe) can reuse the
+    exact same node-search/field-mapping logic the HTML script-tag path
+    already uses, rather than duplicating it or forcing a bare JSON
+    upload through a fake HTML wrapper just to reuse extract_jsonld_recipe."""
+    for node in _iter_jsonld_nodes(data):
+        if not isinstance(node, dict) or not _is_recipe_node(node):
+            continue
+        title = node.get("name")
+        if not title:
+            continue  # a Recipe node with no name isn't usable -- keep looking
+        ingredients = [
+            _parse_ingredient_line(line)
+            for line in (node.get("recipeIngredient") or node.get("ingredients") or [])
+            if isinstance(line, str) and line.strip()
+        ]
+        return {
+            "title": str(title).strip(),
+            "description": node.get("description") or None,
+            "default_servings": _first_number(node.get("recipeYield")),
+            "prep_time_minutes": _parse_iso8601_duration_minutes(node.get("prepTime")),
+            "cook_time_minutes": _parse_iso8601_duration_minutes(node.get("cookTime")),
+            "instructions": _flatten_jsonld_instructions(node.get("recipeInstructions")),
+            "ingredients": ingredients,
+            "nutrition": _nutrition_from_jsonld(node.get("nutrition")),
+            "tags": [],  # no fixed vocabulary in JSON-LD -- left for the user to add on review, never guessed
+            # schema.org has no standard "tips" property -- real-world
+            # sites will never set this, but recipe_to_jsonld() (B9.2's
+            # export) writes one under the namespaced "chef:tips" key, so
+            # reading it back here is what makes a Chef-exported-then-
+            # reimported recipe keep its tips rather than silently
+            # dropping them on the round trip.
+            "tips": [str(t).strip() for t in (node.get("chef:tips") or []) if isinstance(t, str) and t.strip()],
+            # Not part of coerce_recipe_fields()'s output shape -- read
+            # directly by routers/recipes.py before/instead of citation
+            # fields it would otherwise only get from trafilatura's
+            # metadata extraction.
+            "_source_author": _author_name_from_jsonld(node.get("author")),
+            "_image_url": _image_url_from_jsonld(node.get("image")),
+        }
+    return None
+
+
 def extract_jsonld_recipe(html: str) -> dict | None:
     """Returns a coerce_recipe_fields()-input-shaped dict for the first
     schema.org Recipe block found in `html`'s `<script
@@ -567,36 +615,174 @@ def extract_jsonld_recipe(html: str) -> dict | None:
             data = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        for node in _iter_jsonld_nodes(data):
-            if not isinstance(node, dict) or not _is_recipe_node(node):
-                continue
-            title = node.get("name")
-            if not title:
-                continue  # a Recipe node with no name isn't usable -- keep looking
-            ingredients = [
-                _parse_ingredient_line(line)
-                for line in (node.get("recipeIngredient") or node.get("ingredients") or [])
-                if isinstance(line, str) and line.strip()
-            ]
-            return {
-                "title": str(title).strip(),
-                "description": node.get("description") or None,
-                "default_servings": _first_number(node.get("recipeYield")),
-                "prep_time_minutes": _parse_iso8601_duration_minutes(node.get("prepTime")),
-                "cook_time_minutes": _parse_iso8601_duration_minutes(node.get("cookTime")),
-                "instructions": _flatten_jsonld_instructions(node.get("recipeInstructions")),
-                "ingredients": ingredients,
-                "nutrition": _nutrition_from_jsonld(node.get("nutrition")),
-                "tags": [],  # no fixed vocabulary in JSON-LD -- left for the user to add on review, never guessed
-                "tips": [],
-                # Not part of coerce_recipe_fields()'s output shape -- read
-                # directly by routers/recipes.py before/instead of citation
-                # fields it would otherwise only get from trafilatura's
-                # metadata extraction.
-                "_source_author": _author_name_from_jsonld(node.get("author")),
-                "_image_url": _image_url_from_jsonld(node.get("image")),
-            }
+        result = _recipe_dict_from_jsonld_document(data)
+        if result is not None:
+            return result
     return None
+
+
+def extract_jsonld_recipe_from_json(raw_json_text: str) -> dict | None:
+    """Same output contract as extract_jsonld_recipe(), for a raw JSON
+    document rather than one embedded in an HTML <script> tag -- what a
+    recipe exported via recipe_to_jsonld() (backlog B9.2) looks like
+    re-uploaded through the file-import path. Returns None (never
+    raises) for unparseable JSON or JSON with no usable Recipe node, the
+    same "not found, fall back" contract as extract_jsonld_recipe()."""
+    try:
+        data = json.loads(raw_json_text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return _recipe_dict_from_jsonld_document(data)
+
+
+# --- Recipe -> schema.org JSON-LD (backlog B9.2: portable recipe export) -
+#
+# The reverse of extract_jsonld_recipe() above -- renders a Recipe row
+# (plus its ingredients) as a schema.org Recipe document. Deliberately
+# the SAME format the URL importer reads, not a Chef-specific export
+# shape: a recipe exported here and later re-imported via "Import from
+# URL"/file goes through extract_jsonld_recipe() -> coerce_recipe_fields()
+# on the way back in, so this is a genuine round trip, not a one-way
+# archive dump. (Full fidelity isn't guaranteed both directions --
+# ingredient quantity/unit/prep_note gets flattened to one free-text
+# line the same way every other JSON-LD-publishing recipe site's does,
+# then re-parsed by the same heuristic _parse_ingredient_line() import
+# already relies on -- but that's the real, existing contract of this
+# format, not a gap specific to this export.)
+
+# app nutrition key -> (schema.org property, display unit suffix). The
+# inverse of _JSONLD_NUTRITION_MAP, with units restored since schema.org
+# properties are typed as free text ("270 calories", "9 g", "500 mg") --
+# _first_number's leading-digits extraction on the read side means the
+# suffix is cosmetic/round-trip-safe either way, but omitting it would
+# make the exported file look wrong to a human or another tool that reads
+# it, so it's written out properly here.
+_APP_NUTRITION_TO_JSONLD: dict[str, tuple[str, str]] = {
+    "calories": ("calories", " calories"),
+    "protein_g": ("proteinContent", " g"),
+    "carbs_g": ("carbohydrateContent", " g"),
+    "fat_g": ("fatContent", " g"),
+    "fiber_g": ("fiberContent", " g"),
+    "sodium_mg": ("sodiumContent", " mg"),
+    "cholesterol_mg": ("cholesterolContent", " mg"),
+    "saturated_fat_g": ("saturatedFatContent", " g"),
+    "sugars_g": ("sugarContent", " g"),
+}
+
+
+def _minutes_to_iso8601_duration(minutes: int | None) -> str | None:
+    """Inverse of _parse_iso8601_duration_minutes -- e.g. 90 -> 'PT1H30M'.
+    Returns None for anything non-positive rather than emitting 'PT0M',
+    matching extract_jsonld_recipe's own "absent means unknown" contract
+    (a Recipe with no prepTime/cookTime published is common and correct
+    JSON-LD, not an error)."""
+    if minutes is None or minutes <= 0:
+        return None
+    hours, mins = divmod(int(minutes), 60)
+    out = "PT"
+    if hours:
+        out += f"{hours}H"
+    if mins or not hours:
+        out += f"{mins}M"
+    return out
+
+
+def _format_quantity(quantity: float) -> str:
+    """2.0 -> '2', 1.5 -> '1.5', 0.3333... -> '0.333' -- avoids both a
+    misleading trailing '.0' on whole numbers and runaway float noise
+    from prior unit-conversion arithmetic."""
+    if quantity == int(quantity):
+        return str(int(quantity))
+    return f"{quantity:.3f}".rstrip("0").rstrip(".")
+
+
+def _jsonld_ingredient_line(ing: "RecipeIngredient") -> str:
+    """Reconstructs one free-text ingredient line ('2 cups flour,
+    sifted') from this app's structured quantity/unit/name/prep_note
+    fields -- schema.org's recipeIngredient is itself just a list of
+    free-text strings (see extract_jsonld_recipe's own docstring), so
+    there is no structured shape to preserve beyond formatting it back
+    into the same shape _parse_ingredient_line() already expects on
+    import. Named distinctly from the pre-existing _format_ingredient_line
+    (below, in the recipe-chat-context section) -- that one formats a
+    dict for a chat prompt, this one formats an ORM RecipeIngredient for
+    JSON-LD export; same-sounding job, different input shape, kept as
+    two functions rather than one overloaded on argument type."""
+    parts = []
+    if ing.quantity is not None:
+        parts.append(_format_quantity(ing.quantity))
+    if ing.unit:
+        parts.append(ing.unit)
+    parts.append(ing.ingredient_name)
+    line = " ".join(parts)
+    if ing.prep_note:
+        line += f", {ing.prep_note}"
+    return line
+
+
+def recipe_to_jsonld(recipe: Recipe, image_url: str | None = None) -> dict:
+    """Renders `recipe` as a schema.org Recipe JSON-LD document for
+    backlog B9.2's data-export goal. `image_url` is passed in by the
+    caller (routers/recipes.py) rather than derived here, since building
+    an absolute URL to this app's own /api/recipes/{id}/image endpoint
+    needs the current request's base URL, which this service layer
+    intentionally has no access to (see this file's module docstring --
+    business logic, not request handling)."""
+    doc: dict = {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": recipe.title,
+    }
+    if recipe.description:
+        doc["description"] = recipe.description
+    doc["recipeYield"] = str(recipe.default_servings)
+    prep_iso = _minutes_to_iso8601_duration(recipe.prep_time_minutes)
+    if prep_iso:
+        doc["prepTime"] = prep_iso
+    cook_iso = _minutes_to_iso8601_duration(recipe.cook_time_minutes)
+    if cook_iso:
+        doc["cookTime"] = cook_iso
+    if recipe.instructions:
+        doc["recipeInstructions"] = [{"@type": "HowToStep", "text": step} for step in recipe.instructions]
+    if recipe.ingredients:
+        doc["recipeIngredient"] = [_jsonld_ingredient_line(ing) for ing in recipe.ingredients]
+    if recipe.nutrition:
+        nutrition_doc = {"@type": "NutritionInformation"}
+        for app_key, (schema_key, suffix) in _APP_NUTRITION_TO_JSONLD.items():
+            value = recipe.nutrition.get(app_key)
+            if value is not None:
+                nutrition_doc[schema_key] = f"{_format_quantity(float(value))}{suffix}"
+        if len(nutrition_doc) > 1:  # more than just @type
+            doc["nutrition"] = nutrition_doc
+    if recipe.source_url:
+        doc["url"] = recipe.source_url
+    if recipe.source_name:
+        doc["publisher"] = {"@type": "Organization", "name": recipe.source_name}
+    if recipe.source_author:
+        doc["author"] = {"@type": "Person", "name": recipe.source_author}
+    if image_url:
+        doc["image"] = image_url
+    if recipe.tags:
+        doc["keywords"] = ", ".join(sorted(tag.name for tag in recipe.tags))
+    if recipe.rating:
+        doc["aggregateRating"] = {
+            "@type": "AggregateRating",
+            "ratingValue": recipe.rating,
+            "ratingCount": 1,
+            "bestRating": 5,
+            "worstRating": 1,
+        }
+    if recipe.tips:
+        # Not a real schema.org Recipe property -- schema.org has no
+        # standard field for "tips/variations" -- so this rides along as
+        # a namespaced extension property rather than being silently
+        # dropped. A generic JSON-LD consumer ignores unknown properties
+        # safely; Chef's own importer (extract_jsonld_recipe) doesn't
+        # read this key today, a documented, deliberate limitation
+        # rather than a bug (tips were never part of the import contract
+        # either).
+        doc["chef:tips"] = list(recipe.tips)
+    return doc
 
 
 def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes, str] | None:
