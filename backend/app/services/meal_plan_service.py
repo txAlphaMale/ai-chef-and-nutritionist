@@ -539,7 +539,35 @@ def aggregate_ingredients(ingredient_lists: list[list[dict]]) -> list[dict]:
     return merged
 
 
-def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryItem]) -> list[dict]:
+def is_pantry_staple(ingredient_name: str, pantry_staples: list[str] | None) -> bool:
+    """Backlog B5.5 -- case-insensitive exact-or-substring match (either
+    direction, same convention as the inventory name matching a few lines
+    below) against a household's own free-text "always on hand" list.
+    Deliberately NOT a fixed taxonomy or NLP/synonym-aware matcher --
+    this is a household's own arbitrary list, not a safety property, so
+    the lighter-weight matching already used for
+    guess_grocery_category's keyword lists is the appropriate rigor
+    level here too. An empty/None staples list (the default, no
+    household opt-in yet) always returns False."""
+    if not pantry_staples:
+        return False
+    name_lower = (ingredient_name or "").strip().lower()
+    if not name_lower:
+        return False
+    for staple in pantry_staples:
+        staple_lower = str(staple or "").strip().lower()
+        if not staple_lower:
+            continue
+        if staple_lower == name_lower or staple_lower in name_lower or name_lower in staple_lower:
+            return True
+    return False
+
+
+def subtract_inventory(
+    aggregated: list[dict],
+    inventory_items: list[InventoryItem],
+    pantry_staples: list[str] | None = None,
+) -> list[dict]:
     """For each aggregated ingredient, subtracts matching on-hand
     inventory (same exact-then-substring, case-insensitive matching
     approach as inventory_service.deduct_by_name) and returns only what's
@@ -556,9 +584,22 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
     available; when it isn't (count units, or a volume<->mass gap with
     no density), this falls back to the previous raw-number comparison
     rather than refusing to reconcile the line at all -- a known,
-    unchanged imprecision for that remaining case."""
+    unchanged imprecision for that remaining case.
+
+    Backlog B5.5 (2026-08-01): a household-declared pantry staple is
+    excluded from the list ENTIRELY -- before the inventory-match/
+    quantity math below even runs, not just when it happens to have no
+    stated quantity. "Always on hand" is a stronger claim than "there's
+    currently some in inventory": the household is explicitly saying
+    this ingredient should never generate grocery-list noise, tracked
+    quantity or not. `pantry_staples` defaults to None/empty, which
+    preserves prior behavior exactly for any caller that hasn't been
+    updated to pass a household's list."""
     remaining = []
     for ing in aggregated:
+        if is_pantry_staple(ing["ingredient_name"], pantry_staples):
+            continue
+
         name_lower = ing["ingredient_name"].lower()
         match = next((i for i in inventory_items if i.name.lower() == name_lower), None)
         if match is None:
@@ -623,7 +664,9 @@ def compute_grocery_list(db: Session, meal_plan: MealPlan) -> list[dict]:
 
     aggregated = aggregate_ingredients(ingredient_lists)
     inventory_items = db.query(InventoryItem).all()
-    return subtract_inventory(aggregated, inventory_items)
+    household = get_household_preferences(db)
+    pantry_staples = (household.pantry_staples if household else []) or []
+    return subtract_inventory(aggregated, inventory_items, pantry_staples)
 
 
 def compute_nutrition_summary(meal_plan: MealPlan) -> dict:

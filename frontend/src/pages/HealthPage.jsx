@@ -73,6 +73,7 @@ export default function HealthPage() {
         restricted_allergens: prefs.restricted_allergens || [],
         gluten_observance_level: prefs.gluten_observance_level || "",
         dietary_pattern: prefs.dietary_pattern || "",
+        pantry_staples: (prefs.pantry_staples || []).join(", "),
       });
       setAllergenOptions(allergenOpts);
       setPatternOptions(patternOpts);
@@ -126,6 +127,7 @@ export default function HealthPage() {
           ? prefsForm.gluten_observance_level || "flexible"
           : null,
         dietary_pattern: prefsForm.dietary_pattern || null,
+        pantry_staples: prefsForm.pantry_staples.split(",").map((s) => s.trim()).filter(Boolean),
       });
       setPreferences(updated);
       setPrefsForm((f) => ({
@@ -133,6 +135,7 @@ export default function HealthPage() {
         restricted_allergens: updated.restricted_allergens || [],
         gluten_observance_level: updated.gluten_observance_level || "",
         dietary_pattern: updated.dietary_pattern || "",
+        pantry_staples: (updated.pantry_staples || []).join(", "),
       }));
     } catch (e) {
       setError(e.message);
@@ -258,6 +261,18 @@ export default function HealthPage() {
                 value={prefsForm.goals}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, goals: e.target.value }))}
               />
+            </label>
+            <label>
+              Pantry staples -- always on hand, never on the grocery list (Backlog B5.5)
+              <input
+                placeholder="salt, pepper, olive oil"
+                value={prefsForm.pantry_staples}
+                onChange={(e) => setPrefsForm((f) => ({ ...f, pantry_staples: e.target.value }))}
+              />
+              <span className="hint">
+                Matched ingredients are left off the grocery list entirely, regardless of quantity or what's
+                currently tracked in inventory.
+              </span>
             </label>
             <label>
               Dietary pattern (Backlog B2.3)

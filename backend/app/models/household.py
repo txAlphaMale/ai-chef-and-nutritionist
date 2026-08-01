@@ -58,6 +58,17 @@ class HouseholdPreferences(Base, TimestampMixin):
     # reinterpreted from scratch by the model on every run.
     dietary_pattern: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
+    # Backlog B5.5 -- free-text, household-maintained "always on hand"
+    # ingredient names (e.g. ["salt", "pepper", "olive oil"]) the grocery
+    # list should never surface, regardless of a recipe's stated quantity
+    # or whether anything matching is currently tracked in inventory.
+    # Deliberately no fixed taxonomy (unlike restricted_allergens) -- this
+    # is a household's own arbitrary staples list, not a checkable safety
+    # property, so free text with simple substring matching
+    # (meal_plan_service.is_pantry_staple) is the appropriate level of
+    # rigor, same tradeoff already made for guess_grocery_category.
+    pantry_staples: Mapped[list] = mapped_column(JSON, default=list)
+
 
 class HouseholdMember(Base, TimestampMixin):
     __tablename__ = "household_members"

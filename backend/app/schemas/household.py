@@ -27,6 +27,9 @@ class HouseholdPreferencesUpdate(BaseModel):
     # the two fields above, so a typo'd/removed preset key fails loudly
     # at the API boundary instead of silently generating with no guidance.
     dietary_pattern: str | None = None
+    # Backlog B5.5 -- free text, no fixed taxonomy to validate against
+    # (see the model column's own docstring for why).
+    pantry_staples: list[str] | None = None
 
     @field_validator("restricted_allergens")
     @classmethod
@@ -65,6 +68,7 @@ class HouseholdPreferencesRead(BaseModel):
     restricted_allergens: list[str] = Field(default_factory=list)
     gluten_observance_level: str | None = None
     dietary_pattern: str | None = None
+    pantry_staples: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
