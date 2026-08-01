@@ -7,8 +7,17 @@ const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satu
 
 /** One slot in the weekly grid for a persisted (already-created) meal
  * plan -- lets the user reassign the recipe, adjust servings, and
- * confirm ("we made this" -> deducts inventory) or skip it. */
-export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChanged }) {
+ * confirm ("we made this" -> deducts inventory) or skip it.
+ *
+ * Backlog B5.1 (2026-08-01) -- `allEntries` (the plan's full entry list,
+ * passed down from MealPlanPage) is used to build the "mark as leftovers
+ * of..." picker and to resolve the origin entry's day/meal-type for the
+ * "leftovers from ___" badge, both purely client-side -- the backend's
+ * MealPlanEntryRead only carries `leftover_of_entry_id` itself (see
+ * routers/meal_plan.py's docstring for why: the frontend already has
+ * every sibling entry loaded, so a nested lookup shape would just be
+ * duplicating data the caller can resolve for free). */
+export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntries, onChanged }) {
   const [servings, setServings] = useState(entry.servings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -18,6 +27,18 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
   // matches plus an explicit "confirm anyway" override instead of just
   // an error message.
   const [conflict, setConflict] = useState(null);
+
+  // Backlog B5.1 -- candidates for "mark as leftovers of": any OTHER
+  // entry in this plan that has a recipe assigned and isn't itself
+  // already a leftover of something else (kept to a simple two-entry
+  // relationship per link, matching the backend's own design -- see
+  // MealPlanEntry.leftover_of_entry_id's model docstring).
+  const leftoverCandidates = (allEntries || []).filter(
+    (e) => e.id !== entry.id && e.recipe && !e.leftover_of_entry_id
+  );
+  const leftoverOrigin = entry.leftover_of_entry_id
+    ? (allEntries || []).find((e) => e.id === entry.leftover_of_entry_id)
+    : null;
 
   async function patch(payload) {
     setBusy(true);
@@ -89,6 +110,11 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
         {entry.is_indulgence && <span className="tag indulgence-tag">indulgence</span>}
         {entry.is_eating_out && <span className="tag">eating out</span>}
         {statusLabel && <span className="tag">{statusLabel}</span>}
+        {leftoverOrigin && (
+          <span className="tag" title="Ingredients already counted against the origin meal -- not bought or deducted again for this slot">
+            leftovers from {DAY_NAMES[leftoverOrigin.day_of_week]} {leftoverOrigin.meal_type}
+          </span>
+        )}
       </div>
 
       <div className="meal-entry-recipe">
@@ -133,6 +159,22 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
         disabled={busy || entry.is_confirmed}
         style={{ maxWidth: 70 }}
       />
+
+      {leftoverCandidates.length > 0 && (
+        <select
+          value={entry.leftover_of_entry_id ?? ""}
+          onChange={(e) => patch({ leftover_of_entry_id: e.target.value ? Number(e.target.value) : null })}
+          disabled={busy || entry.is_confirmed}
+          title="Leftovers welcome -- link this slot to another meal's cook event instead of buying/deducting for it separately"
+        >
+          <option value="">-- not leftovers --</option>
+          {leftoverCandidates.map((e) => (
+            <option key={e.id} value={e.id}>
+              Leftovers of {DAY_NAMES[e.day_of_week]} {e.meal_type} ({e.recipe.title})
+            </option>
+          ))}
+        </select>
+      )}
 
       <div className="meal-entry-actions">
         {!entry.is_confirmed && !entry.is_skipped && (

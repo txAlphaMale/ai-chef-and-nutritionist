@@ -62,6 +62,12 @@ class MealPlanEntryBase(BaseModel):
     # Backlog B10.1 -- see MealPlanEntry.is_eating_out's model docstring.
     is_eating_out: bool = False
     notes: str | None = None
+    # Backlog B5.1 -- see MealPlanEntry.leftover_of_entry_id's model
+    # docstring. Set via PATCH /entries/{entry_id} after both entries
+    # already exist (a brand-new entry created alongside its own plan has
+    # no sibling id to reference yet) -- see update_meal_plan_entry's
+    # validation in routers/meal_plan.py.
+    leftover_of_entry_id: int | None = None
 
 
 class MealPlanEntryCreate(MealPlanEntryBase):
@@ -105,6 +111,11 @@ class MealPlanEntryUpdate(BaseModel):
     is_indulgence: bool | None = None
     is_eating_out: bool | None = None
     notes: str | None = None
+    # Backlog B5.1 -- the actual mechanism for linking/unlinking a
+    # leftover entry; validated in routers/meal_plan.py's update_meal_
+    # plan_entry (must reference a different entry in the SAME plan, and
+    # explicitly set to None to unlink -- see that endpoint's docstring).
+    leftover_of_entry_id: int | None = None
 
 
 class MealPlanEntryRecipeSummary(BaseModel):
@@ -196,6 +207,49 @@ class MealPlanNutritionSummary(BaseModel):
     days: list[DayNutritionTotals] = Field(default_factory=list)
     week_totals: dict[str, float] = Field(default_factory=dict)
     member_targets: list[MemberDailyTarget] = Field(default_factory=list)
+
+
+class DietQualityComponent(BaseModel):
+    """One HEI-2020 component's score, or a null score with `computable`
+    false -- see diet_quality_service.py's module docstring for exactly
+    which components that applies to and why."""
+
+    key: str
+    label: str
+    max_points: int
+    points: float | None = None
+    value: float | None = None
+    unit: str
+    computable: bool
+
+
+class DietQualityUnscoredComponent(BaseModel):
+    key: str
+    label: str
+    max_points: int
+    reason: str
+
+
+class DietQualityScoreTotal(BaseModel):
+    points: float
+    max_points: int
+    percent: float | None = None
+
+
+class DietQualityScoreResponse(BaseModel):
+    """Backlog B2.2 -- an HEI-2020-inspired diet-quality estimate, never
+    the certified clinical index; `methodology` states that caveat on
+    every response, not just in code comments a caller might not read."""
+
+    computed: bool
+    reason: str | None = None
+    contributing_entries: int = 0
+    total_entries: int = 0
+    total_calories: float | None = None
+    score: DietQualityScoreTotal | None = None
+    components: list[DietQualityComponent] = Field(default_factory=list)
+    unscored_components: list[DietQualityUnscoredComponent] = Field(default_factory=list)
+    methodology: str | None = None
 
 
 class GroceryListItemBase(BaseModel):

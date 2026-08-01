@@ -1216,6 +1216,29 @@ tr.urgency-low td {
   font-size: 0.9em;
 }
 
+/* --- Diet quality estimate (backlog B2.2, HEI-2020-inspired) --- */
+.diet-quality-score-headline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+
+.diet-quality-score-number {
+  font-size: 2em;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.diet-quality-score-max {
+  font-size: 1.2em;
+  color: var(--color-text-muted);
+}
+
+.diet-quality-component-table {
+  margin-top: var(--spacing-2);
+}
+
 /* --- Responsive layout (backlog B10.4) ---
    Mobile-first per the project brief's one-source-CSS mandate: no second
    stylesheet, no component library, just breakpoints on the existing

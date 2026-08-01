@@ -574,9 +574,18 @@ def subtract_inventory(aggregated: list[dict], inventory_items: list[InventoryIt
 
 
 def compute_grocery_list(db: Session, meal_plan: MealPlan) -> list[dict]:
+    """Backlog B5.1: an entry with `leftover_of_entry_id` set is excluded
+    from its OWN ingredient contribution -- the origin entry it's drawing
+    from already contributes ingredients scaled to the combined servings
+    across the whole cook event (the household is expected to set the
+    origin entry's `servings` to the total it actually cooked, not just
+    that one slot's portion -- see MealPlanEntry.leftover_of_entry_id's
+    model docstring). Including a leftover entry's ingredients again here
+    would double-count the grocery need for a meal that was never
+    separately cooked."""
     ingredient_lists = []
     for entry in meal_plan.entries:
-        if entry.is_skipped or entry.recipe is None:
+        if entry.is_skipped or entry.recipe is None or entry.leftover_of_entry_id is not None:
             continue
         recipe = entry.recipe
         base_ingredients = [

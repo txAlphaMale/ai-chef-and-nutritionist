@@ -17,6 +17,7 @@ from app.database import SessionLocal, get_db
 from app.models import GroceryListItem, HouseholdMember, MealPlan, MealPlanEntry, Recipe
 from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.meal_plan import (
+    DietQualityScoreResponse,
     GroceryListItemCreate,
     GroceryListItemRead,
     GroceryListItemUpdate,
@@ -34,6 +35,7 @@ from app.schemas.meal_plan import (
 )
 from app.services import (
     allergen_service,
+    diet_quality_service,
     dri_service,
     inventory_service,
     job_queue,
@@ -69,6 +71,13 @@ def _to_entry_read(entry: MealPlanEntry) -> MealPlanEntryRead:
         is_confirmed=entry.is_confirmed,
         is_skipped=entry.is_skipped,
         notes=entry.notes,
+        # Backlog B5.1 -- learned from B10.1's own documented bug (both
+        # create_meal_plan and this same function once omitted
+        # is_eating_out here, silently reporting false over the API even
+        # though the DB column held the correct value) not to trust
+        # "it's on MealPlanEntryBase so it must already round-trip" --
+        # this manual constructor needs every field named explicitly.
+        leftover_of_entry_id=entry.leftover_of_entry_id,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
     )
@@ -253,10 +262,31 @@ def delete_meal_plan(plan_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{plan_id}/entries/{entry_id}", response_model=MealPlanEntryRead)
 def update_meal_plan_entry(plan_id: int, entry_id: int, payload: MealPlanEntryUpdate, db: Session = Depends(get_db)):
+    """Backlog B5.1: the mechanism for linking (or, by sending
+    `leftover_of_entry_id: null`, unlinking) a leftover entry -- see
+    MealPlanEntry.leftover_of_entry_id's model docstring. Validated here
+    rather than left to the database's bare FK constraint (SQLite doesn't
+    enforce those by default in this setup, same caveat already
+    documented elsewhere in this codebase): the referenced entry must
+    exist, must belong to THIS plan (a leftover link across two
+    different weeks' plans would be a nonsensical grocery/inventory
+    shortcut), and an entry cannot be marked as its own leftover."""
     entry = db.get(MealPlanEntry, entry_id)
     if entry is None or entry.meal_plan_id != plan_id:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "leftover_of_entry_id" in updates and updates["leftover_of_entry_id"] is not None:
+        origin_id = updates["leftover_of_entry_id"]
+        if origin_id == entry_id:
+            raise HTTPException(status_code=400, detail="An entry cannot be marked as leftovers of itself")
+        origin = db.get(MealPlanEntry, origin_id)
+        if origin is None or origin.meal_plan_id != plan_id:
+            raise HTTPException(
+                status_code=400, detail="leftover_of_entry_id must reference another entry in this same plan"
+            )
+
+    for field, value in updates.items():
         setattr(entry, field, value)
     db.commit()
     db.refresh(entry)
@@ -287,7 +317,16 @@ def confirm_meal_plan_entry(
     match details instead of confirming, unless the caller explicitly
     sets acknowledge_restriction_conflict=true on a follow-up request --
     see MealPlanEntryConfirmRequest's docstring. Cross-contact warnings
-    never block on their own, only surfaced for the frontend to display."""
+    never block on their own, only surfaced for the frontend to display.
+
+    Backlog B5.1: an entry marked `leftover_of_entry_id` skips BOTH the
+    allergen re-check and the inventory deduction below -- the origin
+    entry's own confirm already ran both against the same recipe, scaled
+    to the combined servings across the whole cook event. Deducting
+    again here (or re-flagging an allergen match already surfaced once)
+    would double-count inventory usage for a meal that was never
+    separately cooked. The entry still gets marked `is_confirmed=True`
+    for tracking purposes -- it just doesn't touch inventory."""
     entry = db.get(MealPlanEntry, entry_id)
     if entry is None or entry.meal_plan_id != plan_id:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")
@@ -296,7 +335,7 @@ def confirm_meal_plan_entry(
     if entry.is_skipped:
         raise HTTPException(status_code=400, detail="Cannot confirm a skipped entry")
 
-    if entry.recipe_id is not None:
+    if entry.recipe_id is not None and entry.leftover_of_entry_id is None:
         recipe = db.get(Recipe, entry.recipe_id)
         if recipe is not None:
             ingredient_names = [i.ingredient_name for i in recipe.ingredients]
@@ -380,6 +419,22 @@ def get_meal_plan_nutrition_summary(plan_id: int, db: Session = Depends(get_db))
     return MealPlanNutritionSummary(
         days=summary["days"], week_totals=summary["week_totals"], member_targets=member_targets
     )
+
+
+@router.get("/{plan_id}/diet-quality-score", response_model=DietQualityScoreResponse)
+def get_meal_plan_diet_quality_score(plan_id: int, db: Session = Depends(get_db)):
+    """Backlog B2.2 -- an HEI-2020-inspired diet-quality estimate
+    (diet_quality_service.compute_diet_quality_score) over this plan's
+    non-skipped, recipe-assigned entries. See that module's docstring
+    for exactly which of the 13 real HEI-2020 components this can and
+    cannot score with this app's current data, and why the adequacy
+    components are an approximation rather than a true USDA Food
+    Patterns Equivalents lookup -- `methodology` on the response repeats
+    the short version so the caveat travels with the number."""
+    plan = db.get(MealPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Meal plan not found")
+    return diet_quality_service.compute_diet_quality_score(plan)
 
 
 @router.post("/{plan_id}/grocery-list/regenerate", response_model=list[GroceryListItemRead])

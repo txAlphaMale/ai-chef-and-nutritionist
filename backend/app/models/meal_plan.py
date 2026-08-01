@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, JSON, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
 from app.models.base import TimestampMixin
@@ -62,8 +62,42 @@ class MealPlanEntry(Base, TimestampMixin):
     is_eating_out: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Backlog B5.1 (2026-08-01) -- "leftovers welcome" per the project
+    # brief, and the stated problem this solves: a Sunday cook that makes
+    # enough for Sunday dinner AND Monday lunch previously had no way to
+    # represent that without either double-buying/double-deducting for
+    # Monday's slot, or leaving Monday recipe-less and losing its
+    # nutrition/display info entirely. Set this on the LATER entry
+    # (Monday lunch) pointing back at the entry whose cook event it's
+    # drawing from (Sunday dinner) -- see meal_plan_service.
+    # compute_grocery_list (skips a leftover entry's own ingredient
+    # contribution, since the origin entry's grocery need already covers
+    # the combined total) and routers/meal_plan.py's confirm_meal_plan_
+    # entry (skips inventory deduction on a leftover entry's confirm, for
+    # the same reason -- deduct once, at the origin, not twice).
+    # Deliberately a single nullable self-FK, not a "cook batch" grouping
+    # table: the backlog's own text describes exactly a two-entry
+    # relationship ("a Sunday cook can legitimately fill Monday lunch"),
+    # and a chain of these (Monday lunch leftover-of Sunday dinner,
+    # Tuesday lunch also leftover-of Sunday dinner) already covers "one
+    # cook event feeds several slots" without needing a grouping concept.
+    # Not cascade-deleted on the origin's deletion -- a dangling leftover
+    # link just means grocery aggregation resumes counting that entry's
+    # own ingredients normally, which is the safe default (a household
+    # deleting an entry that had leftovers linked to it should not
+    # silently make a grocery-list shortfall appear elsewhere), not a
+    # data-integrity break.
+    leftover_of_entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meal_plan_entries.id"), nullable=True
+    )
+
     meal_plan: Mapped["MealPlan"] = relationship(back_populates="entries")
     recipe: Mapped["Recipe | None"] = relationship()
+    leftover_entries: Mapped[list["MealPlanEntry"]] = relationship(
+        "MealPlanEntry",
+        backref=backref("leftover_of_entry", remote_side="MealPlanEntry.id"),
+        foreign_keys=[leftover_of_entry_id],
+    )
 
 
 class GroceryListItem(Base, TimestampMixin):

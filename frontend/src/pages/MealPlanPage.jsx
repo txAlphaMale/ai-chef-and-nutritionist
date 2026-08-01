@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import DietQualityPanel from "../components/DietQualityPanel";
 import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
 import NutritionSummaryPanel from "../components/NutritionSummaryPanel";
@@ -410,6 +411,7 @@ export default function MealPlanPage() {
                     entry={entry}
                     planId={selectedPlan.id}
                     recipeCatalog={recipeCatalog}
+                    allEntries={selectedPlan.entries}
                     onChanged={onEntryChanged}
                   />
                 ))}
@@ -418,6 +420,8 @@ export default function MealPlanPage() {
           </div>
 
           <NutritionSummaryPanel planId={selectedPlan.id} refreshKey={refreshKey} />
+
+          <DietQualityPanel planId={selectedPlan.id} refreshKey={refreshKey} />
 
           <GroceryListPanel planId={selectedPlan.id} refreshKey={refreshKey} />
         </>
