@@ -11,6 +11,7 @@ swallow it.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -35,6 +36,7 @@ from app.schemas.meal_plan import (
 )
 from app.services import (
     allergen_service,
+    calendar_export_service,
     cost_service,
     diet_quality_service,
     dri_service,
@@ -450,6 +452,33 @@ def get_meal_plan_diet_quality_score(plan_id: int, db: Session = Depends(get_db)
     if plan is None:
         raise HTTPException(status_code=404, detail="Meal plan not found")
     return diet_quality_service.compute_diet_quality_score(plan)
+
+
+@router.get("/{plan_id}/calendar.ics")
+def get_meal_plan_calendar(plan_id: int, db: Session = Depends(get_db)):
+    """Backlog B9.5 -- an iCalendar feed of this plan's non-skipped
+    entries (calendar_export_service.build_ics), regenerated fresh on
+    every request so a calendar app that re-polls this URL later sees
+    the plan's current state, not a stale one-time snapshot.
+
+    Known limitation, stated here rather than silently: if the optional
+    session-cookie auth gate (B10.2) is enabled, this path sits behind
+    `auth_gate` like every other `/api/*` route -- but a calendar app
+    subscribing to a plain .ics URL has no way to complete a login flow
+    or hold a session cookie. With the auth gate on, this endpoint is
+    only usable for a manual download from an already-authenticated
+    browser tab, not as a live-subscribed feed in a calendar app. Fixing
+    that (e.g. a per-plan share token) is reasonable future work, not
+    attempted in this pass."""
+    plan = db.get(MealPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Meal plan not found")
+    ics_text = calendar_export_service.build_ics(plan)
+    return Response(
+        content=ics_text,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="chef-meal-plan-{plan.week_start_date}.ics"'},
+    )
 
 
 @router.post("/{plan_id}/grocery-list/regenerate", response_model=list[GroceryListItemRead])

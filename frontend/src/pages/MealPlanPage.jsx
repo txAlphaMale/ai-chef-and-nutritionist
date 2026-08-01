@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, backendOrigin } from "../api";
 import DietQualityPanel from "../components/DietQualityPanel";
 import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
@@ -397,6 +397,13 @@ export default function MealPlanPage() {
               <h3 style={{ margin: 0 }}>
                 Week of {selectedPlan.week_start_date} <span className="tag">{selectedPlan.status}</span>
               </h3>
+              <a
+                className="btn-link"
+                href={`${backendOrigin}/api/meal-plans/${selectedPlan.id}/calendar.ics`}
+                title="Download or subscribe to this plan as an iCalendar feed"
+              >
+                Calendar (.ics)
+              </a>
               <button className="btn-link btn-link-danger" onClick={() => handleDeletePlan(selectedPlan.id)}>
                 Delete plan
               </button>
