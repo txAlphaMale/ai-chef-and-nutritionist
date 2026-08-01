@@ -210,6 +210,66 @@ export const WIKI_ENTRIES = [
     ],
   },
   {
+    id: "recipe-folder-import",
+    category: "Integrations",
+    title: "Recipe folder import: batch-import from a synced folder",
+    body: [
+      {
+        type: "p",
+        text:
+          "Backlog B13.1 -- if you've already got a folder of recipes (text files, PDFs, saved webpages, or " +
+          "schema.org JSON exports from another app), Chef can scan the whole folder in one go instead of " +
+          "uploading each file one at a time from the Recipes page's normal import card. This works with any " +
+          "folder that syncs to this server as a normal directory -- **OneDrive, Dropbox, Google Drive desktop, " +
+          "or just a plain folder you copy files into** -- Chef never talks to any of those services' cloud APIs; " +
+          "it only ever reads whatever files are sitting in the folder at scan time.",
+      },
+      {
+        type: "steps",
+        items: [
+          "Make sure the folder is actually present on **this server's own filesystem** -- if it's a OneDrive/" +
+            "Dropbox/Google Drive folder, install that service's normal desktop sync client on the server (or " +
+            "wherever Docker runs) so the folder appears as a real local directory there, the same way it would " +
+            "on your own PC.",
+          "Open **docker-compose.yml** and find the commented-out volume line under the `backend` service " +
+            "(`# - /path/on/this/host/to/your/recipes:/app/data/recipe_import:ro`). Uncomment it and replace the " +
+            "left side with the real path to your synced folder on this host.",
+          "In **.env**, set `RECIPE_IMPORT_FOLDER_PATH=/app/data/recipe_import` (matching the right side of the " +
+            "line above) -- or skip this and just paste the same value into Chef's **Settings > Integrations > " +
+            "\"Recipe import folder path\"** field after the container's running; either way ends up at the same " +
+            "setting.",
+          "Run `docker compose up -d --build` to pick up the new volume mount (a plain restart isn't enough -- " +
+            "volume changes need a recreate).",
+          "On the **Recipes** page, click **Import from folder**, then **Scan folder**. This can take a few " +
+            "minutes for a large collection -- one file means one background parse, the same as a single manual " +
+            "upload, just looped. Check the Connection status card on Settings, or the jobs badge, for progress.",
+          "Review the results table: each row shows the file, its parsed title (editable), how many ingredients " +
+            "were found, and whether it parsed cleanly. Uncheck anything you don't want, then click **Add N " +
+            "recipe(s)**. Nothing is saved to your recipe collection until this step.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "**Files are only ever read, never modified or deleted.** Chef treats this as your own source folder, " +
+          "not a working directory it owns -- rescanning the same folder later just re-parses whatever's there " +
+          "again (including files already imported once), so it's normal to see the same file show up again on a " +
+          "second scan; just leave it unchecked if you don't want a duplicate.",
+      },
+      {
+        type: "p",
+        text:
+          "**Supported file types:** `.txt`, `.md`, `.pdf`, `.json`/`.jsonld` (schema.org Recipe data, parsed " +
+          "directly without using Ollama at all -- the most reliable path if your source app can export in that " +
+          "format), and `.html`/`.htm` (saved web pages, also checked for embedded schema.org data first). Plain " +
+          "photo files aren't included in a folder scan -- that would mean running the much slower vision model " +
+          "over potentially dozens of images at once; import a photo one at a time from the Recipes page instead. " +
+          "A single scan is capped at 300 files and skips anything over 5 MB, to keep one click from turning into " +
+          "an unbounded job -- narrow the folder (e.g. by cuisine or subfolder) if you hit that cap.",
+      },
+    ],
+  },
+  {
     id: "backup-and-restore",
     category: "Data",
     title: "Backups: what's included, and how to restore one",

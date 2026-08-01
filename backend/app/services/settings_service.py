@@ -164,6 +164,24 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="OPENFDA_API_KEY",
     ),
     SettingSpec(
+        key="recipe_import_folder_path",
+        label="Recipe import folder path",
+        is_secret=False,
+        default="",
+        description=(
+            "Backlog B13.1 -- a path INSIDE the backend container to scan for "
+            "recipe files (text/markdown/PDF/HTML/schema.org JSON) to batch-import, "
+            "e.g. a OneDrive/Dropbox/Google Drive folder that already syncs to your "
+            "server as a normal directory. Not a cloud API integration -- point "
+            "docker-compose.yml at the real host folder first (see the in-app WIKI's "
+            "'Recipe folder import' entry for the exact volume-mount line), then set "
+            "this to wherever that ends up mounted inside the container (commonly "
+            "/app/data/recipe_import). Files are only ever READ, never modified or "
+            "deleted."
+        ),
+        env_fallback="RECIPE_IMPORT_FOLDER_PATH",
+    ),
+    SettingSpec(
         key="household_timezone",
         label="Household timezone",
         is_secret=False,

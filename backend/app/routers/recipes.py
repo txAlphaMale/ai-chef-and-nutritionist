@@ -22,6 +22,8 @@ from app.schemas.recipe import (
     RecipeChatRequest,
     RecipeChatResponse,
     RecipeCreate,
+    RecipeFolderImportConfirmRequest,
+    RecipeFolderImportResponse,
     RecipeImportResponse,
     RecipeIngredientRead,
     RecipeRatingUpdate,
@@ -34,8 +36,10 @@ from app.services import (
     food_data_service,
     job_queue,
     ollama_client,
+    recipe_folder_import_service,
     recipe_image_service,
     recipe_service,
+    settings_service,
 )
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -247,83 +251,28 @@ async def import_recipe(
                 raw_output = _run_text_extraction(db, text)
                 default_source = "import_text"
             else:
-                # Backlog B9.2: a raw .json/.ld+json upload is checked for
-                # structured schema.org Recipe data FIRST, the same
-                # jsonld-before-LLM preference the URL import path (B9.3)
-                # already applies -- this is specifically what makes a
-                # recipe exported via recipe_to_jsonld() (Settings/recipe
-                # detail page "Export recipe (JSON-LD)") a genuine round
-                # trip back through this same "Import recipe" flow, not
-                # just a one-way archive dump. extract_jsonld_recipe_from_
-                # json() never raises for "not a recipe"/"not JSON", only
-                # returns None, so this falls through to the generic file
-                # handling below exactly like a non-JSON upload would.
-                if content_type in ("application/json", "application/ld+json") or filename.endswith(".json"):
-                    try:
-                        json_text = raw_bytes.decode("utf-8")
-                    except UnicodeDecodeError:
-                        json_text = ""
-                    if json_text:
-                        jsonld_parsed = recipe_service.extract_jsonld_recipe_from_json(json_text)
+                # Backlog B13.1 (2026-08-01): the JSON/image/PDF/text
+                # branching that used to live directly inline here was
+                # pulled out into recipe_service.parse_recipe_file_content
+                # so the new folder-scan batch importer
+                # (recipe_folder_import_service.py) can parse a file the
+                # exact same way a single browser upload does -- see that
+                # function's docstring for the full rationale (including
+                # the new .html/.htm branch, which this single-upload path
+                # gets too now, for free).
+                file_result = recipe_service.parse_recipe_file_content(db, raw_bytes, filename, content_type)
+                raw_output = file_result["raw_output"]
+                default_source = file_result["default_source"]
+                citation = file_result["citation"]
+                image_path = file_result["image_path"]
+                jsonld_parsed = file_result["jsonld_parsed"]
 
-                if jsonld_parsed is not None:
-                    citation = {"source_author": jsonld_parsed.get("_source_author")}
-                    image_url = jsonld_parsed.get("_image_url")
-                    if image_url:
-                        fetched = recipe_service.fetch_image_bytes(image_url)
-                        if fetched:
-                            raw_image_bytes, image_content_type = fetched
-                            try:
-                                image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-                            except ValueError:
-                                pass  # unsupported content type -- skip, not fatal to the import
-                    raw_output = (
-                        "(parsed directly from the uploaded file's structured schema.org Recipe data -- "
-                        "Ollama was not used for this import)"
-                    )
-                    default_source = "import_file_jsonld"
-                elif content_type.startswith("image/"):
-                    response = ollama_client.describe_image(
-                        db, raw_bytes, recipe_service.RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
-                    )
-                    raw_output = (
-                        response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-                    )
-                    default_source = "import_image"
-                    try:
-                        image_path = recipe_image_service.save_image(content_type, raw_bytes)
-                    except ValueError:
-                        pass  # unsupported content type -- skip, not fatal to the import
-                elif content_type == "application/pdf" or filename.endswith(".pdf"):
-                    pdf_text = recipe_service.extract_pdf_text(raw_bytes)
-                    raw_output = _run_text_extraction(db, pdf_text)
-                    default_source = "import_file"
-                else:
-                    try:
-                        text_content = raw_bytes.decode("utf-8")
-                    except UnicodeDecodeError:
-                        raise RuntimeError("Unsupported file type for recipe import")
-                    raw_output = _run_text_extraction(db, text_content)
-                    default_source = "import_file"
-
-            if jsonld_parsed is not None:
-                # Strip the two citation-only keys (_source_author/
-                # _image_url) before coercion -- coerce_recipe_fields
-                # doesn't know about them, and citation is already
-                # captured above via the `citation` dict.
-                parsed = recipe_service.coerce_recipe_fields(
-                    {k: v for k, v in jsonld_parsed.items() if not k.startswith("_")}
-                )
-            else:
-                parsed = recipe_service.parse_recipe_response(raw_output)
-            if parsed is None:
-                raise RuntimeError("Could not extract a recipe from that input")
-            parsed["source"] = default_source
-            for key, value in citation.items():
-                if value:
-                    parsed[key] = value
-            if image_path:
-                parsed["image_path"] = image_path
+            # Backlog B13.1: this tail (raw model output or a structured
+            # JSON-LD dict -> a final RecipeCreate-shaped dict, with
+            # source/citation/image_path folded in) is likewise shared
+            # with the folder-scan batch importer now -- see
+            # recipe_service.finish_recipe_parse's docstring.
+            parsed = recipe_service.finish_recipe_parse(raw_output, default_source, citation, image_path, jsonld_parsed)
 
             # Backlog B3.1: check the parsed-but-not-yet-saved ingredients
             # against the household's current restrictions BEFORE the user
@@ -352,6 +301,63 @@ def _run_text_extraction(db: Session, content: str) -> str:
     prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:8000])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+
+
+@router.post("/import-folder/scan", response_model=JobEnqueuedResponse, status_code=202)
+def scan_import_folder(db: Session = Depends(get_db)):
+    """Backlog B13.1 (author-requested 2026-08-01): scans the folder at
+    `recipe_import_folder_path` (Settings > Integrations -- a Docker
+    volume the household points at their OneDrive-synced folder, or any
+    folder) and returns a PREVIEW of every recipe it could parse from the
+    files found there. Nothing is written to the recipes table here --
+    see RecipeFolderImportResponse's docstring for the review-then-
+    confirm flow. Enqueued as a background job like every other Ollama-
+    consuming batch operation (B11.1): a real recipe folder means many
+    sequential model calls, one per file, easily minutes."""
+    folder_path = settings_service.get_setting(db, "recipe_import_folder_path")
+    if not folder_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Set a recipe import folder path in Settings (Integrations tab) first.",
+        )
+
+    def _run() -> dict:
+        job_db = SessionLocal()
+        try:
+            result = recipe_folder_import_service.scan_and_parse(job_db, folder_path)
+            return RecipeFolderImportResponse(**result).model_dump()
+        finally:
+            job_db.close()
+
+    job_id, created = job_queue.enqueue(
+        "recipe_folder_import", "Recipe folder import", _run, dedup_key="recipe_folder_import"
+    )
+    return JobEnqueuedResponse(job_id=job_id, created=created)
+
+
+@router.post("/import-folder/confirm", response_model=list[RecipeRead])
+def confirm_folder_import(payload: RecipeFolderImportConfirmRequest, db: Session = Depends(get_db)):
+    """Bulk-creates recipes from a (user-reviewed/edited) folder-scan
+    preview. Reuses the same per-recipe create logic as POST /api/recipes
+    (Recipe row + ingredients + tag resolution + nutrition_provenance
+    stamping), just looped -- there's no bulk-INSERT recipe primitive in
+    this app, and a folder import is a low-frequency, one-off-per-scan
+    operation, not worth adding one for."""
+    created = []
+    for recipe_in in payload.recipes:
+        data = recipe_in.model_dump(exclude={"ingredients", "tags"})
+        recipe = Recipe(**data)
+        if recipe.nutrition:
+            recipe.nutrition_provenance = "ai_estimated"
+        db.add(recipe)
+        db.flush()
+        _apply_ingredients(db, recipe, recipe_in.ingredients)
+        recipe.tags = recipe_service.resolve_tags(db, recipe_in.tags)
+        created.append(recipe)
+    db.commit()
+    for recipe in created:
+        db.refresh(recipe)
+    return [_to_read(r, db) for r in created]
 
 
 @router.get("/{recipe_id}", response_model=RecipeRead)

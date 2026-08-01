@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.models import InventoryItem, OrderImportProfile
 from app.schemas.inventory import (
+    BarcodeLookupResponse,
     ColumnMapping,
     ExpiringDigestResponse,
     InventoryDeductRequest,
@@ -57,8 +58,10 @@ from app.schemas.inventory import (
 )
 from app.schemas.jobs import JobEnqueuedResponse
 from app.services import (
+    food_data_service,
     inventory_service,
     job_queue,
+    meal_plan_service,
     ollama_client,
     order_import_service,
     recall_service,
@@ -164,6 +167,46 @@ def expiring_digest(within_days: int = 7, db: Session = Depends(get_db)):
     (ExpiringDigestBanner.jsx), not just the Inventory page's own passive
     display, per the backlog's explicit "reach out" framing."""
     return inventory_service.get_expiring_digest(db, within_days=within_days)
+
+
+@router.get("/barcode-lookup", response_model=BarcodeLookupResponse)
+def barcode_lookup(barcode: str):
+    """Backlog B4.1 (author-requested 2026-08-01): looks up a scanned
+    barcode against Open Food Facts and returns a prefilled item preview.
+    Deliberately a plain sync `def`, not a job_queue job -- a single OFF
+    HTTP lookup is one fast round trip (REQUEST_TIMEOUT_SECONDS=8 in
+    food_data_service.py), nothing like the tens-of-seconds Ollama calls
+    B11.1's job-queue rule exists for, and FastAPI already runs plain
+    `def` handlers in a threadpool so this doesn't block the event loop
+    either. See BarcodeLookupResponse's docstring for why there's no
+    separate confirm endpoint: a barcode scan is always exactly one item,
+    so the frontend (BarcodeScanner.jsx) lets the user review/edit this
+    preview, then POSTs a normal InventoryItemCreate (source="barcode")
+    straight to POST /api/inventory."""
+    barcode = (barcode or "").strip()
+    if not barcode:
+        raise HTTPException(status_code=400, detail="barcode is required")
+
+    product = food_data_service.get_off_product(barcode)
+    if product is None:
+        return BarcodeLookupResponse(barcode=barcode, found=False)
+
+    name = (product.get("product_name") or product.get("generic_name") or "").strip() or None
+    brand = (product.get("brands") or "").strip() or None
+    quantity_text = (product.get("quantity") or "").strip() or None
+    image_url = product.get("image_front_url") or product.get("image_url") or None
+    category = meal_plan_service.guess_grocery_category(name) if name else None
+
+    return BarcodeLookupResponse(
+        barcode=barcode,
+        found=True,
+        name=name,
+        brand=brand,
+        quantity_text=quantity_text,
+        category=category or "other",
+        image_url=image_url,
+        confidence_note=None if name else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
+    )
 
 
 @router.get("/recalls", response_model=RecallStatusResponse)

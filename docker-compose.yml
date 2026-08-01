@@ -19,6 +19,17 @@ services:
       - "${BACKEND_PORT:-8095}:8095"
     volumes:
       - chef-data:/app/data
+      # Backlog B13.1 (optional) -- batch recipe import from a folder on
+      # this host (e.g. a OneDrive/Dropbox/Google Drive folder that
+      # already syncs here as a normal directory). Uncomment and point
+      # the left side at your real folder, then set
+      # RECIPE_IMPORT_FOLDER_PATH=/app/data/recipe_import in .env (or in
+      # Settings > Integrations > "Recipe import folder path") to match
+      # the right side below. Mounted read-only (:ro) -- Chef only ever
+      # reads from this folder, never writes to or deletes from it. See
+      # the in-app WIKI's "Recipe folder import" entry for the full
+      # walkthrough.
+      # - /path/on/this/host/to/your/recipes:/app/data/recipe_import:ro
 
   frontend:
     build: ./frontend

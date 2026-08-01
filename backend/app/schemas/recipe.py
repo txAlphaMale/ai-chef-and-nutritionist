@@ -157,6 +157,41 @@ class RecipeImportResponse(BaseModel):
     cross_contact_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
 
 
+class RecipeFolderScanItem(BaseModel):
+    """One file's outcome from a backlog B13.1 folder-scan batch import
+    (see recipe_folder_import_service.scan_and_parse). `recipe` is a
+    preview only -- nothing is saved to the recipes table until the user
+    reviews and POSTs the confirmed subset to
+    POST /api/recipes/import-folder/confirm."""
+
+    filename: str
+    relative_path: str
+    status: str  # "ok" | "error"
+    recipe: RecipeCreate | None = None
+    error: str | None = None
+
+
+class RecipeFolderImportResponse(BaseModel):
+    """Result of scanning `recipe_import_folder_path` (Settings >
+    Integrations) for recipe files. Nothing is saved yet -- the frontend
+    reviews/edits/unchecks `items` then POSTs the confirmed subset."""
+
+    items: list[RecipeFolderScanItem]
+    skipped: list[list[str]] = Field(
+        default_factory=list,
+        description='[[path, reason], ...] -- files found but not attempted (too large, or over the file-count cap)',
+    )
+    truncated: bool = False
+    scanned_folder: str
+    error: str | None = Field(
+        None, description="Set when the configured folder itself couldn't be scanned (missing, or not a directory)"
+    )
+
+
+class RecipeFolderImportConfirmRequest(BaseModel):
+    recipes: list[RecipeCreate]
+
+
 class RecipeChatMessage(BaseModel):
     role: str  # user|assistant
     content: str

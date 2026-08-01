@@ -595,6 +595,49 @@ tr.urgency-low td {
   color: var(--color-danger);
 }
 
+/* --- Barcode scanner (backlog B4.1, 2026-08-01) --- */
+.barcode-scanner-device {
+  display: block;
+  max-width: 20em;
+  margin-bottom: var(--spacing-2);
+}
+
+.barcode-scanner-video-wrap {
+  max-width: 480px;
+  margin: 0 auto var(--spacing-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: #000;
+}
+
+.barcode-scanner-video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.barcode-scanner-manual {
+  display: flex;
+  gap: var(--spacing-2);
+  margin: var(--spacing-2) 0;
+  flex-wrap: wrap;
+}
+
+.barcode-scanner-manual input {
+  flex: 1;
+  min-width: 10em;
+}
+
+.barcode-result-image {
+  max-width: 120px;
+  max-height: 120px;
+  display: block;
+  margin-bottom: var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
 /* --- Recipe form extras --- */
 .recipe-form fieldset {
   border: 1px solid var(--color-border);
@@ -1173,6 +1216,39 @@ tr.urgency-low td {
 
 .status-bad {
   background: var(--color-danger);
+}
+
+/* Backlog B14 (author-requested 2026-08-01) -- Settings page sub-tab bar.
+   Deliberately plain (no icons, no badges) to match the rest of the
+   app's minimal chrome; active state relies on the same accent color
+   used for active nav links elsewhere. */
+.settings-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+  margin: var(--spacing-3) 0;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+}
+
+.settings-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: 0.95em;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  color: var(--color-text);
+}
+
+.settings-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
 }
 
 /* --- Appearance/theme picker (Settings page, 2026-08-01) --- */

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
 
@@ -11,6 +11,18 @@ import { THEME_OPTIONS, applyTheme } from "../themes";
 // existed from Phase 2. Household size and dietary restrictions live on
 // the Health page (Phase 6) since they're tied to household-preferences
 // CRUD there -- linked from here rather than duplicated.
+//
+// Backlog B14 (author-requested 2026-08-01): this page grew one card at
+// a time across many sessions (Appearance, Backup, Connection status,
+// Security, the generic settings loop, Google Calendar, System prompts)
+// until it became one long scroll the author flagged directly as
+// "crowded." Reorganized into sub-tabs mirroring the sibling Fiduciary
+// project's own settings layout (its panelSubtabs() pattern -- a
+// second-level tab bar within one top-level page, persisted per-panel).
+// Connection status is deliberately kept OUTSIDE the tab content and
+// pinned above the tab bar instead -- the author's own explicit ask --
+// since "is anything broken right now" is relevant no matter which
+// settings group you're editing.
 
 const PROMPT_LABELS = {
   main_chef: "Main chef system prompt",
@@ -42,6 +54,33 @@ const GOOGLE_CALENDAR_CONFIG_KEYS = [
 ];
 
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/calendar/google/callback";
+
+// Backlog B14 -- which generic (label/description/options-driven) setting
+// keys render in which sub-tab. Anything not listed here still renders
+// (a new setting added to settings_service.py without a bucket entry
+// falls into DEFAULT_SETTINGS_TAB below rather than silently vanishing).
+const AI_MODEL_SETTING_KEYS = ["ollama_base_url", "ollama_chat_model", "ollama_vision_model", "ollama_embed_model"];
+const INTEGRATION_SETTING_KEYS = [
+  "tavily_api_key",
+  "usda_fdc_api_key",
+  "openfda_api_key",
+  "google_calendar_client_id",
+  "google_calendar_client_secret",
+  "google_calendar_redirect_uri",
+  "recipe_import_folder_path",
+];
+const PREFERENCE_SETTING_KEYS = ["default_unit_system", "household_timezone"];
+const DEFAULT_SETTINGS_TAB = "integrations";
+
+const SETTINGS_TABS = [
+  { key: "appearance", label: "Appearance" },
+  { key: "ai", label: "AI & Models" },
+  { key: "integrations", label: "Integrations" },
+  { key: "preferences", label: "Preferences" },
+  { key: "security", label: "Security" },
+  { key: "backup", label: "Backup & Data" },
+];
+const SETTINGS_TAB_STORAGE_KEY = "chefSettingsTab";
 
 // Corrected 2026-08-01 -- the author hit this directly in Google Cloud
 // Console: a redirect URI built from the browser's own LAN address
@@ -81,7 +120,31 @@ function suggestedRedirectUri(origin) {
   return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
 }
 
+function settingsTabFor(key) {
+  if (AI_MODEL_SETTING_KEYS.includes(key)) return "ai";
+  if (INTEGRATION_SETTING_KEYS.includes(key)) return "integrations";
+  if (PREFERENCE_SETTING_KEYS.includes(key)) return "preferences";
+  return DEFAULT_SETTINGS_TAB;
+}
+
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return localStorage.getItem(SETTINGS_TAB_STORAGE_KEY) || "appearance";
+    } catch {
+      return "appearance";
+    }
+  });
+
+  function selectTab(key) {
+    setActiveTab(key);
+    try {
+      localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, key);
+    } catch {
+      // localStorage unavailable (private browsing, etc) -- tab selection just won't persist
+    }
+  }
+
   const [settings, setSettings] = useState([]);
   const [settingEdits, setSettingEdits] = useState({});
   const [settingSaving, setSettingSaving] = useState({});
@@ -183,6 +246,16 @@ export default function SettingsPage() {
   // directly instead of duplicated in its own state.
   const currentTheme = settings.find((s) => s.key === "ui_theme")?.value || "default";
   const otherSettings = settings.filter((s) => s.key !== "ui_theme" && !GOOGLE_CALENDAR_MANAGED_KEYS.includes(s.key));
+  const settingsByTab = useMemo(() => {
+    const groups = { ai: [], integrations: [], preferences: [] };
+    for (const spec of otherSettings) {
+      const tab = settingsTabFor(spec.key);
+      if (!groups[tab]) groups[tab] = [];
+      groups[tab].push(spec);
+    }
+    return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otherSettings]);
 
   // Backlog B12.1 -- Google Calendar connection status + the OAuth
   // connect/disconnect/sync-toggle/resync actions. Kept separate from
@@ -213,8 +286,10 @@ export default function SettingsPage() {
     const result = params.get("google_calendar");
     if (result === "connected") {
       setGcalBanner({ type: "success", message: "Google Calendar connected -- sync is now on." });
+      selectTab("integrations");
     } else if (result === "error") {
       setGcalBanner({ type: "error", message: params.get("message") || "Google Calendar connection failed." });
+      selectTab("integrations");
     }
     if (result) {
       // Strip the query so a page refresh doesn't re-show a stale banner.
@@ -401,9 +476,14 @@ export default function SettingsPage() {
       // saving a valid client id/secret/redirect URI here never updated
       // its `configured` flag -- the Connect button stayed silently
       // disabled with no visible explanation. Refresh it the moment any
-      // of the three relevant keys saves successfully.
+      // of the three relevant keys saves successfully. Also refreshes
+      // the pinned Connection Status card (B14) since it now surfaces
+      // the same "configured" flag.
       if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key)) {
         refreshGcalStatus();
+      }
+      if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key) || spec.key === "recipe_import_folder_path") {
+        refreshStatus();
       }
     } catch (e) {
       setError(e.message);
@@ -448,67 +528,97 @@ export default function SettingsPage() {
     }
   }
 
+  // Extracted so the AI/Integrations/Preferences tabs can all render the
+  // same generic settings-row shape without duplicating this block three
+  // times (backlog B14's whole point was less repetition, not more).
+  function renderSettingRow(spec) {
+    return (
+      <div className="settings-row" key={spec.key}>
+        <label>
+          {spec.label}
+          {spec.options ? (
+            // Backlog fix 2026-08-01 -- a setting with a fixed,
+            // enumerated set of valid values (e.g. default_unit_system)
+            // gets a <select>, not a free-text box the user has no way
+            // to know the accepted values for.
+            <select
+              value={settingEdits[spec.key] ?? spec.value}
+              onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+            >
+              {spec.options.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={spec.is_secret ? "password" : "text"}
+              placeholder={spec.is_secret ? (spec.is_set ? "•••••••• (set -- enter a new value to change)" : "not set") : ""}
+              value={settingEdits[spec.key] ?? ""}
+              onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+            />
+          )}
+        </label>
+        {spec.key === "google_calendar_redirect_uri" && backendOrigin && (
+          <div className="settings-redirect-uri-suggestions">
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => setSettingEdits((prev) => ({ ...prev, [spec.key]: suggestedRedirectUri(backendOrigin) }))}
+            >
+              Use localhost{isRawIpHost(backendOrigin) ? " (recommended -- see below)" : ""}
+            </button>
+            {" · "}
+            <button
+              type="button"
+              className="btn-link"
+              disabled={isRawIpHost(backendOrigin)}
+              title={
+                isRawIpHost(backendOrigin)
+                  ? "This browser is reaching Chef by a raw IP address, which Google's OAuth redirect URI validation rejects. Use localhost instead, or see the WIKI for a domain-based alternative."
+                  : undefined
+              }
+              onClick={() =>
+                setSettingEdits((prev) => ({
+                  ...prev,
+                  [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
+                }))
+              }
+            >
+              Use this browser's address ({backendOrigin})
+              {isRawIpHost(backendOrigin) ? " -- won't work, it's a raw IP" : ""}
+            </button>
+          </div>
+        )}
+        <p className="hint">{spec.description}</p>
+        <div className="form-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => saveSetting(spec)}
+            disabled={settingSaving[spec.key] || (spec.is_secret && (settingEdits[spec.key] ?? "").trim() === "")}
+          >
+            {settingSaving[spec.key] ? "Saving..." : "Save"}
+          </button>
+          {settingSaved[spec.key] && <span className="hint">Saved.</span>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {error && <p className="error-text">{error}</p>}
 
-      <div className="card">
-        <h3>Appearance</h3>
-        <p className="hint">
-          Applies instantly and is saved to the database (persists across container rebuilds, same as every other
-          setting here).
-        </p>
-        {themeGroups.map((group) => (
-          <div key={group.name}>
-            <p className="theme-group-label">{group.name}</p>
-            <div className="theme-swatch-grid">
-              {group.themes.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  className={`theme-swatch-card${t.key === currentTheme ? " active" : ""}`}
-                  onClick={() => selectTheme(t.key)}
-                  disabled={themeSaving}
-                >
-                  <span className="theme-swatch-dots">
-                    {Object.values(t.swatches).map((color, i) => (
-                      <span className="theme-swatch-dot" key={i} style={{ background: color }} />
-                    ))}
-                  </span>
-                  <span className="theme-swatch-label">{t.label}</span>
-                  {t.key === currentTheme && <span className="theme-swatch-active-marker">&#10003; active</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="page-toolbar">
-          <h3 style={{ margin: 0 }}>Backup</h3>
-          <button className="btn btn-secondary btn-sm" onClick={refreshBackupManifest}>
-            Refresh
-          </button>
-        </div>
-        <p className="hint">
-          Downloads everything Chef stores as one file: the database, encrypted secrets (and the key that decrypts
-          them), and any uploaded recipe images / knowledge files.{" "}
-          {backupManifest && backupManifest.included.length > 0
-            ? `Currently includes: ${backupManifest.included.join(", ")}.`
-            : "Nothing to back up yet."}
-        </p>
-        <p className="hint">
-          <strong>Treat the downloaded file like a password export</strong> -- it contains both your encrypted
-          settings (Tavily/USDA/Google OAuth keys, etc.) and the key that decrypts them, so anyone with the file can
-          read those secrets. There's no in-app restore button by design; see the WIKI for how to restore a backup
-          by replacing the files in Chef's data volume.
-        </p>
-        <a className="btn btn-primary btn-sm" href={`${backendOrigin}/api/system/backup`}>
-          Download backup (.tar.gz)
-        </a>
-      </div>
-
+      {/* Backlog B14 (author-requested 2026-08-01): pinned above the
+          sub-tab bar, not inside any one tab -- "is anything broken"
+          matters regardless of which settings group is open. Also now
+          reports per-integration configured/connected state (the
+          `integrations` list from GET /api/system/status), not just
+          Ollama/Tavily -- another direct author ask, so a household can
+          tell at a glance whether Google Calendar (or a future
+          integration) has its credentials saved without opening the
+          Integrations tab. */}
       <div className="card">
         <div className="page-toolbar">
           <h3 style={{ margin: 0 }}>Connection status</h3>
@@ -522,285 +632,335 @@ export default function SettingsPage() {
             <span>Ollama {status.ollama_reachable ? "reachable" : "not reachable"}</span>
             <span className={`status-dot ${status.tavily_configured ? "status-ok" : "status-bad"}`} />
             <span>Tavily {status.tavily_configured ? "configured" : "not configured"}</span>
+            {(status.integrations || []).map((it) => (
+              <Fragment key={it.key}>
+                <span
+                  className={`status-dot ${
+                    it.connected === false ? "status-bad" : it.configured ? "status-ok" : "status-bad"
+                  }`}
+                />
+                <span>
+                  {it.label}{" "}
+                  {it.connected === true
+                    ? `connected${it.detail ? ` (${it.detail})` : ""}`
+                    : it.configured
+                      ? it.connected === false
+                        ? "configured, not yet connected"
+                        : `configured${it.detail ? ` (${it.detail})` : ""}`
+                      : "not configured"}
+                </span>
+              </Fragment>
+            ))}
           </div>
         ) : (
           <p className="hint">{status?.error || "Checking..."}</p>
         )}
       </div>
 
-      <div className="card">
-        <h3>Security</h3>
-        <p className="hint">
-          Off by default -- fine on a private LAN. Turning this on protects every page and API request behind one
-          shared household password (no per-person accounts, no MFA -- see the notes in PROJECT-PLAN.md for why
-          this is deliberately lighter than a full multi-user login system).
-        </p>
-        {authStatus ? (
-          <>
-            <p>
-              Password protection is currently{" "}
-              <strong>{authStatus.enabled ? "enabled" : "disabled"}</strong>.
-            </p>
-            <form onSubmit={handleSetPassword} className="settings-row">
-              {authStatus.enabled && (
-                <label>
-                  Current password
-                  <input
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    required
-                  />
-                </label>
-              )}
-              <label>
-                {authStatus.enabled ? "New password" : "Set a password"}
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  minLength={8}
-                  placeholder="at least 8 characters"
-                  required
-                />
-              </label>
-              <div className="form-actions">
-                <button className="btn btn-primary btn-sm" type="submit" disabled={authBusy || newPassword.length < 8}>
-                  {authBusy ? "Saving..." : authStatus.enabled ? "Change password" : "Enable password protection"}
-                </button>
-                {authSaved && <span className="hint">Saved.</span>}
+      <div className="settings-tabbar" role="tablist">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.key}
+            className={`settings-tab${activeTab === t.key ? " active" : ""}`}
+            onClick={() => selectTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "appearance" && (
+        <div className="card">
+          <h3>Appearance</h3>
+          <p className="hint">
+            Applies instantly and is saved to the database (persists across container rebuilds, same as every other
+            setting here).
+          </p>
+          {themeGroups.map((group) => (
+            <div key={group.name}>
+              <p className="theme-group-label">{group.name}</p>
+              <div className="theme-swatch-grid">
+                {group.themes.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={`theme-swatch-card${t.key === currentTheme ? " active" : ""}`}
+                    onClick={() => selectTheme(t.key)}
+                    disabled={themeSaving}
+                  >
+                    <span className="theme-swatch-dots">
+                      {Object.values(t.swatches).map((color, i) => (
+                        <span className="theme-swatch-dot" key={i} style={{ background: color }} />
+                      ))}
+                    </span>
+                    <span className="theme-swatch-label">{t.label}</span>
+                    {t.key === currentTheme && <span className="theme-swatch-active-marker">&#10003; active</span>}
+                  </button>
+                ))}
               </div>
-            </form>
-            {authStatus.enabled && (
-              <form onSubmit={handleDisableAuth} className="settings-row">
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "ai" && (
+        <>
+          <div className="card">
+            <h3>AI &amp; Models</h3>
+            <p className="hint">
+              Ollama connection and which model handles chat/meal-planning vs. vision (photo/receipt) tasks. Stored
+              in the database, not <code>.env</code> -- changes take effect on the next request, no rebuild needed.
+            </p>
+            {loading ? <p>Loading...</p> : settingsByTab.ai.map(renderSettingRow)}
+          </div>
+          <div className="card">
+            <h3>System prompts</h3>
+            <p className="hint">
+              The persona and rules the AI follows for chat, meal planning, and onboarding. Edit with care -- the app
+              relies on these mentioning things like confirming before writes and respecting dietary restrictions.
+            </p>
+            {loading ? (
+              <p>Loading...</p>
+            ) : (
+              prompts.map((p) => (
+                <div className="settings-row" key={p.prompt_key}>
+                  <label>
+                    {PROMPT_LABELS[p.prompt_key] || p.prompt_key}
+                    <textarea
+                      rows={8}
+                      value={promptEdits[p.prompt_key]?.content ?? ""}
+                      onChange={(e) =>
+                        setPromptEdits((prev) => ({
+                          ...prev,
+                          [p.prompt_key]: { ...prev[p.prompt_key], content: e.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={promptEdits[p.prompt_key]?.is_active ?? true}
+                      onChange={(e) =>
+                        setPromptEdits((prev) => ({
+                          ...prev,
+                          [p.prompt_key]: { ...prev[p.prompt_key], is_active: e.target.checked },
+                        }))
+                      }
+                    />
+                    Active
+                  </label>
+                  <div className="form-actions">
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => savePrompt(p.prompt_key)}
+                      disabled={promptSaving[p.prompt_key]}
+                    >
+                      {promptSaving[p.prompt_key] ? "Saving..." : "Save"}
+                    </button>
+                    {promptSaved[p.prompt_key] && <span className="hint">Saved.</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {activeTab === "integrations" && (
+        <>
+          <div className="card">
+            <h3>Integrations &amp; AI services</h3>
+            <p className="hint">
+              Optional external services -- web search, food-database lookups, recall checking. Stored in the
+              database (encrypted at rest for secrets), not <code>.env</code>.
+            </p>
+            {loading ? <p>Loading...</p> : settingsByTab.integrations.map(renderSettingRow)}
+          </div>
+
+          <div className="card">
+            <h3>Google Calendar</h3>
+            <p className="hint">
+              Backlog B12.1 -- pushes your weekly meal plan into a dedicated "Chef Meal Plan" calendar in your Google
+              account, kept in sync automatically as the plan changes. Share that calendar with the rest of the
+              household from Google Calendar's own sharing settings. First-time setup needs your own free Google
+              Cloud OAuth client -- see the full walkthrough in the <a href="#/wiki?entry=google-calendar-setup">WIKI</a>.
+            </p>
+
+            {gcalBanner && <p className={`gcal-banner ${gcalBanner.type}`}>{gcalBanner.message}</p>}
+            {gcalError && <p className="error-text">{gcalError}</p>}
+
+            {gcalStatus ? (
+              gcalStatus.connected ? (
+                <>
+                  <p>
+                    Connected as <strong>{gcalStatus.account_email || "(unknown account)"}</strong>.{" "}
+                    {gcalStatus.calendar_html_link && (
+                      <a href={gcalStatus.calendar_html_link} target="_blank" rel="noreferrer">
+                        Open "Chef Meal Plan" in Google Calendar
+                      </a>
+                    )}
+                  </p>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={gcalStatus.sync_enabled}
+                      disabled={gcalBusy}
+                      onChange={(e) => toggleGcalSync(e.target.checked)}
+                    />
+                    Sync meal-plan changes to Google Calendar
+                  </label>
+                  <div className="form-actions">
+                    <button className="btn btn-secondary btn-sm" onClick={resyncGoogleCalendar} disabled={gcalBusy}>
+                      Force resync
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={disconnectGoogleCalendar} disabled={gcalBusy}>
+                      Disconnect
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="hint">
+                    {gcalStatus.configured
+                      ? "OAuth client is configured -- click Connect to finish linking your Google account."
+                      : "Enter your Google OAuth client ID, secret, and redirect URI above first (see the WIKI guide above), then Connect."}
+                  </p>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={connectGoogleCalendar}
+                    disabled={!gcalStatus.configured || gcalBusy}
+                  >
+                    {gcalBusy ? "Connecting..." : "Connect Google Calendar"}
+                  </button>
+                </>
+              )
+            ) : (
+              <p className="hint">Loading...</p>
+            )}
+          </div>
+        </>
+      )}
+
+      {activeTab === "preferences" && (
+        <>
+          <div className="card">
+            <h3>Preferences</h3>
+            <p className="hint">How recipe quantities display by default, and your household's timezone.</p>
+            {loading ? <p>Loading...</p> : settingsByTab.preferences.map(renderSettingRow)}
+          </div>
+          <div className="card">
+            <h3>Household size &amp; dietary restrictions</h3>
+            <p className="hint">
+              Managed on the <a href="#/health">Health page</a> under "Household preferences," alongside member
+              profiles and body metrics that also steer meal planning.
+            </p>
+          </div>
+        </>
+      )}
+
+      {activeTab === "security" && (
+        <div className="card">
+          <h3>Security</h3>
+          <p className="hint">
+            Off by default -- fine on a private LAN. Turning this on protects every page and API request behind one
+            shared household password (no per-person accounts, no MFA -- see the notes in PROJECT-PLAN.md for why
+            this is deliberately lighter than a full multi-user login system).
+          </p>
+          {authStatus ? (
+            <>
+              <p>
+                Password protection is currently <strong>{authStatus.enabled ? "enabled" : "disabled"}</strong>.
+              </p>
+              <form onSubmit={handleSetPassword} className="settings-row">
+                {authStatus.enabled && (
+                  <label>
+                    Current password
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      required
+                    />
+                  </label>
+                )}
                 <label>
-                  Current password (to disable)
+                  {authStatus.enabled ? "New password" : "Set a password"}
                   <input
                     type="password"
-                    value={disableCurrentPassword}
-                    onChange={(e) => setDisableCurrentPassword(e.target.value)}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    minLength={8}
+                    placeholder="at least 8 characters"
                     required
                   />
                 </label>
                 <div className="form-actions">
-                  <button className="btn btn-secondary btn-sm" type="submit" disabled={authBusy || !disableCurrentPassword}>
-                    Disable password protection
+                  <button className="btn btn-primary btn-sm" type="submit" disabled={authBusy || newPassword.length < 8}>
+                    {authBusy ? "Saving..." : authStatus.enabled ? "Change password" : "Enable password protection"}
                   </button>
+                  {authSaved && <span className="hint">Saved.</span>}
                 </div>
               </form>
-            )}
-            {authError && <p className="error-text">{authError}</p>}
-          </>
-        ) : (
-          <p className="hint">{authError || "Loading..."}</p>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>AI services &amp; secrets</h3>
-        <p className="hint">
-          Stored in the database (encrypted at rest for secrets), not in <code>.env</code> -- changes take effect on
-          the next request, no rebuild needed.
-        </p>
-        {loading ? (
-          <p>Loading...</p>
-        ) : (
-          otherSettings.map((spec) => (
-            <div className="settings-row" key={spec.key}>
-              <label>
-                {spec.label}
-                {spec.options ? (
-                  // Backlog fix 2026-08-01 -- a setting with a fixed,
-                  // enumerated set of valid values (e.g. default_unit_system)
-                  // gets a <select>, not a free-text box the user has no way
-                  // to know the accepted values for.
-                  <select
-                    value={settingEdits[spec.key] ?? spec.value}
-                    onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
-                  >
-                    {spec.options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={spec.is_secret ? "password" : "text"}
-                    placeholder={spec.is_secret ? (spec.is_set ? "•••••••• (set -- enter a new value to change)" : "not set") : ""}
-                    value={settingEdits[spec.key] ?? ""}
-                    onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
-                  />
-                )}
-              </label>
-              {spec.key === "google_calendar_redirect_uri" && backendOrigin && (
-                <div className="settings-redirect-uri-suggestions">
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() =>
-                      setSettingEdits((prev) => ({ ...prev, [spec.key]: suggestedRedirectUri(backendOrigin) }))
-                    }
-                  >
-                    Use localhost{isRawIpHost(backendOrigin) ? " (recommended -- see below)" : ""}
-                  </button>
-                  {" · "}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    disabled={isRawIpHost(backendOrigin)}
-                    title={
-                      isRawIpHost(backendOrigin)
-                        ? "This browser is reaching Chef by a raw IP address, which Google's OAuth redirect URI validation rejects. Use localhost instead, or see the WIKI for a domain-based alternative."
-                        : undefined
-                    }
-                    onClick={() =>
-                      setSettingEdits((prev) => ({
-                        ...prev,
-                        [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
-                      }))
-                    }
-                  >
-                    Use this browser's address ({backendOrigin})
-                    {isRawIpHost(backendOrigin) ? " -- won't work, it's a raw IP" : ""}
-                  </button>
-                </div>
+              {authStatus.enabled && (
+                <form onSubmit={handleDisableAuth} className="settings-row">
+                  <label>
+                    Current password (to disable)
+                    <input
+                      type="password"
+                      value={disableCurrentPassword}
+                      onChange={(e) => setDisableCurrentPassword(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <div className="form-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="submit"
+                      disabled={authBusy || !disableCurrentPassword}
+                    >
+                      Disable password protection
+                    </button>
+                  </div>
+                </form>
               )}
-              <p className="hint">{spec.description}</p>
-              <div className="form-actions">
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => saveSetting(spec)}
-                  disabled={settingSaving[spec.key] || (spec.is_secret && (settingEdits[spec.key] ?? "").trim() === "")}
-                >
-                  {settingSaving[spec.key] ? "Saving..." : "Save"}
-                </button>
-                {settingSaved[spec.key] && <span className="hint">Saved.</span>}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="card">
-        <h3>Google Calendar</h3>
-        <p className="hint">
-          Backlog B12.1 -- pushes your weekly meal plan into a dedicated "Chef Meal Plan" calendar in your Google
-          account, kept in sync automatically as the plan changes. Share that calendar with the rest of the
-          household from Google Calendar's own sharing settings. First-time setup needs your own free Google Cloud
-          OAuth client -- see the full walkthrough in the <a href="#/wiki?entry=google-calendar-setup">WIKI</a>.
-        </p>
-
-        {gcalBanner && (
-          <p className={`gcal-banner ${gcalBanner.type}`}>{gcalBanner.message}</p>
-        )}
-        {gcalError && <p className="error-text">{gcalError}</p>}
-
-        {gcalStatus ? (
-          gcalStatus.connected ? (
-            <>
-              <p>
-                Connected as <strong>{gcalStatus.account_email || "(unknown account)"}</strong>.{" "}
-                {gcalStatus.calendar_html_link && (
-                  <a href={gcalStatus.calendar_html_link} target="_blank" rel="noreferrer">
-                    Open "Chef Meal Plan" in Google Calendar
-                  </a>
-                )}
-              </p>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={gcalStatus.sync_enabled}
-                  disabled={gcalBusy}
-                  onChange={(e) => toggleGcalSync(e.target.checked)}
-                />
-                Sync meal-plan changes to Google Calendar
-              </label>
-              <div className="form-actions">
-                <button className="btn btn-secondary btn-sm" onClick={resyncGoogleCalendar} disabled={gcalBusy}>
-                  Force resync
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={disconnectGoogleCalendar} disabled={gcalBusy}>
-                  Disconnect
-                </button>
-              </div>
+              {authError && <p className="error-text">{authError}</p>}
             </>
           ) : (
-            <>
-              <p className="hint">
-                {gcalStatus.configured
-                  ? "OAuth client is configured -- click Connect to finish linking your Google account."
-                  : "Enter your Google OAuth client ID, secret, and redirect URI below first (see the WIKI guide above), then Connect."}
-              </p>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={connectGoogleCalendar}
-                disabled={!gcalStatus.configured || gcalBusy}
-              >
-                {gcalBusy ? "Connecting..." : "Connect Google Calendar"}
-              </button>
-            </>
-          )
-        ) : (
-          <p className="hint">Loading...</p>
-        )}
-      </div>
+            <p className="hint">{authError || "Loading..."}</p>
+          )}
+        </div>
+      )}
 
-      <div className="card">
-        <h3>System prompts</h3>
-        <p className="hint">
-          The persona and rules the AI follows for chat, meal planning, and onboarding. Edit with care -- the app
-          relies on these mentioning things like confirming before writes and respecting dietary restrictions.
-        </p>
-        {loading ? (
-          <p>Loading...</p>
-        ) : (
-          prompts.map((p) => (
-            <div className="settings-row" key={p.prompt_key}>
-              <label>
-                {PROMPT_LABELS[p.prompt_key] || p.prompt_key}
-                <textarea
-                  rows={8}
-                  value={promptEdits[p.prompt_key]?.content ?? ""}
-                  onChange={(e) =>
-                    setPromptEdits((prev) => ({
-                      ...prev,
-                      [p.prompt_key]: { ...prev[p.prompt_key], content: e.target.value },
-                    }))
-                  }
-                />
-              </label>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={promptEdits[p.prompt_key]?.is_active ?? true}
-                  onChange={(e) =>
-                    setPromptEdits((prev) => ({
-                      ...prev,
-                      [p.prompt_key]: { ...prev[p.prompt_key], is_active: e.target.checked },
-                    }))
-                  }
-                />
-                Active
-              </label>
-              <div className="form-actions">
-                <button className="btn btn-primary btn-sm" onClick={() => savePrompt(p.prompt_key)} disabled={promptSaving[p.prompt_key]}>
-                  {promptSaving[p.prompt_key] ? "Saving..." : "Save"}
-                </button>
-                {promptSaved[p.prompt_key] && <span className="hint">Saved.</span>}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      <div className="card">
-        <h3>Household size &amp; dietary restrictions</h3>
-        <p className="hint">
-          Managed on the <a href="#/health">Health page</a> under "Household preferences," alongside member profiles
-          and body metrics that also steer meal planning.
-        </p>
-      </div>
+      {activeTab === "backup" && (
+        <div className="card">
+          <div className="page-toolbar">
+            <h3 style={{ margin: 0 }}>Backup</h3>
+            <button className="btn btn-secondary btn-sm" onClick={refreshBackupManifest}>
+              Refresh
+            </button>
+          </div>
+          <p className="hint">
+            Downloads everything Chef stores as one file: the database, encrypted secrets (and the key that decrypts
+            them), and any uploaded recipe images / knowledge files.{" "}
+            {backupManifest && backupManifest.included.length > 0
+              ? `Currently includes: ${backupManifest.included.join(", ")}.`
+              : "Nothing to back up yet."}
+          </p>
+          <p className="hint">
+            <strong>Treat the downloaded file like a password export</strong> -- it contains both your encrypted
+            settings (Tavily/USDA/Google OAuth keys, etc.) and the key that decrypts them, so anyone with the file can
+            read those secrets. There's no in-app restore button by design; see the WIKI for how to restore a backup
+            by replacing the files in Chef's data volume.
+          </p>
+          <a className="btn btn-primary btn-sm" href={`${backendOrigin}/api/system/backup`}>
+            Download backup (.tar.gz)
+          </a>
+        </div>
+      )}
     </div>
   );
 }

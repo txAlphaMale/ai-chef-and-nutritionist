@@ -39,7 +39,7 @@ class InventoryItem(Base, TimestampMixin):
     unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # manual | vision | chat | import_photo | import_pdf | import_text |
-    # import_order_history -- how the item entered inventory
+    # import_order_history | barcode -- how the item entered inventory
     source: Mapped[str] = mapped_column(String(20), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

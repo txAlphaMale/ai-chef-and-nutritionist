@@ -25,7 +25,7 @@ class InventoryItemBase(BaseModel):
 
 
 class InventoryItemCreate(InventoryItemBase):
-    source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text|import_order_history
+    source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text|import_order_history|barcode
 
 
 class InventoryItemUpdate(BaseModel):
@@ -99,6 +99,38 @@ class RecallStatusResponse(BaseModel):
     alerts: list[RecallAlertRead]
     last_checked_at: datetime | None
     check_due: bool
+
+
+class BarcodeLookupResponse(BaseModel):
+    """Backlog B4.1 (2026-08-01): result of GET /api/inventory/barcode-
+    lookup?barcode=X against Open Food Facts (food_data_service.
+    get_off_product). `found=False` means the barcode isn't in OFF's
+    database (common for local/store-brand/less common products -- OFF
+    is crowd-sourced, not exhaustive) -- the frontend scanner should fall
+    back to a manual-entry form pre-filled with nothing but the scanned
+    barcode itself in that case, not treat it as an error. There's no
+    separate confirm endpoint for this source: unlike the batch vision/
+    receipt intakes, a barcode scan is always exactly one item, so the
+    frontend just lets the user review/edit this preview and POSTs a
+    normal InventoryItemCreate (source="barcode") straight to
+    POST /api/inventory."""
+
+    barcode: str
+    found: bool
+    name: str | None = None
+    brand: str | None = None
+    # Open Food Facts' own free-text package-size field (e.g. "500 g",
+    # "12 x 355 ml") -- shown for reference only, never parsed into
+    # estimated_quantity/unit below. A package-size string doesn't
+    # reliably decompose into "how many of this do you have" (a "500 g"
+    # bag is 1 item, not 500) -- this app's own "never invent a
+    # conversion" rule (see food_data_service.py) applies here too.
+    quantity_text: str | None = None
+    estimated_quantity: float = 1
+    unit: str = "count"
+    category: str | None = None
+    image_url: str | None = None
+    confidence_note: str | None = None
 
 
 class VisionDetectedItem(BaseModel):

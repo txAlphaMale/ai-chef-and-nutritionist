@@ -14,7 +14,7 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
-from app.services import unit_conversion_service
+from app.services import ollama_client, recipe_image_service, unit_conversion_service
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
 
@@ -804,6 +804,171 @@ def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes
             return resp.content, content_type
     except Exception:  # noqa: BLE001 -- network/parsing failure here is never fatal to the import
         return None
+
+
+# --- Shared per-file import parsing ------------------------------------
+#
+# Backlog B13.1 (author-requested 2026-08-01): pulled out of routers/
+# recipes.py's import_recipe (where this branching logic used to live
+# inline, only reachable via a single browser file upload) so the new
+# folder-scan batch importer (recipe_folder_import_service.py) can parse
+# each file it finds through the EXACT same logic a one-at-a-time upload
+# already uses -- one code path for "what does Chef do with a recipe
+# file," regardless of whether that file arrived via <input type=file>
+# or was found sitting in a mounted folder.
+
+
+def _extract_via_ollama(db: Session, content: str) -> str:
+    """Sends extracted/plain text through RECIPE_IMPORT_PROMPT and
+    returns the model's raw response text. Near-identical to routers/
+    recipes.py's own `_run_text_extraction` (kept as two small, separate
+    functions rather than one shared cross-module private import -- an
+    underscore-prefixed function is module-internal by convention in
+    this codebase; this is recipe_service.py's own copy for its own
+    internal use, not exported)."""
+    prompt = RECIPE_IMPORT_PROMPT.format(content=content[:8000])
+    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
+    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+
+
+def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, content_type: str = "") -> dict:
+    """Determines how to extract a recipe from one file's raw bytes,
+    based on its content type/extension, and returns everything the
+    shared `finish_recipe_parse` tail step below needs:
+        {"raw_output": str, "default_source": str, "citation": dict,
+         "image_path": str | None, "jsonld_parsed": dict | None}
+
+    Mirrors, verbatim, the JSON/image/PDF/text branching that used to
+    live directly inside routers/recipes.py's import_recipe -- see this
+    section's module comment. The one genuinely NEW branch versus the
+    original single-upload code is `.html`/`.htm` (see below): a browser
+    file-picker upload of a raw saved-webpage HTML file was always an
+    unusual thing for a human to do (URL import already covers "a recipe
+    web page"), but a folder of recipes collected over the years
+    plausibly has some saved-as-HTML files in it, so this batch path
+    needed a real answer for that case -- the single-upload path gets it
+    too now, for free, since both call this same function.
+
+    Raises RuntimeError (never a bare exception, never returns silently)
+    for "unsupported file type" -- every other failure mode (unreadable
+    PDF, a photo/text the model can't parse) surfaces downstream, from
+    `finish_recipe_parse` or from whatever raised inside Ollama/pypdf."""
+    filename_lower = (filename or "").lower()
+    citation: dict = {}
+    image_path: str | None = None
+    jsonld_parsed: dict | None = None
+
+    if content_type in ("application/json", "application/ld+json") or filename_lower.endswith((".json", ".jsonld")):
+        try:
+            json_text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            json_text = ""
+        if json_text:
+            jsonld_parsed = extract_jsonld_recipe_from_json(json_text)
+
+    if jsonld_parsed is not None:
+        citation = {"source_author": jsonld_parsed.get("_source_author")}
+        image_url = jsonld_parsed.get("_image_url")
+        if image_url:
+            fetched = fetch_image_bytes(image_url)
+            if fetched:
+                raw_image_bytes, image_content_type = fetched
+                try:
+                    image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+                except ValueError:
+                    pass  # unsupported content type -- skip, not fatal to the import
+        raw_output = (
+            "(parsed directly from the file's structured schema.org Recipe data -- "
+            "Ollama was not used for this import)"
+        )
+        default_source = "import_file_jsonld"
+    elif content_type.startswith("image/"):
+        response = ollama_client.describe_image(
+            db, raw_bytes, RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
+        )
+        raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+        default_source = "import_image"
+        try:
+            image_path = recipe_image_service.save_image(content_type, raw_bytes)
+        except ValueError:
+            pass  # unsupported content type -- skip, not fatal to the import
+    elif content_type == "application/pdf" or filename_lower.endswith(".pdf"):
+        pdf_text = extract_pdf_text(raw_bytes)
+        raw_output = _extract_via_ollama(db, pdf_text)
+        default_source = "import_file"
+    elif filename_lower.endswith((".html", ".htm")):
+        # New for B13.1 -- tries the file's own schema.org JSON-LD first
+        # (same B9.3 preference URL import already applies), falling
+        # back to trafilatura's main-content extraction + the model,
+        # same as every other text-bearing file below.
+        html_text = raw_bytes.decode("utf-8", errors="ignore")
+        jsonld_parsed = extract_jsonld_recipe(html_text)
+        if jsonld_parsed is not None:
+            citation = {"source_author": jsonld_parsed.get("_source_author")}
+            image_url = jsonld_parsed.get("_image_url")
+            if image_url:
+                fetched = fetch_image_bytes(image_url)
+                if fetched:
+                    raw_image_bytes, image_content_type = fetched
+                    try:
+                        image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+                    except ValueError:
+                        pass  # unsupported content type -- skip, not fatal to the import
+            raw_output = (
+                "(parsed directly from the file's structured schema.org Recipe data -- "
+                "Ollama was not used for this import)"
+            )
+            default_source = "import_file_jsonld"
+        else:
+            page = extract_content_from_html(html_text)
+            citation = {"source_name": page.get("sitename"), "source_author": page.get("author")}
+            raw_output = _extract_via_ollama(db, page.get("text") or "")
+            default_source = "import_file"
+    else:
+        try:
+            text_content = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raise RuntimeError("Unsupported file type for recipe import")
+        raw_output = _extract_via_ollama(db, text_content)
+        default_source = "import_file"
+
+    return {
+        "raw_output": raw_output,
+        "default_source": default_source,
+        "citation": citation,
+        "image_path": image_path,
+        "jsonld_parsed": jsonld_parsed,
+    }
+
+
+def finish_recipe_parse(
+    raw_output: str,
+    default_source: str,
+    citation: dict,
+    image_path: str | None,
+    jsonld_parsed: dict | None,
+) -> dict:
+    """Shared tail step for every recipe-import path (URL, pasted text,
+    single-file upload, and the B13.1 folder-scan batch importer): turns
+    either the model's raw text output OR an already-structured JSON-LD
+    dict into a final RecipeCreate-shaped dict, with source/citation/
+    image_path folded in. Raises RuntimeError -- never returns None --
+    when nothing could be extracted, since every caller treats "no
+    recipe found in this input" as a reportable per-item failure, not a
+    silent skip."""
+    if jsonld_parsed is not None:
+        parsed = coerce_recipe_fields({k: v for k, v in jsonld_parsed.items() if not k.startswith("_")})
+    else:
+        parsed = parse_recipe_response(raw_output)
+    if parsed is None:
+        raise RuntimeError("Could not extract a recipe from that input")
+    parsed["source"] = default_source
+    for key, value in citation.items():
+        if value:
+            parsed[key] = value
+    if image_path:
+        parsed["image_path"] = image_path
+    return parsed
 
 
 # --- Recipe-scoped chat context ---------------------------------------

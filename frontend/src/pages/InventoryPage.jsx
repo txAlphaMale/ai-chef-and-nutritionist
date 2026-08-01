@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import BarcodeScanner from "../components/BarcodeScanner";
 import InventoryItemForm from "../components/InventoryItemForm";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
@@ -59,6 +60,36 @@ export default function InventoryPage() {
   useEffect(() => {
     refreshRecallStatus();
   }, []);
+
+  // Backlog B4.1 (author-requested 2026-08-01) -- camera barcode intake.
+  // Unlike vision-intake/receipt-import, this never touches Ollama or
+  // job_queue: GET /api/inventory/barcode-lookup is one fast Open Food
+  // Facts HTTP round trip (see routers/inventory.py's docstring for why
+  // that stays a plain, non-job endpoint), so there's nothing to poll
+  // here -- just a normal async call.
+  const [showScanner, setShowScanner] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState(null);
+  const [barcodeLookupBusy, setBarcodeLookupBusy] = useState(false);
+  const [barcodeLookupError, setBarcodeLookupError] = useState(null);
+
+  const handleBarcodeDetected = useCallback(async (barcode) => {
+    setShowScanner(false);
+    setBarcodeLookupBusy(true);
+    setBarcodeLookupError(null);
+    setBarcodeResult(null);
+    try {
+      setBarcodeResult(await api.get(`/inventory/barcode-lookup?barcode=${encodeURIComponent(barcode)}`));
+    } catch (err) {
+      setBarcodeLookupError(err.message);
+    } finally {
+      setBarcodeLookupBusy(false);
+    }
+  }, []);
+
+  async function confirmBarcodeItem(payload) {
+    await handleCreate(payload);
+    setBarcodeResult(null);
+  }
 
   // Backlog B11.1 (2026-08-01): vision-intake used to block this request
   // until the vision model finished (tens of seconds to a couple of
@@ -411,6 +442,16 @@ export default function InventoryPage() {
         <button className="btn btn-secondary" onClick={() => setShowOrderImportForm((v) => !v)}>
           {showOrderImportForm ? "Close" : "📊 Import order history"}
         </button>
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            setBarcodeResult(null);
+            setBarcodeLookupError(null);
+            setShowScanner((v) => !v);
+          }}
+        >
+          {showScanner ? "Close" : "🔎 Scan barcode"}
+        </button>
       </div>
 
       {recallStatus && recallStatus.alerts.length === 0 && (
@@ -429,6 +470,53 @@ export default function InventoryPage() {
         <div className="card">
           <h3>New item</h3>
           <InventoryItemForm onSubmit={handleCreate} onCancel={() => setShowAddForm(false)} />
+        </div>
+      )}
+
+      {showScanner && (
+        <div className="card">
+          <h3>Scan a barcode</h3>
+          <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />
+        </div>
+      )}
+
+      {barcodeLookupBusy && (
+        <p className="hint">
+          <span className="busy-spinner" aria-hidden="true" /> Looking up barcode...
+        </p>
+      )}
+      {barcodeLookupError && <p className="error-text">Barcode lookup failed: {barcodeLookupError}</p>}
+
+      {barcodeResult && (
+        <div className="card">
+          <h3>{barcodeResult.found ? "Scanned item" : "Barcode not found"}</h3>
+          {barcodeResult.found ? (
+            <p className="hint">
+              {barcodeResult.brand && `${barcodeResult.brand} -- `}
+              from Open Food Facts
+              {barcodeResult.quantity_text && ` (package size: ${barcodeResult.quantity_text})`}. Review and adjust
+              before adding.
+            </p>
+          ) : (
+            <p className="hint">
+              Barcode {barcodeResult.barcode} isn't in Open Food Facts' database -- it's crowd-sourced, so
+              local/store-brand items are often missing. Fill in the details manually below.
+            </p>
+          )}
+          {barcodeResult.image_url && (
+            <img src={barcodeResult.image_url} alt="" className="barcode-result-image" />
+          )}
+          <InventoryItemForm
+            initial={{
+              name: barcodeResult.name || "",
+              category: barcodeResult.category || "pantry",
+              quantity: barcodeResult.estimated_quantity ?? 1,
+              unit: barcodeResult.unit || "count",
+              source: "barcode",
+            }}
+            onSubmit={confirmBarcodeItem}
+            onCancel={() => setBarcodeResult(null)}
+          />
         </div>
       )}
 

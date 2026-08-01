@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.system import PromptUpdate, SettingUpdate
-from app.services import backup_service, ollama_client, settings_service, tavily_client
+from app.services import backup_service, google_calendar_service, ollama_client, settings_service, tavily_client
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -62,9 +62,41 @@ def update_prompt(prompt_key: str, payload: PromptUpdate, db: Session = Depends(
 
 @router.get("/status")
 def status(db: Session = Depends(get_db)):
+    """Backlog B14 (author-requested 2026-08-01): the Connection status
+    card originally only covered the two things Phase 2 shipped
+    (Ollama/Tavily). As Chef gained real integrations (Google Calendar,
+    B12.1) there was nowhere on this card to see whether one was
+    actually configured -- the author asked for that directly. The new
+    `integrations` list is deliberately generic (key/label/configured/
+    connected/detail) rather than one hardcoded Google Calendar field,
+    so a future integration (the recipe-folder-import path below, or
+    B12.2's iCloud sync) only needs one new entry here, not a frontend
+    schema change. `connected` is `None` (not `False`) for an
+    integration with no real "connect" step of its own (recipe folder
+    import is just configured-or-not, there's no handshake to complete)
+    -- the frontend should treat `None` as "not applicable", not "not
+    connected"."""
+    gcal = google_calendar_service.connection_status(db)
+    folder_path = settings_service.get_setting(db, "recipe_import_folder_path")
     return {
         "ollama_reachable": ollama_client.ping(db),
         "tavily_configured": tavily_client.is_configured(db),
+        "integrations": [
+            {
+                "key": "google_calendar",
+                "label": "Google Calendar",
+                "configured": gcal["configured"],
+                "connected": gcal["connected"],
+                "detail": gcal["account_email"],
+            },
+            {
+                "key": "recipe_folder_import",
+                "label": "Recipe folder import",
+                "configured": bool(folder_path),
+                "connected": None,
+                "detail": folder_path or None,
+            },
+        ],
     }
 
 
