@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.allergen_service import ALLERGEN_KEYS, OBSERVANCE_LEVEL_KEYS
+from app.services.dietary_pattern_service import DIETARY_PATTERN_KEYS
 
 
 class HouseholdPreferencesUpdate(BaseModel):
@@ -22,6 +23,10 @@ class HouseholdPreferencesUpdate(BaseModel):
     # instead of it quietly never matching anything).
     restricted_allergens: list[str] | None = None
     gluten_observance_level: str | None = None
+    # Backlog B2.3 -- same "validate against the registry" discipline as
+    # the two fields above, so a typo'd/removed preset key fails loudly
+    # at the API boundary instead of silently generating with no guidance.
+    dietary_pattern: str | None = None
 
     @field_validator("restricted_allergens")
     @classmethod
@@ -40,6 +45,13 @@ class HouseholdPreferencesUpdate(BaseModel):
             raise ValueError(f"Unknown gluten observance level: {v}")
         return v
 
+    @field_validator("dietary_pattern")
+    @classmethod
+    def _validate_dietary_pattern(cls, v: str | None) -> str | None:
+        if v is not None and v not in DIETARY_PATTERN_KEYS:
+            raise ValueError(f"Unknown dietary pattern: {v}")
+        return v
+
 
 class HouseholdPreferencesRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -52,6 +64,7 @@ class HouseholdPreferencesRead(BaseModel):
     notes: str | None = None
     restricted_allergens: list[str] = Field(default_factory=list)
     gluten_observance_level: str | None = None
+    dietary_pattern: str | None = None
     created_at: datetime
     updated_at: datetime
 

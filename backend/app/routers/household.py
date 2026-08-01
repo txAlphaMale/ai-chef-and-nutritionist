@@ -17,7 +17,7 @@ from app.schemas.household import (
     HouseholdPreferencesRead,
     HouseholdPreferencesUpdate,
 )
-from app.services import allergen_service
+from app.services import allergen_service, dietary_pattern_service
 
 router = APIRouter(prefix="/api/household", tags=["household"])
 
@@ -28,6 +28,14 @@ def get_allergen_options():
     the frontend doesn't hardcode a second copy of allergen_service's
     ALLERGEN_CHOICES/OBSERVANCE_LEVELS that could drift out of sync."""
     return {"allergens": allergen_service.ALLERGEN_CHOICES, "observance_levels": allergen_service.OBSERVANCE_LEVELS}
+
+
+@router.get("/dietary-pattern-options")
+def get_dietary_pattern_options():
+    """Backlog B2.3 -- same server-driven-taxonomy discipline as
+    allergen-options above, so the frontend's preset dropdown can't drift
+    out of sync with dietary_pattern_service.DIETARY_PATTERNS."""
+    return {"patterns": dietary_pattern_service.DIETARY_PATTERNS}
 
 
 @router.get("/preferences", response_model=HouseholdPreferencesRead)

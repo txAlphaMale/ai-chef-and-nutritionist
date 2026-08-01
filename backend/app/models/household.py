@@ -47,6 +47,17 @@ class HouseholdPreferences(Base, TimestampMixin):
     # to just having "gluten" restricted with no observance level set.
     gluten_observance_level: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
+    # Backlog B2.3 -- None (no preset selected, `goals` free text is all
+    # generation gets) | a key from
+    # app/services/dietary_pattern_service.DIETARY_PATTERN_KEYS (currently
+    # just "portfolio_ldl"). A structured lever concrete generation
+    # guidance can hang off of, distinct from `goals` in the same way
+    # restricted_allergens is distinct from dietary_restrictions above:
+    # this field is interpretive (the model still decides HOW to apply
+    # it), but the guidance text itself is fixed and sourced, not
+    # reinterpreted from scratch by the model on every run.
+    dietary_pattern: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
 
 class HouseholdMember(Base, TimestampMixin):
     __tablename__ = "household_members"

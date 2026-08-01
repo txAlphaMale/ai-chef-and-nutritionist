@@ -15,7 +15,14 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
-from app.services import allergen_service, health_service, inventory_service, recipe_service, unit_conversion_service
+from app.services import (
+    allergen_service,
+    dietary_pattern_service,
+    health_service,
+    inventory_service,
+    recipe_service,
+    unit_conversion_service,
+)
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.recipe_service import _extract_json_object, _safe_int
 
@@ -98,6 +105,14 @@ def gather_generation_context(
         "household_size": household_size or (household.household_size if household else 2),
         "dietary_restrictions": (household.dietary_restrictions if household else []) or [],
         "goals": household.goals if household else None,
+        # Backlog B2.3 -- a structured preset's fixed guidance text, kept
+        # separate from the free-text goals_line above so a household
+        # gets the same concrete instructions every generation instead of
+        # the model re-interpreting "reduce cholesterol" differently run
+        # to run. None when no preset is selected.
+        "dietary_pattern_guidance": dietary_pattern_service.get_pattern_guidance(
+            household.dietary_pattern if household else None
+        ),
         "indulgence_frequency": (household.indulgence_frequency if household else "weekly") or "weekly",
         "kitchen_name": kitchen.name if kitchen else None,
         "kitchen_profile_id": kitchen.id if kitchen else None,
@@ -170,6 +185,7 @@ Household: {household_size} people. Dietary restrictions/goals: \
 {indulgence_frequency} (roughly how often an indulgent/treat meal is \
 appropriate across the whole plan -- most meals should still be \
 balanced and nutritious).
+{dietary_pattern_section}
 
 Kitchen/equipment currently in use ({kitchen_name}): {equipment}. Do \
 not plan meals that need equipment outside this list.
@@ -239,6 +255,15 @@ def _format_health_section(health_summary: str | None) -> str:
     )
 
 
+def _format_dietary_pattern_section(guidance: str | None) -> str:
+    """Backlog B2.3 -- renders the selected preset's fixed guidance block,
+    or an empty string when no preset is selected (the common case for a
+    household that hasn't opted into one)."""
+    if not guidance:
+        return ""
+    return "\n" + guidance + "\n"
+
+
 def _format_knowledge_section(knowledge_context: str | None) -> str:
     if not knowledge_context:
         return ""
@@ -262,6 +287,7 @@ def build_generation_prompt(context: dict) -> str:
         household_size=context.get("household_size", 2),
         dietary_restrictions=dietary,
         goals_line=goals_line,
+        dietary_pattern_section=_format_dietary_pattern_section(context.get("dietary_pattern_guidance")),
         indulgence_frequency=context.get("indulgence_frequency") or "weekly",
         kitchen_name=context.get("kitchen_name") or "unspecified kitchen",
         equipment=", ".join(context.get("equipment") or []) or "unspecified",

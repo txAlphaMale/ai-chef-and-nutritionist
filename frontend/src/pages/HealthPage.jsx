@@ -34,6 +34,11 @@ export default function HealthPage() {
   // fetched once from GET /household/allergen-options rather than
   // hardcoded here so backend and frontend can never drift apart.
   const [allergenOptions, setAllergenOptions] = useState({ allergens: [], observance_levels: [] });
+  // Backlog B2.3 -- same server-driven pattern as allergenOptions above,
+  // fetched from GET /household/dietary-pattern-options rather than
+  // hardcoded so the dropdown can't drift out of sync with
+  // dietary_pattern_service.DIETARY_PATTERNS.
+  const [patternOptions, setPatternOptions] = useState({ patterns: [] });
 
   const [members, setMembers] = useState([]);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
@@ -52,10 +57,11 @@ export default function HealthPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prefs, memberList, allergenOpts] = await Promise.all([
+      const [prefs, memberList, allergenOpts, patternOpts] = await Promise.all([
         api.get("/household/preferences"),
         api.get("/household/members"),
         api.get("/household/allergen-options"),
+        api.get("/household/dietary-pattern-options"),
       ]);
       setPreferences(prefs);
       setPrefsForm({
@@ -66,8 +72,10 @@ export default function HealthPage() {
         notes: prefs.notes || "",
         restricted_allergens: prefs.restricted_allergens || [],
         gluten_observance_level: prefs.gluten_observance_level || "",
+        dietary_pattern: prefs.dietary_pattern || "",
       });
       setAllergenOptions(allergenOpts);
+      setPatternOptions(patternOpts);
       setMembers(memberList);
       if (memberList.length > 0 && selectedMemberId === null) {
         setSelectedMemberId(memberList[0].id);
@@ -117,12 +125,14 @@ export default function HealthPage() {
         gluten_observance_level: prefsForm.restricted_allergens.includes("gluten")
           ? prefsForm.gluten_observance_level || "flexible"
           : null,
+        dietary_pattern: prefsForm.dietary_pattern || null,
       });
       setPreferences(updated);
       setPrefsForm((f) => ({
         ...f,
         restricted_allergens: updated.restricted_allergens || [],
         gluten_observance_level: updated.gluten_observance_level || "",
+        dietary_pattern: updated.dietary_pattern || "",
       }));
     } catch (e) {
       setError(e.message);
@@ -248,6 +258,25 @@ export default function HealthPage() {
                 value={prefsForm.goals}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, goals: e.target.value }))}
               />
+            </label>
+            <label>
+              Dietary pattern (Backlog B2.3)
+              <select
+                value={prefsForm.dietary_pattern}
+                onChange={(e) => setPrefsForm((f) => ({ ...f, dietary_pattern: e.target.value }))}
+              >
+                <option value="">None -- use Goals above as free text</option>
+                {patternOptions.patterns.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              {prefsForm.dietary_pattern && (
+                <span className="hint">
+                  {patternOptions.patterns.find((p) => p.key === prefsForm.dietary_pattern)?.description}
+                </span>
+              )}
             </label>
 
             <fieldset>
