@@ -203,8 +203,11 @@ SETTING_SPECS: list[SettingSpec] = [
             "Must exactly match one of the 'Authorized redirect URIs' registered "
             "on your Google Cloud OAuth client -- typically "
             "http://<this-machine's-address>:<backend port>/api/calendar/google/callback. "
-            "Left blank by default since it depends on your deployment's "
-            "reachable address; the WIKI guide shows how to work out the right value."
+            "The Settings page auto-suggests this from the browser's own address the "
+            "first time this field is empty (see the 'Use this browser's address' "
+            "button) -- confirm it matches what you register in Google Cloud Console "
+            "rather than assuming it's already right, and override it if you'll "
+            "connect from a different address than usual (a reverse proxy, etc.)."
         ),
     ),
     SettingSpec(

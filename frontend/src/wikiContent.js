@@ -112,12 +112,15 @@ export const WIKI_ENTRIES = [
         items: [
           "**Work out your redirect URI first** -- you'll need it in step 6. It's " +
             "`http://<the address you use to reach Chef's backend>:<BACKEND_PORT>/api/calendar/google/callback`. " +
-            "BACKEND_PORT defaults to `8095` (see your `.env` file if you changed it). If you always connect from " +
-            "the same machine Chef's backend runs on, `http://localhost:8095/api/calendar/google/callback` works. " +
-            "If you (or anyone else in the household) will click \"Connect\" from a phone/tablet/other computer on " +
-            "your LAN, use that machine's real LAN address instead, e.g. `http://10.11.24.21:8095/api/calendar/google/callback` " +
-            "-- Google needs the exact address a *browser* can reach, and a phone can't reach \"localhost\" meaning " +
-            "the Chef server.",
+            "Chef auto-suggests this for you the first time you open the Google OAuth redirect URI field on the " +
+            "Settings page (a **\"Use this browser's address\"** button also lets you re-fill it any time) -- it " +
+            "reads BACKEND_PORT the same way the rest of the app does, so you don't need to open `.env` yourself. " +
+            "Just confirm the suggested value matches whichever address you'll actually click \"Connect\" from: if " +
+            "you always connect from the same machine Chef's backend runs on, `http://localhost:8095/api/calendar/google/callback` " +
+            "works. If you (or anyone else in the household) will click \"Connect\" from a phone/tablet/other " +
+            "computer on your LAN, it needs to be that machine's real LAN address instead, e.g. " +
+            "`http://10.11.24.21:8095/api/calendar/google/callback` -- Google needs the exact address a *browser* " +
+            "can reach, and a phone can't reach \"localhost\" meaning the Chef server.",
           "Go to **console.cloud.google.com** and create a new project (top-left project picker → \"New project\"). " +
             "Any name works. Billing is NOT required for any of this.",
           "In the left menu, open **APIs & Services → Library**, search for **Google Calendar API**, and click " +

@@ -8,7 +8,7 @@ part of the meal-plan request path.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -27,17 +27,28 @@ def get_status(db: Session = Depends(get_db)):
 
 @router.get("/authorize")
 def authorize(return_to: str, db: Session = Depends(get_db)):
-    """A real browser navigation (not an XHR/fetch call) -- the frontend
-    sets window.location to this URL directly so the browser can follow
-    Google's own redirect chain through the consent screen. `return_to`
-    is the frontend's own origin (window.location.origin), captured so
-    the callback below can send the browser back to whichever device
-    actually initiated this, not a hardcoded address."""
+    """Returns the Google consent-screen URL as JSON rather than issuing
+    a server-side redirect itself -- the frontend fetches this first,
+    THEN sets window.location to the returned URL to actually navigate.
+
+    This is deliberate, not just a style choice: a raw server redirect
+    means any failure here (not configured, a bad client id) shows up as
+    a full-page navigation to a bare FastAPI JSON error blob with none of
+    Chef's own styling -- easy to misread as "nothing happened" (this is
+    the exact bug an author screenshot reported: clicking Connect gave no
+    visible feedback). Fetching first lets the frontend catch a 400 the
+    normal way and show it inline via the same gcalError state every
+    other action on this card already uses, and only ever navigates the
+    browser away on a real, working URL.
+
+    `return_to` is the frontend's own origin (window.location.origin),
+    captured so the callback below can send the browser back to
+    whichever device actually initiated this, not a hardcoded address."""
     try:
         url = google_calendar_service.build_authorization_url(db, return_to)
     except google_calendar_service.GoogleCalendarError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return RedirectResponse(url)
+    return {"authorize_url": url}
 
 
 @router.get("/callback")

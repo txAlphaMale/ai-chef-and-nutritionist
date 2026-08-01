@@ -29,6 +29,20 @@ const GOOGLE_CALENDAR_MANAGED_KEYS = [
   "google_calendar_sync_enabled",
 ];
 
+// The three settings the household actually types in. Saving any of
+// these should refresh the Google Calendar card's connection status
+// (see saveSetting below) -- without this, an author-reported bug: the
+// card's `configured` flag was only ever fetched once on page load, so
+// the Connect button stayed silently disabled even after valid values
+// were saved, with zero visible feedback explaining why.
+const GOOGLE_CALENDAR_CONFIG_KEYS = [
+  "google_calendar_client_id",
+  "google_calendar_client_secret",
+  "google_calendar_redirect_uri",
+];
+
+const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/calendar/google/callback";
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState([]);
   const [settingEdits, setSettingEdits] = useState({});
@@ -155,13 +169,28 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function connectGoogleCalendar() {
-    // A real browser navigation, not a fetch -- this has to follow
-    // Google's own redirect chain through the consent screen, which an
-    // XHR/fetch call can't do. return_to carries this device's own
-    // origin so the backend callback can send the browser back here
-    // specifically, regardless of which device on the LAN initiated it.
-    window.location.href = `${backendOrigin}/api/calendar/google/authorize?return_to=${encodeURIComponent(window.location.origin)}`;
+  async function connectGoogleCalendar() {
+    // Fetches the Google consent-screen URL first (a normal JSON call,
+    // so a 400 -- not configured, bad client id -- surfaces via gcalError
+    // like every other action on this card) and only THEN navigates the
+    // browser there. Fixed 2026-08-01 after an author-reported bug:
+    // clicking Connect previously did a raw window.location.href straight
+    // at the backend's own redirecting endpoint, so any failure there
+    // showed up as a full-page navigation to an unstyled JSON error blob
+    // easy to mistake for "nothing happened" -- see routers/
+    // google_calendar.py's authorize() docstring for the matching
+    // backend-side half of this fix.
+    setGcalBusy(true);
+    setGcalError(null);
+    try {
+      const result = await api.get(
+        `/calendar/google/authorize?return_to=${encodeURIComponent(window.location.origin)}`
+      );
+      window.location.href = result.authorize_url; // navigates away -- no need to clear gcalBusy
+    } catch (e) {
+      setGcalError(e.message);
+      setGcalBusy(false);
+    }
   }
 
   async function disconnectGoogleCalendar() {
@@ -226,11 +255,28 @@ export default function SettingsPage() {
     setSettingEdits((prev) => {
       const next = { ...prev };
       for (const s of list) {
+        if (s.key in next) continue;
         // Secrets are never sent back in the clear (masked as ********
         // by the backend) -- leave that field blank so a save only
-        // happens if the user actually types a new value. Non-secret
-        // fields are prefilled with their current value for editing.
-        if (!(s.key in next)) next[s.key] = s.is_secret ? "" : s.value;
+        // happens if the user actually types a new value.
+        if (s.is_secret) {
+          next[s.key] = "";
+        } else if (s.key === "google_calendar_redirect_uri" && !s.value && backendOrigin) {
+          // Author-requested (2026-08-01): don't make the household dig
+          // through .env for BACKEND_PORT -- backendOrigin already knows
+          // it (window.__CHEF_CONFIG__.backendPort, see api.js), and it's
+          // exactly the address THIS browser is already using to reach
+          // Chef's backend, which is the correct redirect URI value for
+          // any device on the same LAN (the backend's address doesn't
+          // change per-device, only per-deployment). Only pre-fills an
+          // EMPTY, never-saved field -- never overwrites a value the
+          // household already set (possibly deliberately different, e.g.
+          // a reverse-proxied hostname).
+          next[s.key] = `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+        } else {
+          // Non-secret fields are prefilled with their current value for editing.
+          next[s.key] = s.value;
+        }
       }
       return next;
     });
@@ -293,6 +339,15 @@ export default function SettingsPage() {
       setSettingEdits((prev) => ({ ...prev, [spec.key]: spec.is_secret ? "" : value }));
       setSettingSaved((s) => ({ ...s, [spec.key]: true }));
       setTimeout(() => setSettingSaved((s) => ({ ...s, [spec.key]: false })), 2000);
+      // Fixed 2026-08-01 (author-reported bug): the Google Calendar
+      // card's `gcalStatus` was only ever fetched once on page load, so
+      // saving a valid client id/secret/redirect URI here never updated
+      // its `configured` flag -- the Connect button stayed silently
+      // disabled with no visible explanation. Refresh it the moment any
+      // of the three relevant keys saves successfully.
+      if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key)) {
+        refreshGcalStatus();
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -496,6 +551,20 @@ export default function SettingsPage() {
                   />
                 )}
               </label>
+              {spec.key === "google_calendar_redirect_uri" && backendOrigin && (
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() =>
+                    setSettingEdits((prev) => ({
+                      ...prev,
+                      [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
+                    }))
+                  }
+                >
+                  Use this browser's address ({backendOrigin})
+                </button>
+              )}
               <p className="hint">{spec.description}</p>
               <div className="form-actions">
                 <button
@@ -565,9 +634,9 @@ export default function SettingsPage() {
               <button
                 className="btn btn-primary btn-sm"
                 onClick={connectGoogleCalendar}
-                disabled={!gcalStatus.configured}
+                disabled={!gcalStatus.configured || gcalBusy}
               >
-                Connect Google Calendar
+                {gcalBusy ? "Connecting..." : "Connect Google Calendar"}
               </button>
             </>
           )
