@@ -8,6 +8,7 @@ import json
 import re
 
 import httpx
+import lxml.html
 import trafilatura
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models import MealTag, Recipe, RecipeIngredient
 from app.services import unit_conversion_service
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
+from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
 
 # --- Servings scaling --------------------------------------------------
 #
@@ -288,6 +290,313 @@ def extract_content_from_html(html: str, url: str | None = None) -> dict:
 def extract_url_content(url: str) -> dict:
     html = fetch_html(url)
     return extract_content_from_html(html, url=url)
+
+
+# --- Backlog B9.3: structured (schema.org JSON-LD) recipe import -------
+#
+# Most recipe sites publish a machine-readable `Recipe` JSON-LD block
+# (Google requires it for rich-result eligibility, which is most of why
+# it's so widespread) alongside the human-readable page. Parsing that
+# directly is faster (no Ollama round trip), cheaper (no GPU time spent),
+# and materially more accurate on ingredient quantities than asking a
+# model to re-read prose and guess -- the source already states them as
+# discrete facts, not something to be inferred. routers/recipes.py tries
+# this FIRST for a URL import and only falls back to the existing
+# Ollama-based extraction (RECIPE_IMPORT_PROMPT, above) when no usable
+# JSON-LD Recipe block is found -- most sites publish one, but plenty of
+# personal blogs/forums genuinely don't, so the fallback isn't a rare
+# edge case to shrug off.
+#
+# Reuses lxml (already an indirect dependency -- trafilatura is built on
+# it, confirmed importable) to find `<script type="application/ld+json">`
+# blocks rather than a hand-rolled regex over raw HTML, which breaks on
+# nested braces/quotes/CDATA in ways real-world markup actually produces.
+# No new dependency either way.
+#
+# Output feeds directly into coerce_recipe_fields() (the same function
+# recipe-text-import and meal-plan-generation's new_recipe both already
+# use) -- this module returns the SAME pre-coercion shape (a dict with
+# "title"/"ingredients"/etc., untyped/uncoerced) rather than duplicating
+# coercion logic a second time.
+#
+# Known, stated limitation: ingredient quantity/unit parsing is a
+# heuristic text parser (_parse_ingredient_line, below), not a guarantee
+# -- schema.org's `recipeIngredient` is itself just a list of free-text
+# strings with no structured quantity/unit (unlike, say, `prepTime`,
+# which IS a real structured ISO 8601 duration). A line like
+# "1 (15 oz) can black beans, drained and rinsed" will not split
+# perfectly. This is an accepted tradeoff, not a silent one: like every
+# other import path in this app (including the Ollama one it's replacing
+# here), the result is a PREVIEW the user reviews/edits before anything
+# saves, so an imperfect split is a minor annoyance to fix in the review
+# step, never data corruption.
+
+_UNICODE_FRACTIONS: dict[str, float] = {
+    "¼": 0.25, "½": 0.5, "¾": 0.75,
+    "⅓": 1 / 3, "⅔": 2 / 3,
+    "⅕": 0.2, "⅖": 0.4, "⅗": 0.6, "⅘": 0.8,
+    "⅙": 1 / 6, "⅚": 5 / 6,
+    "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+}
+
+# Count-style descriptors schema.org `recipeIngredient` strings commonly
+# lead with that unit_conversion_service's registry doesn't cover (that
+# module is scoped to real volume/mass conversion, not text parsing) --
+# recognized here ONLY to decide "this word is the unit, not the start of
+# the ingredient name". Maps both singular and plural spellings to a
+# single canonical singular form (a hand-curated map, not naive "strip
+# trailing s" stripping, since that breaks on "-es" plurals like
+# "dashes"/"pinches").
+_COUNT_UNIT_WORDS: dict[str, str] = {
+    "clove": "clove", "cloves": "clove",
+    "slice": "slice", "slices": "slice",
+    "can": "can", "cans": "can",
+    "package": "package", "packages": "package", "pkg": "package",
+    "stick": "stick", "sticks": "stick",
+    "bunch": "bunch", "bunches": "bunch",
+    "head": "head", "heads": "head",
+    "piece": "piece", "pieces": "piece",
+    "pinch": "pinch", "pinches": "pinch",
+    "dash": "dash", "dashes": "dash",
+    "sprig": "sprig", "sprigs": "sprig",
+    "large": "large", "medium": "medium", "small": "small", "whole": "whole",
+}
+
+_QTY_RE = re.compile(
+    r"^\s*(\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\d+|[" + "".join(_UNICODE_FRACTIONS) + r"])\s*"
+)
+
+
+def _parse_quantity_token(token: str) -> float | None:
+    token = token.strip()
+    if token in _UNICODE_FRACTIONS:
+        return _UNICODE_FRACTIONS[token]
+    if " " in token:  # mixed number, e.g. "1 1/2"
+        whole_str, frac_str = token.split(" ", 1)
+        num, den = frac_str.split("/", 1)
+        return _safe_float(whole_str) + (_safe_float(num) / _safe_float(den))
+    if "/" in token:
+        num, den = token.split("/", 1)
+        denom = _safe_float(den)
+        return (_safe_float(num) / denom) if denom else None
+    return _safe_float(token)
+
+
+def _parse_ingredient_line(line: str) -> dict:
+    """Splits one free-text `recipeIngredient` string into this app's
+    ingredient shape. See this section's module-level docstring for the
+    accuracy tradeoff -- this is best-effort, reviewed by the user before
+    anything saves, same as the Ollama extraction path it's an
+    alternative to."""
+    remainder = (line or "").strip()
+    quantity = None
+    m = _QTY_RE.match(remainder)
+    if m:
+        quantity = _parse_quantity_token(m.group(1))
+        remainder = remainder[m.end():].strip()
+
+    unit = None
+    word_match = re.match(r"^([A-Za-z]+)\.?\b", remainder)
+    if word_match:
+        candidate = word_match.group(1).lower()
+        normalized = normalize_unit(candidate)
+        if normalized in VOLUME_UNITS or normalized in MASS_UNITS:
+            unit = normalized
+            remainder = remainder[word_match.end():].strip()
+        elif candidate in _COUNT_UNIT_WORDS:
+            unit = _COUNT_UNIT_WORDS[candidate]
+            remainder = remainder[word_match.end():].strip()
+
+    if remainder.lower().startswith("of "):
+        remainder = remainder[3:].strip()
+
+    prep_note = None
+    if "," in remainder:
+        name_part, _, note_part = remainder.partition(",")
+        remainder = name_part.strip()
+        prep_note = note_part.strip() or None
+
+    return {
+        "ingredient_name": remainder.strip(" .") or (line or "").strip(),
+        "quantity": quantity,
+        "unit": unit,
+        "prep_note": prep_note,
+    }
+
+
+_ISO8601_DURATION_RE = re.compile(r"^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
+
+
+def _parse_iso8601_duration_minutes(value) -> int | None:
+    if not isinstance(value, str):
+        return None
+    m = _ISO8601_DURATION_RE.match(value.strip())
+    if not m or not any(m.groups()):
+        return None
+    hours, minutes, _seconds = (int(g) if g else 0 for g in m.groups())
+    return hours * 60 + minutes
+
+
+def _first_number(value) -> float | None:
+    """Pulls the first numeric token out of a schema.org value that's
+    often free text alongside a number -- recipeYield ("4 servings"),
+    a nutrition value ("270 kcal", "10 g"). Handles a bare number or a
+    numeric string directly too."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    match = re.search(r"[\d.]+", str(value))
+    return float(match.group(0)) if match else None
+
+
+def _flatten_jsonld_instructions(value) -> list[str]:
+    """recipeInstructions is one of: a single string (sometimes with
+    steps separated by newlines), a list of strings, a list of HowToStep
+    objects ({"@type": "HowToStep", "text": ...}), or nested HowToSection
+    objects ({"@type": "HowToSection", "itemListElement": [...]})."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [s.strip() for s in re.split(r"\n+", value) if s.strip()]
+    if isinstance(value, dict):
+        value = [value]
+    steps: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            if item.strip():
+                steps.append(item.strip())
+        elif isinstance(item, dict):
+            if "itemListElement" in item:  # HowToSection
+                steps.extend(_flatten_jsonld_instructions(item["itemListElement"]))
+            elif item.get("text"):
+                steps.append(str(item["text"]).strip())
+            elif item.get("name"):
+                steps.append(str(item["name"]).strip())
+    return steps
+
+
+def _author_name_from_jsonld(value) -> str | None:
+    if isinstance(value, dict):
+        return value.get("name") or None
+    if isinstance(value, list) and value:
+        return _author_name_from_jsonld(value[0])
+    if isinstance(value, str):
+        return value.strip() or None
+    return None
+
+
+def _image_url_from_jsonld(value) -> str | None:
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return value.get("url") or None
+    if isinstance(value, list) and value:
+        return _image_url_from_jsonld(value[0])
+    return None
+
+
+# schema.org NutritionInformation property -> this app's nutrition dict
+# key. Units are fixed by the schema.org property definitions themselves
+# (calories in kcal, protein/fat/carb/fiber/sugar content in grams,
+# sodium/cholesterol content in milligrams), so _first_number's leading-
+# digits extraction is safe regardless of whether the source also wrote
+# out a unit suffix like "10 g".
+_JSONLD_NUTRITION_MAP: dict[str, str] = {
+    "calories": "calories",
+    "proteinContent": "protein_g",
+    "carbohydrateContent": "carbs_g",
+    "fatContent": "fat_g",
+    "fiberContent": "fiber_g",
+    "sodiumContent": "sodium_mg",
+    "cholesterolContent": "cholesterol_mg",
+    "saturatedFatContent": "saturated_fat_g",
+    "sugarContent": "sugars_g",
+}
+
+
+def _nutrition_from_jsonld(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    nutrition = {}
+    for schema_key, app_key in _JSONLD_NUTRITION_MAP.items():
+        n = _first_number(value.get(schema_key))
+        if n is not None:
+            nutrition[app_key] = n
+    return nutrition
+
+
+def _iter_jsonld_nodes(data):
+    """Flattens a parsed JSON-LD document's possible shapes (a single
+    object, a list of objects, or a `{"@graph": [...]}` wrapper -- all
+    three are common across real sites) into a flat stream of dict nodes
+    to search for a Recipe type."""
+    if isinstance(data, list):
+        for item in data:
+            yield from _iter_jsonld_nodes(item)
+    elif isinstance(data, dict):
+        if "@graph" in data and isinstance(data["@graph"], list):
+            yield from _iter_jsonld_nodes(data["@graph"])
+        else:
+            yield data
+
+
+def _is_recipe_node(node: dict) -> bool:
+    node_type = node.get("@type")
+    if isinstance(node_type, list):
+        return any(str(t).lower() == "recipe" for t in node_type)
+    return str(node_type).lower() == "recipe"
+
+
+def extract_jsonld_recipe(html: str) -> dict | None:
+    """Returns a coerce_recipe_fields()-input-shaped dict for the first
+    schema.org Recipe block found in `html`'s `<script
+    type="application/ld+json">` tags, or None if the page doesn't
+    publish one (or it's malformed) -- callers fall back to the Ollama
+    extraction path in that case, this never raises for "not found"."""
+    try:
+        tree = lxml.html.fromstring(html)
+    except Exception:  # noqa: BLE001 -- unparseable HTML falls back to the Ollama path, not an error here
+        return None
+
+    for script in tree.xpath('//script[@type="application/ld+json"]'):
+        raw = script.text_content()
+        if not raw or not raw.strip():
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        for node in _iter_jsonld_nodes(data):
+            if not isinstance(node, dict) or not _is_recipe_node(node):
+                continue
+            title = node.get("name")
+            if not title:
+                continue  # a Recipe node with no name isn't usable -- keep looking
+            ingredients = [
+                _parse_ingredient_line(line)
+                for line in (node.get("recipeIngredient") or node.get("ingredients") or [])
+                if isinstance(line, str) and line.strip()
+            ]
+            return {
+                "title": str(title).strip(),
+                "description": node.get("description") or None,
+                "default_servings": _first_number(node.get("recipeYield")),
+                "prep_time_minutes": _parse_iso8601_duration_minutes(node.get("prepTime")),
+                "cook_time_minutes": _parse_iso8601_duration_minutes(node.get("cookTime")),
+                "instructions": _flatten_jsonld_instructions(node.get("recipeInstructions")),
+                "ingredients": ingredients,
+                "nutrition": _nutrition_from_jsonld(node.get("nutrition")),
+                "tags": [],  # no fixed vocabulary in JSON-LD -- left for the user to add on review, never guessed
+                "tips": [],
+                # Not part of coerce_recipe_fields()'s output shape -- read
+                # directly by routers/recipes.py before/instead of citation
+                # fields it would otherwise only get from trafilatura's
+                # metadata extraction.
+                "_source_author": _author_name_from_jsonld(node.get("author")),
+                "_image_url": _image_url_from_jsonld(node.get("image")),
+            }
+    return None
 
 
 def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes, str] | None:

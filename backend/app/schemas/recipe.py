@@ -75,7 +75,7 @@ class RecipeBase(BaseModel):
 
 
 class RecipeCreate(RecipeBase):
-    source: str = "manual"  # manual|import_file|import_image|import_text|import_url|ai_generated
+    source: str = "manual"  # manual|import_file|import_image|import_text|import_url|import_url_jsonld|ai_generated
     ingredients: list[RecipeIngredientBase] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)  # tag names; unknown ones are created
 

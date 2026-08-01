@@ -194,24 +194,53 @@ async def import_recipe(
         try:
             citation: dict = {}
             image_path: str | None = None
+            jsonld_parsed: dict | None = None
             if url:
                 try:
-                    page = recipe_service.extract_url_content(url)
+                    html = recipe_service.fetch_html(url)
                 except Exception as exc:  # noqa: BLE001
-                    raise RuntimeError(f"Could not fetch or parse that URL: {exc}") from exc
-                if not page.get("text"):
+                    raise RuntimeError(f"Could not fetch that URL: {exc}") from exc
+
+                # Backlog B9.3: try the page's own structured schema.org
+                # Recipe data first -- faster, no GPU time, and more
+                # accurate on quantities than asking a model to re-read
+                # prose. Falls back to the existing Ollama extraction
+                # below when the page doesn't publish one (or it's
+                # malformed) -- extract_jsonld_recipe never raises for
+                # "not found", only returns None.
+                jsonld_parsed = recipe_service.extract_jsonld_recipe(html)
+                page = recipe_service.extract_content_from_html(html, url=url)
+                if jsonld_parsed is None and not page.get("text"):
                     raise RuntimeError("Could not extract readable content from that URL")
-                citation = {"source_url": url, "source_name": page.get("sitename"), "source_author": page.get("author")}
-                if page.get("image"):
-                    fetched = recipe_service.fetch_image_bytes(page["image"])
+
+                citation = {
+                    "source_url": url,
+                    "source_name": page.get("sitename"),
+                    # JSON-LD's own author (when present) is a more
+                    # reliable citation than trafilatura's page-level
+                    # byline guess, which can pick up a site editor
+                    # rather than the actual recipe's author.
+                    "source_author": (jsonld_parsed or {}).get("_source_author") or page.get("author"),
+                }
+                image_url = (jsonld_parsed or {}).get("_image_url") or page.get("image")
+                if image_url:
+                    fetched = recipe_service.fetch_image_bytes(image_url)
                     if fetched:
                         raw_image_bytes, image_content_type = fetched
                         try:
                             image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
                         except ValueError:
                             pass  # unsupported content type -- skip, not fatal to the import
-                raw_output = _run_text_extraction(db, page["text"])
-                default_source = "import_url"
+
+                if jsonld_parsed is not None:
+                    raw_output = (
+                        "(parsed directly from the page's structured schema.org Recipe data -- "
+                        "Ollama was not used for this import)"
+                    )
+                    default_source = "import_url_jsonld"
+                else:
+                    raw_output = _run_text_extraction(db, page["text"])
+                    default_source = "import_url"
             elif text:
                 raw_output = _run_text_extraction(db, text)
                 default_source = "import_text"
@@ -240,7 +269,16 @@ async def import_recipe(
                     raw_output = _run_text_extraction(db, text_content)
                     default_source = "import_file"
 
-            parsed = recipe_service.parse_recipe_response(raw_output)
+            if jsonld_parsed is not None:
+                # Strip the two citation-only keys (_source_author/
+                # _image_url) before coercion -- coerce_recipe_fields
+                # doesn't know about them, and citation is already
+                # captured above via the `citation` dict.
+                parsed = recipe_service.coerce_recipe_fields(
+                    {k: v for k, v in jsonld_parsed.items() if not k.startswith("_")}
+                )
+            else:
+                parsed = recipe_service.parse_recipe_response(raw_output)
             if parsed is None:
                 raise RuntimeError("Could not extract a recipe from that input")
             parsed["source"] = default_source
