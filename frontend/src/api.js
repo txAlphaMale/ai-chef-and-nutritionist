@@ -30,6 +30,15 @@ const BASE = `${backendOrigin}/api`;
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+    // Backlog B10.2 (2026-08-01) -- the new session-cookie auth gate
+    // needs the browser to actually send/receive its cookie, which
+    // fetch omits by default for the production cross-origin case
+    // (frontend/backend on different ports, no reverse proxy yet).
+    // Required alongside the backend's CORS allow_origin_regex fix in
+    // main.py -- a literal allow_origins=["*"] would silently break
+    // this even with credentials: "include" set here, since browsers
+    // refuse a credentialed request against a wildcard Allow-Origin.
+    credentials: "include",
     ...options,
   });
   if (!res.ok) {

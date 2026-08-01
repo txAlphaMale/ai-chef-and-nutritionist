@@ -78,6 +78,46 @@ def get_priority_suggestions(
     return scored[:limit]
 
 
+def get_expiring_digest(
+    db: Session, within_days: int = 7, today: date | None = None
+) -> dict[str, list[InventoryItem] | int]:
+    """Backlog B4.4 (via the B10.2 author-requested group, 2026-08-01):
+    the REQUIRED-minimum "in-app banner" piece the backlog named --
+    "Chef computes urgency server-side already but only surfaces it
+    passively when the user opens the Inventory page. Add a digest...
+    so the app reaches out rather than waiting to be visited." This is
+    that digest's data source, meant to back a persistent app-shell
+    banner (see frontend/src/components/ExpiringDigestBanner.jsx)
+    visible from every page, not just Inventory.
+
+    Deliberately reuses compute_urgency()'s existing expiration-day
+    buckets rather than a second scoring system, but filters to ONLY
+    the expiration-driven reasons -- unlike get_priority_suggestions
+    above (which also surfaces staleness and manually-flagged priority
+    items, useful context on the Inventory page itself but not what a
+    user means by "is something about to expire"). Push notifications
+    (Web Push/VAPID) and email are explicitly NOT built here -- the
+    backlog's own text calls both "optional" and the in-app banner "at
+    minimum," and Fiduciary's notification stack (which those would be
+    ported from) solves a materially different problem (fan-out for
+    discrete security events via an audit log) than "periodically check
+    inventory," so porting it wholesale wasn't a good fit even before
+    weighing the added dependency/complexity cost."""
+    today = today or date.today()
+    items = db.query(InventoryItem).filter(InventoryItem.expiration_date.isnot(None)).all()
+    expired: list[InventoryItem] = []
+    expiring_soon: list[InventoryItem] = []
+    for item in items:
+        days_left = (item.expiration_date - today).days
+        if days_left <= 0:
+            expired.append(item)
+        elif days_left <= within_days:
+            expiring_soon.append(item)
+    expired.sort(key=lambda i: i.expiration_date)
+    expiring_soon.sort(key=lambda i: i.expiration_date)
+    return {"expired": expired, "expiring_soon": expiring_soon, "within_days": within_days}
+
+
 # --- Vision photo intake parsing --------------------------------------
 #
 # Ollama vision models are asked to respond with a JSON array (see

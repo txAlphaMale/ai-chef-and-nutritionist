@@ -282,6 +282,84 @@ body {
   margin-bottom: var(--spacing-3);
 }
 
+/* Backlog B9.4/B10.2 (2026-08-01) -- the opt-in login gate, shown by
+   App.jsx in place of the whole app when auth is enabled and the
+   current session isn't authenticated yet. */
+.login-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--spacing-3);
+}
+
+.login-gate-card {
+  max-width: 360px;
+  width: 100%;
+}
+
+.login-gate-card h2 {
+  margin-top: 0;
+}
+
+/* Backlog B4.4/B10.2 (2026-08-01) -- the in-app expiration digest
+   banner, mounted outside <Routes> so it's visible on every page. */
+.expiring-digest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin: 0 var(--spacing-3) var(--spacing-3);
+}
+
+/* Backlog B10.1 (2026-08-01) -- the dining-out finder's result cards.
+   .dining-caution is deliberately styled as a standing notice, not a
+   subtle hint -- see dining_service.py's module docstring for why this
+   app never asserts a restaurant is "safe". */
+.dining-result {
+  border-top: 1px solid var(--color-border);
+  padding: var(--spacing-3) 0;
+}
+
+.dining-result:first-of-type {
+  border-top: none;
+  padding-top: var(--spacing-2);
+}
+
+.dining-result-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.dining-allergen-list {
+  margin: var(--spacing-2) 0;
+  padding-left: 1.2em;
+  font-size: 0.9em;
+}
+
+.dining-caution {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  border-left: 3px solid var(--color-danger);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-sm);
+}
+
+.dining-send-form {
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+}
+
 /* --- Forms --- */
 .item-form label {
   display: flex;

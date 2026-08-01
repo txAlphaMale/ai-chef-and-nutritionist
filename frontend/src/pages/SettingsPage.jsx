@@ -35,6 +35,65 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [themeSaving, setThemeSaving] = useState(false);
 
+  // Backlog B9.4 (via the author-requested B10.2 group, 2026-08-01) --
+  // the lightweight, opt-in single-shared-password gate. See
+  // backend/app/services/auth_service.py's module docstring for why
+  // this is deliberately smaller than Fiduciary's own multi-user/MFA
+  // system (confirmed with the author directly, not assumed).
+  const [authStatus, setAuthStatus] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [authSaved, setAuthSaved] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [disableCurrentPassword, setDisableCurrentPassword] = useState("");
+
+  async function refreshAuthStatus() {
+    try {
+      setAuthStatus(await api.get("/auth/status"));
+    } catch (e) {
+      setAuthStatus(null);
+      setAuthError(e.message);
+    }
+  }
+
+  async function handleSetPassword(e) {
+    e.preventDefault();
+    setAuthBusy(true);
+    setAuthError(null);
+    setAuthSaved(false);
+    try {
+      await api.post("/auth/set-password", {
+        password: newPassword,
+        current_password: authStatus?.enabled ? currentPassword : null,
+      });
+      setNewPassword("");
+      setCurrentPassword("");
+      setAuthSaved(true);
+      setTimeout(() => setAuthSaved(false), 2000);
+      await refreshAuthStatus();
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleDisableAuth(e) {
+    e.preventDefault();
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await api.post("/auth/disable", { current_password: disableCurrentPassword });
+      setDisableCurrentPassword("");
+      await refreshAuthStatus();
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   // Backlog: Appearance/theme picker. ui_theme round-trips through the
   // same generic DB-backed settings API as everything else (see
   // settings_service.py), but gets its own swatch-card UI here rather
@@ -111,6 +170,7 @@ export default function SettingsPage() {
       }
     })();
     refreshStatus();
+    refreshAuthStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -222,6 +282,74 @@ export default function SettingsPage() {
           </div>
         ) : (
           <p className="hint">{status?.error || "Checking..."}</p>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>Security</h3>
+        <p className="hint">
+          Off by default -- fine on a private LAN. Turning this on protects every page and API request behind one
+          shared household password (no per-person accounts, no MFA -- see the notes in PROJECT-PLAN.md for why
+          this is deliberately lighter than a full multi-user login system).
+        </p>
+        {authStatus ? (
+          <>
+            <p>
+              Password protection is currently{" "}
+              <strong>{authStatus.enabled ? "enabled" : "disabled"}</strong>.
+            </p>
+            <form onSubmit={handleSetPassword} className="settings-row">
+              {authStatus.enabled && (
+                <label>
+                  Current password
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                  />
+                </label>
+              )}
+              <label>
+                {authStatus.enabled ? "New password" : "Set a password"}
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={8}
+                  placeholder="at least 8 characters"
+                  required
+                />
+              </label>
+              <div className="form-actions">
+                <button className="btn btn-primary btn-sm" type="submit" disabled={authBusy || newPassword.length < 8}>
+                  {authBusy ? "Saving..." : authStatus.enabled ? "Change password" : "Enable password protection"}
+                </button>
+                {authSaved && <span className="hint">Saved.</span>}
+              </div>
+            </form>
+            {authStatus.enabled && (
+              <form onSubmit={handleDisableAuth} className="settings-row">
+                <label>
+                  Current password (to disable)
+                  <input
+                    type="password"
+                    value={disableCurrentPassword}
+                    onChange={(e) => setDisableCurrentPassword(e.target.value)}
+                    required
+                  />
+                </label>
+                <div className="form-actions">
+                  <button className="btn btn-secondary btn-sm" type="submit" disabled={authBusy || !disableCurrentPassword}>
+                    Disable password protection
+                  </button>
+                </div>
+              </form>
+            )}
+            {authError && <p className="error-text">{authError}</p>}
+          </>
+        ) : (
+          <p className="hint">{authError || "Loading..."}</p>
         )}
       </div>
 

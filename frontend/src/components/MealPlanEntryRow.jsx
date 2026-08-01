@@ -68,17 +68,33 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
 
   const statusLabel = entry.is_confirmed ? "made" : entry.is_skipped ? "skipped" : null;
 
+  // Backlog B10.1 -- a recipe-less entry already confirms/skips without
+  // touching inventory and is already excluded from grocery/nutrition
+  // aggregation (see MealPlanEntry.is_eating_out's model docstring); this
+  // toggle just lets the slot say "eating out" instead of looking like a
+  // forgotten/empty one.
+  async function toggleEatingOut() {
+    if (entry.is_eating_out) {
+      await patch({ is_eating_out: false });
+    } else {
+      await patch({ is_eating_out: true, recipe_id: null });
+    }
+  }
+
   return (
     <div className={`meal-entry-row${statusLabel ? ` meal-entry-${statusLabel}` : ""}`}>
       <div className="meal-entry-slot">
         <strong>{DAY_NAMES[entry.day_of_week]}</strong>
         <span className="tag">{entry.meal_type}</span>
         {entry.is_indulgence && <span className="tag indulgence-tag">indulgence</span>}
+        {entry.is_eating_out && <span className="tag">eating out</span>}
         {statusLabel && <span className="tag">{statusLabel}</span>}
       </div>
 
       <div className="meal-entry-recipe">
-        {entry.recipe ? (
+        {entry.is_eating_out ? (
+          <em className="hint">Eating out -- no recipe needed</em>
+        ) : entry.recipe ? (
           <Link to={`/recipes/${entry.recipe.id}`}>{entry.recipe.title}</Link>
         ) : (
           <em className="hint">No recipe assigned</em>
@@ -92,8 +108,13 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
 
       <select
         value={entry.recipe_id ?? ""}
-        onChange={(e) => patch({ recipe_id: e.target.value ? Number(e.target.value) : null })}
-        disabled={busy || entry.is_confirmed}
+        onChange={(e) =>
+          patch({
+            recipe_id: e.target.value ? Number(e.target.value) : null,
+            is_eating_out: e.target.value ? false : entry.is_eating_out,
+          })
+        }
+        disabled={busy || entry.is_confirmed || entry.is_eating_out}
       >
         <option value="">-- no recipe --</option>
         {recipeCatalog.map((r) => (
@@ -121,6 +142,9 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, onChang
             </button>
             <button className="btn-link" onClick={handleSkip} disabled={busy}>
               Skip
+            </button>
+            <button className="btn-link" onClick={toggleEatingOut} disabled={busy}>
+              {entry.is_eating_out ? "Undo eating out" : "Eating out instead"}
             </button>
           </>
         )}

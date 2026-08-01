@@ -56,6 +56,7 @@ def _to_entry_read(entry: MealPlanEntry) -> MealPlanEntryRead:
         servings=entry.servings,
         requested_tags=entry.requested_tags or [],
         is_indulgence=entry.is_indulgence,
+        is_eating_out=entry.is_eating_out,
         is_confirmed=entry.is_confirmed,
         is_skipped=entry.is_skipped,
         notes=entry.notes,
@@ -180,6 +181,7 @@ def create_meal_plan(payload: MealPlanCreate, db: Session = Depends(get_db)):
                 servings=entry_in.servings,
                 requested_tags=entry_in.requested_tags,
                 is_indulgence=entry_in.is_indulgence,
+                is_eating_out=entry_in.is_eating_out,
                 notes=entry_in.notes,
             )
         )

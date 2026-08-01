@@ -59,6 +59,8 @@ class MealPlanEntryBase(BaseModel):
     servings: int = 2
     requested_tags: list[str] = Field(default_factory=list)
     is_indulgence: bool = False
+    # Backlog B10.1 -- see MealPlanEntry.is_eating_out's model docstring.
+    is_eating_out: bool = False
     notes: str | None = None
 
 
@@ -101,6 +103,7 @@ class MealPlanEntryUpdate(BaseModel):
     servings: int | None = None
     requested_tags: list[str] | None = None
     is_indulgence: bool | None = None
+    is_eating_out: bool | None = None
     notes: str | None = None
 
 

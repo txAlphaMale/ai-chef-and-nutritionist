@@ -49,6 +49,17 @@ class MealPlanEntry(Base, TimestampMixin):
     # Confirming a meal was made triggers ingredient deduction from inventory
     is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_skipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Backlog B10.1 (2026-08-01) -- marks a slot as "we're eating out"
+    # rather than an unplanned/empty one. Purely descriptive: a
+    # recipe-less entry (recipe_id=None) ALREADY confirms without any
+    # inventory deduction attempt and is ALREADY excluded from grocery-
+    # list aggregation and the nutrition summary (both loops in
+    # meal_plan_service.py skip on `entry.recipe is None` -- verified by
+    # reading them before adding this, rather than assuming new
+    # exclusion logic was needed). This flag exists only so the UI can
+    # render "🍽️ eating out" instead of a blank cell for a slot that
+    # was deliberately left recipe-less, not accidentally forgotten.
+    is_eating_out: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     meal_plan: Mapped["MealPlan"] = relationship(back_populates="entries")

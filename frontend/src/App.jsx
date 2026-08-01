@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Route, HashRouter as Router, Routes } from "react-router-dom";
 import { api } from "./api";
 import HomePage from "./pages/HomePage";
@@ -6,9 +6,12 @@ import InventoryPage from "./pages/InventoryPage";
 import RecipesPage from "./pages/RecipesPage";
 import RecipeDetailPage from "./pages/RecipeDetailPage";
 import MealPlanPage from "./pages/MealPlanPage";
+import DiningPage from "./pages/DiningPage";
 import HealthPage from "./pages/HealthPage";
 import SettingsPage from "./pages/SettingsPage";
 import ChatWidget from "./components/ChatWidget";
+import LoginGate from "./components/LoginGate";
+import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
 import { applyTheme, getCachedTheme } from "./themes";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
@@ -37,6 +40,33 @@ export default function App() {
       });
   }, []);
 
+  // Backlog B9.4 (via B10.2, 2026-08-01) -- the opt-in single-password
+  // gate. `authStatus === null` while the initial check is in flight;
+  // rendering nothing (rather than the app, then a flash of the login
+  // screen) avoids a moment where protected content is visible before
+  // the gate has had a chance to say otherwise.
+  const [authStatus, setAuthStatus] = useState(null);
+
+  function checkAuthStatus() {
+    api
+      .get("/auth/status")
+      .then(setAuthStatus)
+      // If the backend is unreachable, fail OPEN rather than locking
+      // the user out of an app that may not even have auth enabled --
+      // the API calls the rest of the app makes will fail on their own
+      // and surface their own errors either way.
+      .catch(() => setAuthStatus({ enabled: false, authenticated: true }));
+  }
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  if (authStatus === null) return null;
+  if (authStatus.enabled && !authStatus.authenticated) {
+    return <LoginGate onSuccess={checkAuthStatus} />;
+  }
+
   return (
     <Router>
       <div className="app-shell">
@@ -50,10 +80,12 @@ export default function App() {
             <NavLink to="/inventory">Inventory</NavLink>
             <NavLink to="/recipes">Recipes</NavLink>
             <NavLink to="/meal-plan">Meal Plan</NavLink>
+            <NavLink to="/dining">Dining Out</NavLink>
             <NavLink to="/health">Health</NavLink>
             <NavLink to="/settings">Settings</NavLink>
           </nav>
         </header>
+        <ExpiringDigestBanner />
         <main>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -61,6 +93,7 @@ export default function App() {
             <Route path="/recipes" element={<RecipesPage />} />
             <Route path="/recipes/:id" element={<RecipeDetailPage />} />
             <Route path="/meal-plan" element={<MealPlanPage />} />
+            <Route path="/dining" element={<DiningPage />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>

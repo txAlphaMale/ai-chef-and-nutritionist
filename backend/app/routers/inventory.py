@@ -38,6 +38,7 @@ from app.database import get_db
 from app.models import InventoryItem, OrderImportProfile
 from app.schemas.inventory import (
     ColumnMapping,
+    ExpiringDigestResponse,
     InventoryDeductRequest,
     InventoryImportConfirmRequest,
     InventoryImportResponse,
@@ -146,6 +147,14 @@ def priority_suggestions(limit: int = 10, db: Session = Depends(get_db)):
         PrioritySuggestion(item=item, urgency_score=score, reasons=reasons)
         for item, score, reasons in scored
     ]
+
+
+@router.get("/expiring-digest", response_model=ExpiringDigestResponse)
+def expiring_digest(within_days: int = 7, db: Session = Depends(get_db)):
+    """Backlog B4.4 (via B10.2) -- backs the persistent app-shell banner
+    (ExpiringDigestBanner.jsx), not just the Inventory page's own passive
+    display, per the backlog's explicit "reach out" framing."""
+    return inventory_service.get_expiring_digest(db, within_days=within_days)
 
 
 @router.post("/vision-intake", response_model=VisionIntakeResponse)

@@ -60,6 +60,16 @@ class PrioritySuggestion(BaseModel):
     reasons: list[str]
 
 
+class ExpiringDigestResponse(BaseModel):
+    """Backlog B4.4 (via B10.2) -- the in-app expiration digest. See
+    inventory_service.get_expiring_digest's docstring for the full
+    rationale and what was deliberately not built (push/email)."""
+
+    expired: list[InventoryItemRead]
+    expiring_soon: list[InventoryItemRead]
+    within_days: int
+
+
 class VisionDetectedItem(BaseModel):
     """One item as detected from a photo, before the user reviews/edits
     and confirms it into real inventory rows."""
