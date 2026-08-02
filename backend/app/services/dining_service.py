@@ -192,17 +192,30 @@ async def search_nearby_restaurants(lat: float, lon: float, radius_m: int = 5000
     exists there."""
     query = build_overpass_query(lat, lon, radius_m)
     async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
-        response = await client.post(OVERPASS_URL, data={"data": query})
+        # Bug fix (2026-08-02, author-reported live: "502 Could not reach
+        # OpenStreetMap's Overpass API: Client error 406 Not Acceptable").
+        # This call went out with no headers at all, so httpx sent its own
+        # default User-Agent (e.g. "python-httpx/0.27.0"). overpass-api.de
+        # started rejecting generic/default HTTP-client User-Agents with
+        # 406 as an anti-abuse measure -- the same courtesy-identification
+        # requirement Nominatim's usage policy already documents below,
+        # just enforced by Overpass's own server instead of a written
+        # policy. Reuses the same identifying header for both OSM services
+        # rather than keeping two near-duplicate ones.
+        response = await client.post(OVERPASS_URL, data={"data": query}, headers=_osm_headers())
         response.raise_for_status()
     return parse_overpass_response(response.json(), lat, lon)
 
 
-def _nominatim_headers() -> dict:
+def _osm_headers() -> dict:
     # Nominatim's usage policy (operations.osmfoundation.org/policies/
     # nominatim/) requires a real, identifying User-Agent -- generic/
     # default HTTP client user-agents are explicitly disallowed and can
     # get silently rate-limited or blocked. No API key involved, this
     # header is the only non-optional part of using the service politely.
+    # Also sent to Overpass (see search_nearby_restaurants above) since its
+    # server enforces the same expectation, just with a hard 406 instead of
+    # a documented policy.
     return {"User-Agent": "chef-meal-planner/1.0 (self-hosted personal use; no public deployment)"}
 
 
@@ -240,7 +253,7 @@ async def geocode(query: str, limit: int = 5) -> list[dict]:
     trusting Nominatim's own ranking to be correct every time."""
     params = {"q": query, "format": "jsonv2", "limit": limit, "addressdetails": 0}
     async with httpx.AsyncClient(timeout=NOMINATIM_TIMEOUT) as client:
-        response = await client.get(NOMINATIM_URL, params=params, headers=_nominatim_headers())
+        response = await client.get(NOMINATIM_URL, params=params, headers=_osm_headers())
         response.raise_for_status()
     return parse_nominatim_response(response.json())
 

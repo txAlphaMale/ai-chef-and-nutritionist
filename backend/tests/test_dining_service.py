@@ -225,3 +225,61 @@ def test_parse_ip_geolocation_response_optional_fields_default_none():
     data = {"success": True, "latitude": 30.0, "longitude": -97.0}
     result = dining_service.parse_ip_geolocation_response(data)
     assert result == {"lat": 30.0, "lon": -97.0, "city": None, "region": None, "country": None}
+
+
+# ---- search_nearby_restaurants headers (bug fix, 2026-08-02, author-
+# reported live: "502 Could not reach OpenStreetMap's Overpass API:
+# Client error 406 Not Acceptable") -------------------------------------
+#
+# Root cause: this call went out with no headers at all, so httpx sent
+# its own generic default User-Agent, which overpass-api.de rejects with
+# 406 as an anti-abuse measure. parse_overpass_response/build_overpass_
+# query above were already covered, but nothing exercised the actual
+# search_nearby_restaurants HTTP call itself -- this locks down the fix
+# by faking httpx.AsyncClient (same "no live egress from this sandbox"
+# constraint as every other external call in this project, see
+# test_barcode_lookup.py's sync equivalent) and asserting the real
+# identifying User-Agent header is present on the request.
+
+
+class _FakeOverpassResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAsyncClient:
+    captured_headers = None
+    captured_url = None
+
+    def __init__(self, timeout=None):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+    async def post(self, url, data=None, headers=None):
+        _FakeAsyncClient.captured_url = url
+        _FakeAsyncClient.captured_headers = headers
+        return _FakeOverpassResponse({"elements": []})
+
+
+def test_search_nearby_restaurants_sends_identifying_user_agent(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(dining_service.httpx, "AsyncClient", _FakeAsyncClient)
+    asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
+    assert _FakeAsyncClient.captured_headers is not None
+    assert "User-Agent" in _FakeAsyncClient.captured_headers
+    assert _FakeAsyncClient.captured_headers["User-Agent"] != ""
+    # Must not be left to httpx's own generic default -- that's the exact
+    # bug: a real, non-empty, app-identifying string.
+    assert "chef-meal-planner" in _FakeAsyncClient.captured_headers["User-Agent"]
