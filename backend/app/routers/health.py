@@ -87,9 +87,7 @@ async def import_bloodwork(file: UploadFile | None = None, text: str | None = Fo
                     raw_bytes,
                     health_service.BLOODWORK_IMPORT_PROMPT.format(content="[see attached photo]"),
                 )
-                raw_output = (
-                    response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
-                )
+                raw_output = ollama_client.extract_content(response)
                 entries = health_service.parse_bloodwork_response(raw_output)
                 return HealthBloodworkImportResponse(entries=entries, raw_model_output=raw_output).model_dump()
             else:

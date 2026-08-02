@@ -24,6 +24,48 @@ from app.services import settings_service
 # debug flag: one line per AI call is cheap, and the alternative (no
 # visibility at all into the single most failure-prone part of this app)
 # is worse than a little log noise.
+#
+# ROOT CAUSE FOUND (2026-08-02, confirmed against real ground-truth
+# `docker compose logs` output the author provided after the diagnostic
+# logging above shipped, plus Ollama's own docs and the ollama-python
+# source, not assumed): the log showed a chat() call completing with NO
+# exception, full normal response metadata (done_reason, eval_count,
+# prompt_eval_count all present -- proof tokens WERE generated), yet
+# message.content was an empty string. Per docs.ollama.com/capabilities/
+# thinking: "Thinking is enabled by default in the CLI and API for
+# supported models," and Qwen 3 (this app's default `ollama_chat_model`,
+# `qwen3.5:9b`, is that family) is one of the listed supported models.
+# When thinking is on, the model's entire response -- including a JSON-
+# extraction answer -- can be routed into a separate `message.thinking`
+# field, leaving `message.content` empty exactly as observed. The
+# previously-pinned `ollama==0.3.3` client predates the `think` request
+# parameter needed to turn this off (confirmed via `inspect.getsource`
+# against that exact installed version earlier this session), so this
+# app had no way to disable it. Fixed by bumping to `ollama==0.6.2`
+# (confirmed current via `pip index versions ollama`) and passing
+# `think=False` on every chat()/describe_image() call below -- this app
+# has no UI for showing a reasoning trace to the user, so there's no
+# reason to pay the extra generation time/tokens for it, and disabling
+# it removes the entire failure mode.
+#
+# IMPORTANT SIDE EFFECT of the version bump, fixed in the same pass: on
+# ollama==0.3.3, `client.chat()` returned a plain dict (confirmed via
+# `inspect.getsource` on `Client._request()` -> `cls(**response.json())`
+# called with `cls=dict`-like passthrough). On ollama>=0.4, responses are
+# pydantic `ChatResponse`/`Message` objects (confirmed by reading
+# ollama-python's `_types.py` directly). Every one of this app's ~13
+# Ollama call sites (routers/inventory.py, routers/recipes.py,
+# routers/chat.py, routers/health.py, routers/meal_plan.py,
+# services/recipe_service.py, services/health_service.py) used a
+# copy-pasted `response.get("message", {}).get("content", "") if
+# isinstance(response, dict) else str(response)` -- a check that would
+# have started silently returning `str(<the whole pydantic object>)`
+# instead of the real answer at every single one of them the moment this
+# version bump landed, since `isinstance(ChatResponse(...), dict)` is
+# False. `extract_content()` below replaces all of those with one
+# duck-typed helper (both dict and ollama-python's SubscriptableBaseModel
+# support `.get()`, confirmed by reading `_types.py`), tested once here
+# instead of copy-pasted and untested at 13 call sites.
 
 
 def _client(db: Session) -> ollama.Client:
@@ -109,21 +151,53 @@ def _log_call(label: str, base_url: str, model: str, num_ctx: int, prompt_chars:
 def _log_response(label: str, response) -> None:
     """Logs enough of the response shape to answer, from a real live
     call, the exact question every prior debugging round could only
-    guess at: did Ollama return the expected {"message": {"content":
-    "..."}} shape at all, and if so, was "content" actually empty?
-    Never logs the full content (could be long/contain personal data,
-    e.g. bloodwork) -- a length plus a short preview is enough to tell
-    "empty," "truncated-looking," or "looks like real JSON" apart."""
-    if isinstance(response, dict):
-        content = response.get("message", {}).get("content", "")
-        preview = content[:300].replace("\n", " ")
-        print(
-            f"[ollama_client] <- {label} response_keys={list(response.keys())} "
-            f"content_chars={len(content)} content_preview={preview!r}",
-            flush=True,
-        )
-    else:
+    guess at: did Ollama return the expected message/content shape at
+    all, and if so, was "content" actually empty? Duck-typed on `.get()`
+    rather than `isinstance(response, dict)` so this works unchanged for
+    both the plain dicts the previously-pinned ollama==0.3.3 client
+    returned and the pydantic ChatResponse/Message objects ollama>=0.4
+    returns (both support Mapping-style .get() -- see the module
+    docstring's SIDE EFFECT note). Also surfaces done_reason, eval_count,
+    prompt_eval_count, and -- the specific field that explained this
+    session's live "0 items" report -- message.thinking's length, so a
+    thinking-capable model routing its answer there instead of into
+    content is immediately visible instead of looking identical to a
+    genuinely empty response. Never logs full content/thinking text
+    (could be long/contain personal data, e.g. bloodwork) -- a length
+    plus a short preview is enough to tell "empty," "truncated-looking,"
+    or "looks like real JSON" apart."""
+    if not hasattr(response, "get"):
         print(f"[ollama_client] <- {label} UNEXPECTED response type={type(response).__name__}: {response!r:.300}", flush=True)
+        return
+    message = response.get("message") or {}
+    content = (message.get("content") if hasattr(message, "get") else None) or ""
+    thinking = (message.get("thinking") if hasattr(message, "get") else None) or ""
+    content_preview = content[:300].replace("\n", " ")
+    thinking_preview = thinking[:200].replace("\n", " ")
+    print(
+        f"[ollama_client] <- {label} done={response.get('done')} done_reason={response.get('done_reason')!r} "
+        f"eval_count={response.get('eval_count')} prompt_eval_count={response.get('prompt_eval_count')} "
+        f"content_chars={len(content)} content_preview={content_preview!r} "
+        f"thinking_chars={len(thinking)} thinking_preview={thinking_preview!r}",
+        flush=True,
+    )
+
+
+def extract_content(response) -> str:
+    """Pulls the assistant's final answer out of a chat()/describe_image()
+    response. Duck-typed on `.get()` (see module docstring's SIDE EFFECT
+    note) rather than `isinstance(response, dict)` -- the exact check
+    every one of this app's Ollama call sites used to copy-paste inline,
+    which would have silently started returning `str(<the whole pydantic
+    response object>)` instead of the real content at all ~13 of them the
+    moment ollama>=0.4 (needed for the `think` parameter, see chat()/
+    describe_image() below) started returning pydantic objects instead of
+    plain dicts. Centralized here and tested once instead."""
+    if not hasattr(response, "get"):
+        return str(response)
+    message = response.get("message") or {}
+    content = message.get("content") if hasattr(message, "get") else None
+    return content or ""
 
 
 def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
@@ -137,7 +211,12 @@ def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
     last_content = messages[-1].get("content", "") if messages else ""
     _log_call("chat", settings_service.get_setting(db, "ollama_base_url"), chat_model, num_ctx, len(last_content))
     try:
-        response = client.chat(model=chat_model, messages=messages, options={"num_ctx": num_ctx})
+        # think=False (2026-08-02, root cause above): this app never
+        # displays a reasoning trace, so there's no reason to let a
+        # thinking-capable model (e.g. the default qwen3.5:9b) spend
+        # generation time/tokens on one -- and leaving thinking on is
+        # exactly what caused message.content to come back empty.
+        response = client.chat(model=chat_model, messages=messages, options={"num_ctx": num_ctx}, think=False)
     except Exception as exc:
         print(f"[ollama_client] chat EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
         raise
@@ -154,10 +233,13 @@ def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | No
     num_ctx = _num_ctx(db)
     _log_call("describe_image", settings_service.get_setting(db, "ollama_base_url"), vision_model, num_ctx, len(prompt))
     try:
+        # think=False -- see chat() above, same reasoning applies to the
+        # vision model.
         response = client.chat(
             model=vision_model,
             messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
             options={"num_ctx": num_ctx},
+            think=False,
         )
     except Exception as exc:
         print(f"[ollama_client] describe_image EXCEPTION: {type(exc).__name__}: {exc}", flush=True)

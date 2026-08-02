@@ -313,4 +313,4 @@ def run_bloodwork_extraction(db: Session, content: str) -> str:
     )
     prompt = BLOODWORK_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    return ollama_client.extract_content(response)

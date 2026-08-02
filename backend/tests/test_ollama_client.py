@@ -62,6 +62,100 @@ def test_describe_image_passes_num_ctx_option_to_ollama_client(db_session):
     assert kwargs["model"] == "test-vision-model"
 
 
+# ---- ROOT CAUSE FIX (2026-08-02): real docker logs the author provided
+# proved a chat() call succeeded (done_reason/eval_count present -- tokens
+# WERE generated) yet message.content came back empty. Per Ollama's own
+# docs (docs.ollama.com/capabilities/thinking, fetched live), "Thinking is
+# enabled by default in the CLI and API for supported models", and this
+# app's default `ollama_chat_model` (qwen3.5:9b) is a Qwen 3-family
+# thinking model -- so its answer was being routed into a separate
+# message.thinking field the app never read, leaving content empty. The
+# previously-pinned ollama==0.3.3 client predated the `think` parameter
+# needed to turn that off. These lock down the two-part fix: think=False
+# is now sent on every call, and extract_content()/the logging correctly
+# surface a thinking-only response instead of treating it as silently
+# empty. ---------------------------------------------------------------
+
+
+def test_chat_passes_think_false_to_ollama_client(db_session):
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "ok"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    _, kwargs = mock_client.chat.call_args
+    assert kwargs["think"] is False
+
+
+def test_describe_image_passes_think_false_to_ollama_client(db_session):
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "ok"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.describe_image(db_session, b"fake-bytes", "describe this")
+    _, kwargs = mock_client.chat.call_args
+    assert kwargs["think"] is False
+
+
+class _FakeSubscriptableMessage:
+    """Stands in for ollama-python>=0.4's pydantic Message/ChatResponse
+    objects without requiring the real pydantic dependency chain in this
+    narrow unit test -- only implements the one thing extract_content/
+    _log_response actually rely on (.get()), same as the real
+    SubscriptableBaseModel does (confirmed by reading ollama-python's
+    _types.py directly)."""
+
+    def __init__(self, **fields):
+        self._fields = fields
+
+    def get(self, key, default=None):
+        return self._fields.get(key, default)
+
+
+def test_extract_content_handles_plain_dict_response():
+    response = {"message": {"content": "hello"}}
+    assert ollama_client.extract_content(response) == "hello"
+
+
+def test_extract_content_handles_pydantic_style_response():
+    # The exact shape ollama>=0.4 actually returns -- NOT a dict, so the
+    # old `isinstance(response, dict)` guard this app used to copy-paste
+    # at every call site would have silently fallen through to
+    # `str(response)` here instead of returning "hello".
+    response = _FakeSubscriptableMessage(message=_FakeSubscriptableMessage(content="hello"))
+    assert ollama_client.extract_content(response) == "hello"
+
+
+def test_extract_content_returns_empty_string_not_none_when_content_missing():
+    response = _FakeSubscriptableMessage(message=_FakeSubscriptableMessage())
+    assert ollama_client.extract_content(response) == ""
+
+
+def test_extract_content_falls_back_to_str_for_a_totally_unexpected_shape():
+    assert ollama_client.extract_content("not a response object at all") == "not a response object at all"
+
+
+def test_chat_logs_thinking_chars_when_answer_is_routed_to_thinking_not_content(db_session, capsys):
+    # The exact bug this whole investigation uncovered: a thinking model
+    # can return a fully successful response (done=True, eval_count>0)
+    # with message.content empty because the answer landed in
+    # message.thinking instead. Must be clearly distinguishable in the
+    # logs from a genuinely empty/failed response.
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {
+        "message": {"content": "", "thinking": "Let me think about this receipt..." * 5},
+        "done": True,
+        "done_reason": "stop",
+        "eval_count": 342,
+        "prompt_eval_count": 900,
+    }
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    out = capsys.readouterr().out
+    assert "content_chars=0" in out
+    assert "thinking_chars=170" in out  # len("Let me think about this receipt..." * 5)
+    assert "done_reason='stop'" in out
+    assert "eval_count=342" in out
+
+
 # ---- content_char_budget (2026-08-02, author follow-up: "will this be a
 # problem for recipe files, which can be larger than receipts?") --------
 #

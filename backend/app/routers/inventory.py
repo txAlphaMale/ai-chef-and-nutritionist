@@ -392,7 +392,7 @@ async def vision_intake(file: UploadFile):
         db = SessionLocal()
         try:
             response = ollama_client.describe_image(db, image_bytes, VISION_PROMPT)
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            raw_output = ollama_client.extract_content(response)
             detected = inventory_service.parse_vision_response(raw_output)
             return VisionIntakeResponse(detected_items=detected, raw_model_output=raw_output).model_dump()
         finally:
@@ -454,7 +454,7 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     )
     prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:budget], today=date.today().isoformat())
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    raw_output = ollama_client.extract_content(response)
     print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
     return raw_output
 
@@ -519,7 +519,7 @@ async def import_inventory(
 
             def extractor(db: Session) -> str:
                 response = ollama_client.describe_image(db, raw_bytes, prompt)
-                return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+                return ollama_client.extract_content(response)
 
         elif content_type == "application/pdf" or filename.endswith(".pdf"):
             extracted = recipe_service.extract_pdf_text(raw_bytes)

@@ -839,7 +839,7 @@ def _extract_via_ollama(db: Session, content: str) -> str:
     )
     prompt = RECIPE_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    return ollama_client.extract_content(response)
 
 
 def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, content_type: str = "") -> dict:
@@ -897,7 +897,7 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
         response = ollama_client.describe_image(
             db, raw_bytes, RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
         )
-        raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+        raw_output = ollama_client.extract_content(response)
         default_source = "import_image"
         try:
             image_path = recipe_image_service.save_image(content_type, raw_bytes)

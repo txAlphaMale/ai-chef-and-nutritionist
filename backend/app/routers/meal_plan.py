@@ -221,7 +221,7 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
             response = ollama_client.chat(
                 db, [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
             )
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            raw_output = ollama_client.extract_content(response)
 
             entries = meal_plan_service.parse_meal_plan_response(raw_output)
             if not entries:

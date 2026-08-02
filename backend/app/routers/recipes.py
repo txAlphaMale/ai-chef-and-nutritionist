@@ -314,7 +314,7 @@ def _run_text_extraction(db: Session, content: str) -> str:
     )
     prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    return ollama_client.extract_content(response)
 
 
 @router.post("/import-folder/scan", response_model=JobEnqueuedResponse, status_code=202)
@@ -513,7 +513,7 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
             messages.append({"role": "user", "content": message})
 
             response = ollama_client.chat(job_db, messages)
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            raw_output = ollama_client.extract_content(response)
             parsed = recipe_service.parse_recipe_chat_response(raw_output)
             proposed = RecipeCreate(**parsed["proposed_recipe"]) if parsed["proposed_recipe"] else None
             return RecipeChatResponse(

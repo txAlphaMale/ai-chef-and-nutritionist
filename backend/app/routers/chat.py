@@ -150,7 +150,7 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             messages.extend({"role": m.role, "content": m.content} for m in history if m.role in ("user", "assistant"))
 
             response = ollama_client.chat(job_db, messages)
-            raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+            raw_output = ollama_client.extract_content(response)
 
             parsed = chat_service.parse_chat_response(raw_output)
             assistant_message = ChatMessage(
