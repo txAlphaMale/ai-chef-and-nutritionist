@@ -32,3 +32,18 @@ class GeocodeResult(BaseModel):
     lat: float
     lon: float
     display_name: str
+
+
+class IPGeolocationResult(BaseModel):
+    """Approximate, network-based location (backlog B10.1 follow-up,
+    2026-08-02) -- see dining_service.geolocate_by_ip's docstring for
+    exactly what this reflects (the BACKEND's own outbound IP, i.e. the
+    household's network, not the browsing device) and why that's still a
+    genuinely useful third option alongside GPS and manual address entry
+    for a self-hosted home server."""
+
+    lat: float
+    lon: float
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None

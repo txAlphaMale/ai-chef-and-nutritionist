@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import HouseholdPreferences
-from app.schemas.dining import GeocodeResult, RestaurantCandidate
+from app.schemas.dining import GeocodeResult, IPGeolocationResult, RestaurantCandidate
 from app.services import dining_service
 
 router = APIRouter(prefix="/api/dining", tags=["dining"])
@@ -37,6 +37,28 @@ async def geocode_location(query: str):
     if not results:
         raise HTTPException(status_code=404, detail=f'Couldn\'t find a location matching "{query}".')
     return results
+
+
+@router.get("/geolocate-by-ip", response_model=IPGeolocationResult)
+async def geolocate_by_ip():
+    """Backlog B10.1 follow-up (author-requested 2026-08-02, second
+    round): a third location option. This is NOT the browsing device's
+    location -- it's the backend container's own outbound IP, which for
+    this app's normal self-hosted-on-the-home-network deployment shape
+    is the household's real ISP-assigned address (a genuine, useful
+    city-level fix), but would be wrong if accessed remotely. See
+    dining_service.py's IPWHOIS_URL comment for the full reasoning --
+    the frontend labels this clearly as approximate/network-based rather
+    than implying GPS-level precision."""
+    try:
+        result = await dining_service.geolocate_by_ip()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Could not reach the IP geolocation service: {exc}"
+        ) from exc
+    if not result:
+        raise HTTPException(status_code=404, detail="Could not determine an approximate location from this network.")
+    return result
 
 
 @router.get("/nearby", response_model=list[RestaurantCandidate])

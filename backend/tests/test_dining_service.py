@@ -188,3 +188,40 @@ def test_parse_nominatim_response_falls_back_to_coordinates_when_no_display_name
     data = [{"lat": "30.27", "lon": "-97.74"}]
     results = dining_service.parse_nominatim_response(data)
     assert results[0]["display_name"] == "30.27, -97.74"
+
+
+# ---- parse_ip_geolocation_response (backlog B10.1 follow-up, 2026-08-02, round 2) ----
+
+
+def test_parse_ip_geolocation_response_extracts_fields():
+    data = {
+        "success": True,
+        "latitude": 30.2672,
+        "longitude": -97.7431,
+        "city": "Austin",
+        "region": "Texas",
+        "country": "United States",
+    }
+    result = dining_service.parse_ip_geolocation_response(data)
+    assert result == {"lat": 30.2672, "lon": -97.7431, "city": "Austin", "region": "Texas", "country": "United States"}
+
+
+def test_parse_ip_geolocation_response_none_on_unsuccessful():
+    data = {"success": False, "message": "reserved range"}
+    assert dining_service.parse_ip_geolocation_response(data) is None
+
+
+def test_parse_ip_geolocation_response_none_on_missing_coordinates():
+    data = {"success": True, "city": "Austin"}
+    assert dining_service.parse_ip_geolocation_response(data) is None
+
+
+def test_parse_ip_geolocation_response_none_on_unparseable_coordinates():
+    data = {"success": True, "latitude": "not-a-number", "longitude": -97.7431}
+    assert dining_service.parse_ip_geolocation_response(data) is None
+
+
+def test_parse_ip_geolocation_response_optional_fields_default_none():
+    data = {"success": True, "latitude": 30.0, "longitude": -97.0}
+    result = dining_service.parse_ip_geolocation_response(data)
+    assert result == {"lat": 30.0, "lon": -97.0, "city": None, "region": None, "country": None}

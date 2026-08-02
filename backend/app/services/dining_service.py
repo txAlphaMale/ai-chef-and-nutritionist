@@ -67,6 +67,26 @@ OVERPASS_TIMEOUT = 20.0
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_TIMEOUT = 15.0
 
+# Backlog B10.1 follow-up (author-requested 2026-08-02, second round): a
+# third location option alongside GPS/manual address. IMPORTANT to
+# understand what this actually returns -- it geolocates the BACKEND
+# CONTAINER's own outbound IP address, not the browsing device's IP.
+# For this app's actual deployment shape (self-hosted, backend and
+# household on the same home network, no reverse proxy in front per the
+# project's own documented "known simplification"), the backend's
+# outbound IP genuinely IS the household's ISP-assigned address, so this
+# gives a real, useful city-level fix for "where is this household
+# probably eating" -- but it would be WRONG if the app were ever
+# accessed remotely (VPN, travel, a cloud-hosted deployment), since it
+# would report the SERVER's location, not the requesting device's. The
+# frontend labels this "approximate (network-based)" rather than
+# implying device-level accuracy, and this docstring is the reason why.
+# ipwho.is chosen for the same free/keyless/no-API-key reasoning as
+# Nominatim/Overpass above -- verified live (2026-08-02) to return
+# latitude/longitude/city/region/country plus a `success` bool.
+IPWHOIS_URL = "https://ipwho.is/"
+IPWHOIS_TIMEOUT = 10.0
+
 # The diet:* keys this app actually surfaces per result -- restricted to
 # ones with real coverage in this app's own allergen taxonomy plus the
 # handful of broader dietary-pattern tags a household might also find
@@ -223,6 +243,39 @@ async def geocode(query: str, limit: int = 5) -> list[dict]:
         response = await client.get(NOMINATIM_URL, params=params, headers=_nominatim_headers())
         response.raise_for_status()
     return parse_nominatim_response(response.json())
+
+
+def parse_ip_geolocation_response(data: dict) -> dict | None:
+    """Pure -- same split as parse_nominatim_response above. Returns None
+    (not a raised exception) for a well-formed-but-unsuccessful response
+    (ipwho.is's own `success: false`, e.g. for a private/reserved IP,
+    which is exactly what a fully offline/LAN-isolated deployment could
+    see) or missing/unparseable coordinates, so the router can turn that
+    into a clean 404 rather than a 500."""
+    if not isinstance(data, dict) or not data.get("success", True):
+        return None
+    try:
+        lat = float(data["latitude"])
+        lon = float(data["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "lat": lat,
+        "lon": lon,
+        "city": data.get("city"),
+        "region": data.get("region"),
+        "country": data.get("country"),
+    }
+
+
+async def geolocate_by_ip() -> dict | None:
+    """The backend's own outbound-IP-based location -- see the
+    IPWHOIS_URL module comment above for exactly what this reflects and
+    its real deployment-shape caveat."""
+    async with httpx.AsyncClient(timeout=IPWHOIS_TIMEOUT) as client:
+        response = await client.get(IPWHOIS_URL)
+        response.raise_for_status()
+    return parse_ip_geolocation_response(response.json())
 
 
 def evaluate_restrictions(place: dict, restricted_allergens: list[str], gluten_observance_level: str | None) -> dict:

@@ -28,6 +28,7 @@ export default function DiningPage() {
   const [lon, setLon] = useState("");
   const [radiusKm, setRadiusKm] = useState(5);
   const [geoStatus, setGeoStatus] = useState(null);
+  const [ipLocating, setIpLocating] = useState(false);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -76,64 +77,120 @@ export default function DiningPage() {
       setGeoStatus("Browser geolocation isn't available here -- enter coordinates manually.");
       return;
     }
-    setGeoStatus("Locating...");
+    setGeoStatus("Locating (GPS)...");
 
     // Bug fix (2026-08-02, author-reported on a real iPad): getCurrentPosition
-    // was called with no options, so its default `timeout` is Infinity. A
-    // WiFi-only iPad has no GPS chip and relies entirely on WiFi-based
-    // positioning -- if that fix never resolves (weak/unfamiliar WiFi
-    // environment, indoors, Location Services still initializing), NEITHER
-    // callback ever fires and the button is stuck on "Locating..." forever
-    // with no way out except reloading the page. Two independent fixes:
-    // (1) pass an explicit timeout/maximumAge so the browser's own API gives
-    // up and calls the error callback instead of hanging indefinitely, and
-    // (2) a belt-and-suspenders JS-side fallback timer, since a small number
-    // of WebKit versions have shipped with geolocation callbacks that don't
-    // reliably fire at all in some states (e.g. Low Power Mode, background
-    // tab during the permission prompt) -- if the browser's own timeout
-    // doesn't save us, this one still will.
+    // was originally called with no options at all, so its default `timeout`
+    // is Infinity -- if the fix never resolved, NEITHER callback ever fired
+    // and the button got stuck on "Locating..." forever with no way out
+    // except reloading the page. Fixed with an explicit timeout/maximumAge
+    // plus a belt-and-suspenders JS-side fallback timer (a small number of
+    // WebKit versions have shipped with geolocation callbacks that don't
+    // reliably fire at all in some states, e.g. Low Power Mode).
+    //
+    // Round 2 fix (2026-08-02, same day, author follow-up): the first fix
+    // *also* hardcoded `enableHighAccuracy: false` on the theory that a
+    // WiFi-only iPad has no GPS chip and forcing high accuracy would just
+    // make the hang-forever risk worse. That reasoning doesn't hold for a
+    // cellular/GPS-capable iPad (or any device with an actual GPS chip) --
+    // `enableHighAccuracy: false` tells iOS Core Location it's fine to
+    // answer from WiFi/cell-tower positioning alone, which is coarser than
+    // a real GPS fix even when GPS hardware is present and able to get one.
+    // Now tries a real GPS-accuracy fix first (bounded by its own timeout,
+    // so the original hang bug can't come back), and only falls back to
+    // network-based positioning if that attempt fails or times out --
+    // works correctly for both GPS-capable and WiFi-only hardware without
+    // having to guess which one the user has.
     let settled = false;
     const fallbackTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      setGeoStatus("Still couldn't get a location fix -- enter coordinates manually, or try the approximate network-based option below.");
+    }, 35000);
+
+    function onSuccess(pos) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackTimer);
+      setLat(String(pos.coords.latitude.toFixed(5)));
+      setLon(String(pos.coords.longitude.toFixed(5)));
       setGeoStatus(
-        "Still couldn't get a location fix after 20s (common on WiFi-only iPads away from a well-mapped network) -- enter coordinates manually."
+        pos.coords.accuracy != null
+          ? `Located (accuracy ~${Math.round(pos.coords.accuracy)}m).`
+          : null
       );
-    }, 20000);
+    }
+
+    function tryLowAccuracy() {
+      setGeoStatus("GPS fix unavailable -- trying network-based location...");
+      navigator.geolocation.getCurrentPosition(onSuccess, onFinalError, {
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 60000,
+      });
+    }
+
+    function onFinalError(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackTimer);
+      // PERMISSION_DENIED=1, POSITION_UNAVAILABLE=2, TIMEOUT=3 (the
+      // MDN-documented GeolocationPositionError codes) -- give a message
+      // that actually matches what happened instead of always blaming
+      // HTTPS, which as of B15.1 this app now supports either way.
+      if (err.code === 1) {
+        setGeoStatus(
+          "Location permission was denied -- check your browser/iOS Settings > Privacy > Location Services for this site, or enter coordinates manually."
+        );
+      } else if (err.code === 3) {
+        setGeoStatus("Timed out getting your location -- enter coordinates manually, or try the approximate network-based option below.");
+      } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+        // Only blame HTTPS when the page genuinely isn't in a secure
+        // context -- most browsers refuse to even ask in that case.
+        setGeoStatus("Couldn't get your location (this needs HTTPS in most browsers) -- enter coordinates manually.");
+      } else {
+        setGeoStatus("Couldn't get your location -- enter coordinates manually, or try the approximate network-based option below.");
+      }
+    }
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(fallbackTimer);
-        setLat(String(pos.coords.latitude.toFixed(5)));
-        setLon(String(pos.coords.longitude.toFixed(5)));
-        setGeoStatus(null);
-      },
+      onSuccess,
       (err) => {
         if (settled) return;
-        settled = true;
-        clearTimeout(fallbackTimer);
-        // PERMISSION_DENIED=1, POSITION_UNAVAILABLE=2, TIMEOUT=3 (the
-        // MDN-documented GeolocationPositionError codes) -- give a message
-        // that actually matches what happened instead of always blaming
-        // HTTPS, which as of B15.1 this app now supports either way.
+        // A denied permission won't change on retry with different
+        // accuracy options -- go straight to the final error instead of
+        // wasting another round trip (and prompt) on it.
         if (err.code === 1) {
-          setGeoStatus(
-            "Location permission was denied -- check your browser/iOS Settings > Privacy > Location Services for this site, or enter coordinates manually."
-          );
-        } else if (err.code === 3) {
-          setGeoStatus("Timed out getting your location -- enter coordinates manually.");
-        } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
-          // Only blame HTTPS when the page genuinely isn't in a secure
-          // context -- most browsers refuse to even ask in that case.
-          setGeoStatus("Couldn't get your location (this needs HTTPS in most browsers) -- enter coordinates manually.");
+          onFinalError(err);
         } else {
-          setGeoStatus("Couldn't get your location -- enter coordinates manually.");
+          tryLowAccuracy();
         }
       },
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
+  }
+
+  // Backlog B10.1 follow-up (author-requested 2026-08-02, round 2): a
+  // third location option, alongside GPS and manual address/zip entry --
+  // approximate, network-based, no permission prompt. See
+  // dining_service.py's IPWHOIS_URL comment for exactly what this
+  // reflects (the backend's own outbound IP) and its real caveat.
+  async function useApproximateNetworkLocation() {
+    setIpLocating(true);
+    setGeoStatus("Looking up an approximate location from your network...");
+    try {
+      const result = await api.get("/dining/geolocate-by-ip");
+      setLat(String(result.lat.toFixed(5)));
+      setLon(String(result.lon.toFixed(5)));
+      const place = [result.city, result.region].filter(Boolean).join(", ");
+      setGeoStatus(
+        `Approximate location${place ? ` (${place})` : ""} -- network-based, city-level accuracy at best, not your exact position.`
+      );
+    } catch (err) {
+      setGeoStatus(`Couldn't get an approximate network location: ${err.message}`);
+    } finally {
+      setIpLocating(false);
+    }
   }
 
   // Backlog B10.1 follow-up (author-requested 2026-08-02).
@@ -298,7 +355,17 @@ export default function DiningPage() {
           </div>
           <div className="form-actions">
             <button type="button" className="btn btn-secondary" onClick={useMyLocation}>
-              Use my location
+              Use my location (GPS)
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={useApproximateNetworkLocation}
+              disabled={ipLocating}
+              title="Approximate, city-level location based on this server's network -- no permission prompt, less precise than GPS"
+            >
+              {ipLocating && <span className="busy-spinner" aria-hidden="true" />}
+              {ipLocating ? "Looking up..." : "Use approximate location"}
             </button>
             <button className="btn btn-primary" type="submit" disabled={loading}>
               {loading ? "Searching..." : "Search"}
