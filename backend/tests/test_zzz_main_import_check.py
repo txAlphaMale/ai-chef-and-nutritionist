@@ -32,3 +32,4 @@ def test_main_app_imports_and_constructs():
     assert "/api/tls/status" in route_paths
     assert "/api/system/status" in route_paths
     assert "/health" in route_paths
+    assert "/api/health/import" in route_paths  # backlog B8.1

@@ -41,6 +41,8 @@ export default function MealPlanPage() {
   const [kitchenProfileId, setKitchenProfileId] = useState("");
   const [notes, setNotes] = useState("");
   const [guidance, setGuidance] = useState(emptyGuidance());
+  // Backlog B5.2 -- prep-day / batch-cooking mode, "" means off.
+  const [prepDay, setPrepDay] = useState("");
   // Backlog B11.1 (2026-08-01) -- POST /meal-plans/generate now enqueues
   // a background job (see meal_plan.py's generate_meal_plan) instead of
   // blocking for the full Ollama generation. generateEnqueueError covers
@@ -119,6 +121,7 @@ export default function MealPlanPage() {
         kitchen_profile_id: kitchenProfileId === "" ? null : Number(kitchenProfileId),
         entry_guidance: entryGuidance,
         notes: notes.trim() || null,
+        prep_day: prepDay === "" ? null : Number(prepDay),
       });
       generateJob.poll(enqueued.job_id);
     } catch (e) {
@@ -289,6 +292,23 @@ export default function MealPlanPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
+            </label>
+
+            <label>
+              Prep day / batch-cooking mode (optional)
+              <select value={prepDay} onChange={(e) => setPrepDay(e.target.value)}>
+                <option value="">Off -- plan each meal independently</option>
+                {DAY_NAMES.map((day, i) => (
+                  <option key={day} value={i}>
+                    {day} -- batch-cook base components, reuse them later in the week
+                  </option>
+                ))}
+              </select>
+              <span className="hint">
+                Batches a few reusable components (a grain, a protein, a roasted vegetable) on the chosen
+                day, then favors fast-assembly recipes the rest of the week that build on them -- fewer full
+                cook sessions, not necessarily identical repeated meals.
+              </span>
             </label>
 
             <button type="button" className="btn-link" onClick={() => setShowGuidance((v) => !v)}>

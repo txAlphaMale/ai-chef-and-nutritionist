@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Chef</title>
+    <!-- Backlog B7.3 -- PWA installability. theme_color/background_color
+         are static here (and in manifest.webmanifest) since a web app
+         manifest can't read this app's own dynamic --color-primary CSS
+         variable (see themes.js) -- both are set to this app's DEFAULT
+         theme's colors as a reasonable fixed choice, same simplification
+         documented in PROJECT-PLAN.md's B7.3 notes. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#c1440e" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Chef" />
   </head>
   <body>
     <!-- Theme pre-hydration (2026-08-01): applies the last-known theme

@@ -11,19 +11,21 @@ doesn't swallow it.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import HealthMetricEntry, HouseholdMember
 from app.schemas.health import (
+    HealthBloodworkImportResponse,
     HealthMetricEntryCreate,
     HealthMetricEntryRead,
     HealthMetricEntryUpdate,
     HealthTrendsResponse,
     MetricTrend,
 )
-from app.services import health_service
+from app.schemas.jobs import JobEnqueuedResponse
+from app.services import health_service, job_queue, ollama_client
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -45,6 +47,64 @@ def list_metrics(household_member_id: int | None = None, limit: int = 200, db: S
     if household_member_id is not None:
         query = query.filter(HealthMetricEntry.household_member_id == household_member_id)
     return query.order_by(HealthMetricEntry.entry_date.desc()).limit(limit).all()
+
+
+@router.post("/import", response_model=JobEnqueuedResponse, status_code=202)
+async def import_bloodwork(file: UploadFile | None = None, text: str | None = Form(None)):
+    """Backlog B8.1 -- accepts `text` (pasted lab values) OR an uploaded
+    `file` (a lab-report PDF, a CSV/text export, or a photo of a printed
+    report), extracts a bloodwork PREVIEW via Ollama, and returns it
+    WITHOUT saving -- same preview-then-confirm shape as recipe import.
+    The frontend lets the user review/edit each extracted row, then
+    POSTs the ones they want to keep to the existing POST /metrics
+    endpoint (source="import"), so BMI computation and validation stay
+    on the one real code path rather than being duplicated here.
+
+    Runs through the shared background job queue (B11.1) like every
+    other AI-consuming endpoint in this app -- the Ollama call (and, for
+    a PDF, the synchronous pypdf text extraction) would otherwise block
+    this whole app's single event loop for the call's full duration, the
+    exact bug class B11.1 fixed everywhere else."""
+    if not (text or file is not None):
+        raise HTTPException(status_code=400, detail="Provide `text` or `file`")
+
+    raw_bytes: bytes | None = None
+    content_type = ""
+    filename = ""
+    if file is not None:
+        raw_bytes = await file.read()
+        content_type = file.content_type or ""
+        filename = (file.filename or "").lower()
+
+    def _run() -> dict:
+        db = SessionLocal()
+        try:
+            if text:
+                content = text
+            elif content_type.startswith("image/"):
+                response = ollama_client.describe_image(
+                    db,
+                    raw_bytes,
+                    health_service.BLOODWORK_IMPORT_PROMPT.format(content="[see attached photo]"),
+                )
+                raw_output = (
+                    response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+                )
+                entries = health_service.parse_bloodwork_response(raw_output)
+                return HealthBloodworkImportResponse(entries=entries, raw_model_output=raw_output).model_dump()
+            else:
+                content = health_service.extract_bloodwork_text(raw_bytes, filename, content_type)
+                if not content.strip():
+                    raise RuntimeError("Could not read any text from that file")
+
+            raw_output = health_service.run_bloodwork_extraction(db, content)
+            entries = health_service.parse_bloodwork_response(raw_output)
+            return HealthBloodworkImportResponse(entries=entries, raw_model_output=raw_output).model_dump()
+        finally:
+            db.close()
+
+    job_id, created = job_queue.enqueue("bloodwork_import", "Bloodwork import", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.get("/trends", response_model=HealthTrendsResponse)

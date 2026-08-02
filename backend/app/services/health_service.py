@@ -16,7 +16,8 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from app.models import HealthMetricEntry, HouseholdMember
-from app.services import knowledge_service
+from app.services import knowledge_service, ollama_client
+from app.services.recipe_service import _extract_json_object, _safe_float, _safe_int, extract_pdf_text
 
 # --- BMI -----------------------------------------------------------------
 
@@ -155,3 +156,154 @@ def _format_knowledge_results(results: list[dict]) -> str:
 def build_knowledge_context(db: Session, query: str, k: int = 4) -> str:
     results = knowledge_service.search_knowledge(db, query, k=k)
     return _format_knowledge_results(results)
+
+
+# --- Bloodwork import (backlog B8.1) ---------------------------------------
+#
+# Metrics were previously only enterable one field at a time via the manual
+# form, which the backlog text correctly called out as unrealistic to keep
+# up with -- nobody types in six numbers from a lab report every quarter.
+# Same architecture as every other unstructured-document import in this app
+# (recipe text/PDF/photo, inventory vision-intake, receipt OCR): extract
+# text (or hand a photo straight to the vision model), ask Ollama for
+# strict JSON, defensively parse whatever comes back, and return a PREVIEW
+# for the user to review/edit -- nothing is written to health_metric_entries
+# here. The frontend confirms each accepted row through the existing
+# POST /api/health/metrics endpoint, same "preview then reuse the real
+# create endpoint" discipline as recipe import and the dining-out
+# send-to-meal-plan flow, so BMI still gets computed the one existing way
+# rather than duplicating that logic.
+#
+# Deliberately NOT a per-lab column-mapping profile system the way B10.3's
+# order-history importer is: a grocery receipt's column layout is far more
+# consistent within one retailer than lab report WORDING is even within one
+# lab (LDL alone shows up as "LDL", "LDL Cholesterol", "LDL Cholesterol
+# Calc", "LDL-C", etc., often on the same page as an HDL/total/triglyceride
+# panel with its own separate wording quirks) -- free-text LLM extraction
+# is the better-fitting tool here, the same conclusion recipe/receipt
+# import already reached for their own free-text sources.
+#
+# Unit conversion is asked of the model directly in the prompt (lbs->kg,
+# mmol/L->mg/dL) rather than attempted as a separate deterministic pass
+# afterward, since which unit a given lab report used has to be read from
+# the same unstructured text being parsed anyway. This is honestly a
+# weaker guarantee than the deterministic unit_conversion_service used
+# elsewhere in this app (B5.3/B10.5) -- flagged plainly in the prompt's own
+# "ai_estimated"-equivalent framing below and in HealthPage.jsx's import
+# panel copy, not silently presented as exact.
+
+BLOODWORK_IMPORT_PROMPT = """\
+Extract lab/bloodwork results from the content below and respond with \
+ONLY a JSON object (no other text, no markdown fences) with a single key \
+"entries": an array of objects, one per distinct draw/report date found \
+in the content (usually just one). Each entry object has these keys, \
+using null for anything not actually present in the content -- NEVER \
+invent a plausible-sounding number, and NEVER report a "normal reference \
+range" value as if it were the patient's actual result:
+- "entry_date": string "YYYY-MM-DD" (the date the sample was collected \
+or the report was issued), or null if genuinely not stated
+- "weight_kg": body weight in KILOGRAMS -- convert from pounds if the \
+source uses lbs (kg = lbs / 2.20462), or null
+- "ldl_mg_dl": LDL cholesterol in mg/dL -- convert from mmol/L if needed \
+(mg/dL = mmol/L * 38.67), or null
+- "hdl_mg_dl": HDL cholesterol in mg/dL (same mmol/L conversion if \
+needed), or null
+- "total_cholesterol_mg_dl": total cholesterol in mg/dL (same \
+conversion), or null
+- "triglycerides_mg_dl": triglycerides in mg/dL -- convert from mmol/L \
+if needed (mg/dL = mmol/L * 88.57), or null
+- "blood_pressure_systolic": integer mmHg, or null
+- "blood_pressure_diastolic": integer mmHg, or null
+- "blood_glucose_mg_dl": blood glucose in mg/dL -- convert from mmol/L \
+if needed (mg/dL = mmol/L * 18.02), or null
+
+Content:
+{content}"""
+
+
+def extract_bloodwork_text(raw_bytes: bytes, filename: str, content_type: str) -> str:
+    """Plain-text extraction for the two non-image bloodwork import file
+    types (PDF lab reports, CSV/plain-text exports) -- mirrors recipe_
+    service.extract_pdf_text's usage exactly. Image files are handled
+    separately by the router via ollama_client.describe_image, same
+    split as recipe import's photo branch, since a vision call needs the
+    raw bytes directly rather than an extracted-text intermediate."""
+    filename_lower = (filename or "").lower()
+    if content_type == "application/pdf" or filename_lower.endswith(".pdf"):
+        return extract_pdf_text(raw_bytes)
+    try:
+        return raw_bytes.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 -- defensive; decode() with errors="replace" shouldn't raise
+        return ""
+
+
+def _parse_entry_date(value) -> str | None:
+    """Returns an ISO "YYYY-MM-DD" string if `value` parses as one,
+    else None -- never raises. Kept as a string (not a `date`) here since
+    this is a JSON-preview response, not a DB write; routers/health.py's
+    existing HealthMetricEntryCreate does the real date validation at
+    confirm time."""
+    if not value or not isinstance(value, str):
+        return None
+    from datetime import datetime as _datetime
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%d/%m/%Y"):
+        try:
+            return _datetime.strptime(value.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+BLOODWORK_FIELDS = [
+    "weight_kg",
+    "ldl_mg_dl",
+    "hdl_mg_dl",
+    "total_cholesterol_mg_dl",
+    "triglycerides_mg_dl",
+    "blood_glucose_mg_dl",
+]
+
+
+def parse_bloodwork_response(raw_text: str) -> list[dict]:
+    """Defensively extracts the entries array from raw model output.
+    Drops any entry with zero actual metric values -- a common
+    real-world model failure mode is a well-formed but entirely-null
+    object when the source genuinely had nothing extractable, and a
+    date-only/empty row isn't worth showing the user a preview row for."""
+    data = _extract_json_object(raw_text)
+    entries_raw = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries_raw, list):
+        return []
+
+    entries = []
+    for e in entries_raw:
+        if not isinstance(e, dict):
+            continue
+        entry = {
+            "entry_date": _parse_entry_date(e.get("entry_date")),
+            "weight_kg": _safe_float(e.get("weight_kg")),
+            "ldl_mg_dl": _safe_float(e.get("ldl_mg_dl")),
+            "hdl_mg_dl": _safe_float(e.get("hdl_mg_dl")),
+            "total_cholesterol_mg_dl": _safe_float(e.get("total_cholesterol_mg_dl")),
+            "triglycerides_mg_dl": _safe_float(e.get("triglycerides_mg_dl")),
+            "blood_pressure_systolic": _safe_int(e.get("blood_pressure_systolic")),
+            "blood_pressure_diastolic": _safe_int(e.get("blood_pressure_diastolic")),
+            "blood_glucose_mg_dl": _safe_float(e.get("blood_glucose_mg_dl")),
+        }
+        has_any_value = any(entry[f] is not None for f in BLOODWORK_FIELDS) or (
+            entry["blood_pressure_systolic"] is not None and entry["blood_pressure_diastolic"] is not None
+        )
+        if has_any_value:
+            entries.append(entry)
+    return entries
+
+
+def run_bloodwork_extraction(db: Session, content: str) -> str:
+    """The one Ollama-calling step -- always invoked from inside a
+    background job body (job_queue, backlog B11.1), never directly from
+    a request handler, same discipline as every other AI-consuming
+    endpoint in this app since that backlog item."""
+    prompt = BLOODWORK_IMPORT_PROMPT.format(content=content[:8000])
+    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
+    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)

@@ -1505,6 +1505,24 @@ tr.urgency-low td {
   .btn-link {
     padding: var(--spacing-1) 0;
   }
+
+  /* --- Cook mode: the two-column nav row and larger step text scale
+     down slightly so "Back"/"Done"/"Next" all still fit one row on a
+     phone without wrapping into a cramped stack. */
+  .cook-mode-step-text {
+    font-size: 1.35em;
+  }
+
+  .cook-mode-nav {
+    gap: var(--spacing-2);
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .cook-mode-nav .btn {
+    min-width: 0;
+    padding: var(--spacing-2) var(--spacing-3);
+  }
 }
 
 /* --- Print (backlog B10.6) ---
@@ -1529,7 +1547,10 @@ tr.urgency-low td {
   .no-print,
   .app-header,
   .chat-widget,
-  .recipe-chat {
+  .recipe-chat,
+  .cook-mode-overlay,
+  .timers-badge-stack,
+  .jobs-badge {
     display: none !important;
   }
 
@@ -1638,4 +1659,149 @@ tr.urgency-low td {
 .gcal-banner.error {
   background: var(--color-danger);
   color: white;
+}
+
+/* --- Bloodwork import (backlog B8.1) --- */
+.bloodwork-import {
+  margin-top: var(--spacing-3);
+  padding-top: var(--spacing-3);
+  border-top: 1px solid var(--color-border);
+}
+
+/* --- Cook mode (backlog B7.1) ---
+   A full-screen overlay, not a themed "page" -- deliberately high
+   contrast and large type regardless of which of the app's color themes
+   is active, since this is meant to be readable at arm's length with wet
+   or floury hands, the actual use case the backlog text describes. */
+.cook-mode-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  z-index: 200;
+  overflow-y: auto;
+  padding: var(--spacing-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.cook-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  font-size: 1.2em;
+}
+
+.cook-mode-wakelock {
+  font-size: 0.95em;
+}
+
+.cook-mode-toolbar {
+  display: flex;
+  gap: var(--spacing-3);
+}
+
+.cook-mode-ingredients,
+.cook-mode-step-list {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-3) var(--spacing-4);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.cook-mode-step-list li {
+  margin-bottom: var(--spacing-1);
+}
+
+.cook-mode-step-done {
+  color: var(--color-secondary);
+}
+
+.cook-mode-step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4) 0;
+}
+
+.cook-mode-step-counter {
+  color: var(--color-text-muted);
+  font-size: 1.1em;
+  margin: 0;
+}
+
+.cook-mode-step-text {
+  font-size: 1.7em;
+  line-height: 1.4;
+  max-width: 44em;
+  margin: 0;
+}
+
+.cook-mode-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+}
+
+.cook-mode-nav .btn {
+  font-size: 1.1em;
+  padding: var(--spacing-3) var(--spacing-4);
+  min-height: 48px;
+  min-width: 120px;
+}
+
+.cook-mode-finished {
+  gap: var(--spacing-3);
+}
+
+/* --- Step timers (backlog B7.2) ---
+   Same visual family as .jobs-badge (fixed strip, outside <Routes>) but
+   its own class since multiple timers can be running/stacked at once,
+   unlike the single job badge. */
+.timers-badge-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  margin: 0 var(--spacing-3) var(--spacing-3);
+}
+
+.timers-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  background: color-mix(in srgb, var(--color-secondary) 12%, transparent);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-1) var(--spacing-3);
+  font-size: 0.9em;
+}
+
+.timers-badge-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.timers-badge-done {
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  animation: chef-timer-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes chef-timer-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }

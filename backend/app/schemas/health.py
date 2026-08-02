@@ -66,3 +66,30 @@ class HealthTrendsResponse(BaseModel):
     ldl_mg_dl: MetricTrend | None = None
     hdl_mg_dl: MetricTrend | None = None
     total_cholesterol_mg_dl: MetricTrend | None = None
+
+
+# --- Bloodwork import (backlog B8.1) ---------------------------------------
+
+
+class HealthBloodworkEntryPreview(BaseModel):
+    """One extracted-but-unconfirmed row. `entry_date` is a plain string
+    (not `date`) and every numeric field stays nullable/unvalidated on
+    purpose -- this is a preview for the user to review/edit/reject, not
+    a write; the real validation happens at POST /api/health/metrics
+    once the user confirms a row, same preview-then-confirm discipline
+    as recipe import."""
+
+    entry_date: str | None = None
+    weight_kg: float | None = None
+    ldl_mg_dl: float | None = None
+    hdl_mg_dl: float | None = None
+    total_cholesterol_mg_dl: float | None = None
+    triglycerides_mg_dl: float | None = None
+    blood_pressure_systolic: int | None = None
+    blood_pressure_diastolic: int | None = None
+    blood_glucose_mg_dl: float | None = None
+
+
+class HealthBloodworkImportResponse(BaseModel):
+    entries: list[HealthBloodworkEntryPreview]
+    raw_model_output: str

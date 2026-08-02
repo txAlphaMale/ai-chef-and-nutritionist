@@ -214,6 +214,7 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
                 kitchen_profile_id=payload.kitchen_profile_id,
                 entry_guidance=entry_guidance,
                 notes=payload.notes,
+                prep_day=payload.prep_day,
             )
             prompt = meal_plan_service.build_generation_prompt(context)
             system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""

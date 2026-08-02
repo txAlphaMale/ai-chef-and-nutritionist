@@ -4,6 +4,7 @@ import { api, backendOrigin } from "../api";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
 import RestrictionWarnings from "../components/RestrictionWarnings";
+import CookMode from "../components/CookMode";
 
 // Backlog B1.3: friendlier labels for the shared nutrition key set (see
 // backend/app/services/food_data_service.py's NUTRITION_KEYS) -- falls
@@ -83,6 +84,9 @@ export default function RecipeDetailPage() {
   // with the servings/unit-system display toggles above and doesn't need
   // to be refetched when those change.
   const [cost, setCost] = useState(null);
+  // Backlog B7.1 -- full-screen cook mode is a plain overlay toggle, not
+  // a route change (see CookMode.jsx's own module comment for why).
+  const [cookMode, setCookMode] = useState(false);
 
   async function load(withServings, withUnitSystem) {
     setError(null);
@@ -186,6 +190,10 @@ export default function RecipeDetailPage() {
         <RecipeForm initial={recipe} onSubmit={handleUpdate} onCancel={() => setEditing(false)} />
       </div>
     );
+  }
+
+  if (cookMode) {
+    return <CookMode recipe={recipe} onExit={() => setCookMode(false)} />;
   }
 
   return (
@@ -366,6 +374,11 @@ export default function RecipeDetailPage() {
       )}
 
       <div className="form-actions no-print">
+        {recipe.instructions?.length > 0 && (
+          <button className="btn btn-primary" onClick={() => setCookMode(true)}>
+            Cook mode
+          </button>
+        )}
         <button className="btn btn-secondary" onClick={() => setEditing(true)}>
           Edit
         </button>

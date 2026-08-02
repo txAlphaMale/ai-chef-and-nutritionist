@@ -15,6 +15,7 @@ import LoginGate from "./components/LoginGate";
 import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
 import RecallBanner from "./components/RecallBanner";
 import JobsBadge from "./components/JobsBadge";
+import TimersBadge from "./components/TimersBadge";
 import { applyTheme, getCachedTheme } from "./themes";
 
 // HashRouter (not BrowserRouter): the production Dockerfile serves the
@@ -98,6 +99,11 @@ export default function App() {
             above, so it's visible no matter which page enqueued the
             job or which page is currently open. */}
         <JobsBadge />
+        {/* Backlog B7.2 -- step-linked cooking timers, same "outside
+            <Routes>, always visible" placement as the job badge above, so
+            a timer started in Cook Mode stays visible while browsing
+            elsewhere in the app. */}
+        <TimersBadge />
         <main>
           <Routes>
             <Route path="/" element={<HomePage />} />

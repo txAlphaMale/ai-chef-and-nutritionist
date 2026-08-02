@@ -32,6 +32,16 @@ class MealPlanGenerateRequest(BaseModel):
     kitchen_profile_id: int | None = None
     entry_guidance: list[EntryGuidance] = Field(default_factory=list)
     notes: str | None = None  # free-text steering, e.g. "going camping this weekend"
+    # Backlog B5.2 -- prep-day / batch-cooking mode. When set (0-6,
+    # Mon-Sun), the generation prompt is instructed to cluster cooking
+    # effort: batch-cook a few reusable base components on this day, then
+    # prefer fast-assembly recipes on other days that explicitly reuse
+    # them. See meal_plan_service._format_prep_day_section for the exact
+    # instruction text and its module docstring for why this shipped as a
+    # generation-prompt heuristic rather than a new persisted ingredient-
+    # sharing/inventory-linking model (a much bigger change the backlog
+    # text didn't actually ask for).
+    prep_day: int | None = Field(None, ge=0, le=6)
 
 
 class NewRecipeInput(BaseModel):

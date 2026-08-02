@@ -83,6 +83,7 @@ def gather_generation_context(
     kitchen_profile_id: int | None,
     entry_guidance: list[dict],
     notes: str | None,
+    prep_day: int | None = None,
 ) -> dict:
     household = get_household_preferences(db)
     kitchen = get_active_kitchen_profile(db, kitchen_profile_id)
@@ -122,6 +123,11 @@ def gather_generation_context(
         "meal_types_requested": meal_types,
         "slots": slots,
         "notes": notes,
+        # Backlog B5.2 -- see this module's build_generation_prompt/
+        # _format_prep_day_section for what this actually does to the
+        # prompt. None (the default) means no prep-day steering at all --
+        # generation behaves exactly as it did before this backlog item.
+        "prep_day": prep_day,
         # Phase 6: household health trends (BMI/cholesterol/weight) and
         # any imported nutritionist reference material -- both optional,
         # both empty strings when nothing's been logged/uploaded yet.
@@ -185,7 +191,7 @@ Household: {household_size} people. Dietary restrictions/goals: \
 {indulgence_frequency} (roughly how often an indulgent/treat meal is \
 appropriate across the whole plan -- most meals should still be \
 balanced and nutritious).
-{dietary_pattern_section}
+{dietary_pattern_section}{prep_day_section}
 
 Kitchen/equipment currently in use ({kitchen_name}): {equipment}. Do \
 not plan meals that need equipment outside this list.
@@ -264,6 +270,49 @@ def _format_dietary_pattern_section(guidance: str | None) -> str:
     return "\n" + guidance + "\n"
 
 
+def _format_prep_day_section(prep_day: int | None) -> str:
+    """Backlog B5.2 -- prep-day / batch-cooking mode.
+
+    Scoping note (read before changing this): Mealime Pro's "Meal Prep
+    Day" and MealPrepPro both batch-cook shared components once, then
+    mix-and-match them into several later meals. A literal version of
+    that would need this app to model recipes as composed of reusable
+    sub-components with their own inventory/quantity tracking -- a much
+    bigger schema change than this backlog item asked for, and one nothing
+    else in the app currently needs. This ships the same underlying
+    OUTCOME (fewer independent stove-heavy cooking sessions across the
+    week) as a generation-PROMPT heuristic instead: the model is asked to
+    batch-cook a few base components on the prep day and steer other
+    slots toward fast-assembly recipes that reuse them. The persisted
+    result is still ordinary Recipe/MealPlanEntry rows -- no new linking
+    concept, so grocery-list and inventory-deduction logic needs no
+    changes and stays exactly as accurate (or inaccurate) as it already
+    is for any other week. What this does NOT do: verify the model
+    actually produced fewer distinct cooking sessions, or enforce that a
+    "reuses prep day" tag is truthful -- same "prompted, not enforced"
+    honesty limit every other generation-steering feature in this prompt
+    already has (dietary pattern, indulgence frequency, etc.)."""
+    if prep_day is None:
+        return ""
+    day_name = DAY_NAMES[prep_day]
+    return (
+        f"\nPrep-day / batch-cooking mode is ON for {day_name}: plan "
+        f"{day_name}'s meal(s) to batch-cook 2-3 reusable base components "
+        "in larger quantities than that single meal needs on its own -- "
+        "e.g. a grain/starch, a protein, and a roasted or roastable "
+        "vegetable. For meal slots on OTHER days, prefer recipes that are "
+        "genuinely fast-assembly reuses of those same batch-cooked "
+        f"components (a bowl, a wrap, a salad, a quick stir-fry) over "
+        "fully independent recipes that need their own full cook -- the "
+        "goal is fewer separate cooking sessions across the week, not "
+        "identical repeated meals. Tag the prep-day recipe(s) with "
+        "'make_ahead', tag the reuse meals with 'quick', and for a reuse "
+        "meal's ingredient list, note which component(s) are \"already "
+        f"cooked from {day_name}\" in that ingredient's prep_note rather "
+        "than listing it as a raw ingredient to buy again.\n"
+    )
+
+
 def _format_knowledge_section(knowledge_context: str | None) -> str:
     if not knowledge_context:
         return ""
@@ -288,6 +337,7 @@ def build_generation_prompt(context: dict) -> str:
         dietary_restrictions=dietary,
         goals_line=goals_line,
         dietary_pattern_section=_format_dietary_pattern_section(context.get("dietary_pattern_guidance")),
+        prep_day_section=_format_prep_day_section(context.get("prep_day")),
         indulgence_frequency=context.get("indulgence_frequency") or "weekly",
         kitchen_name=context.get("kitchen_name") or "unspecified kitchen",
         equipment=", ".join(context.get("equipment") or []) or "unspecified",

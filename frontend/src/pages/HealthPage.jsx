@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import KnowledgeFilesPanel from "../components/KnowledgeFilesPanel";
 import TrendChart from "../components/TrendChart";
+import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
 const KG_PER_LB = 0.45359237;
 const kgToLbs = (kg) => (kg == null ? "" : Math.round((kg / KG_PER_LB) * 10) / 10);
@@ -52,6 +53,21 @@ export default function HealthPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Backlog B8.1 -- bloodwork import (PDF/CSV/photo/pasted text) instead
+  // of typing every field by hand. Same preview-then-confirm shape as
+  // recipe import: the job returns extracted-but-unsaved rows, each
+  // confirmed individually (or all at once) through the existing
+  // POST /health/metrics endpoint below, so BMI computation/validation
+  // stays on the one real code path.
+  const [showBloodworkImport, setShowBloodworkImport] = useState(false);
+  const [bloodworkFile, setBloodworkFile] = useState(null);
+  const [bloodworkText, setBloodworkText] = useState("");
+  const bloodworkJob = useBackgroundJob("chef.job.bloodwork_import");
+  const [bloodworkEnqueueError, setBloodworkEnqueueError] = useState(null);
+  const [bloodworkPreview, setBloodworkPreview] = useState([]); // [{ _key, entry_date, weight_lbs, ldl_mg_dl, ..., member_id }]
+  const [bloodworkConfirming, setBloodworkConfirming] = useState(false);
+  const bloodworkImporting = bloodworkJob.busy;
 
   async function refresh() {
     setLoading(true);
@@ -210,6 +226,95 @@ export default function HealthPage() {
   async function handleDeleteMetric(entryId) {
     await api.del(`/health/metrics/${entryId}`);
     refreshMemberData(selectedMemberId);
+  }
+
+  // Backlog B8.1 -- bloodwork import handlers.
+  useEffect(() => {
+    if (!bloodworkJob.result) return;
+    const entries = bloodworkJob.result.entries || [];
+    setBloodworkPreview(
+      entries.map((e, i) => ({
+        _key: `${Date.now()}-${i}`,
+        entry_date: e.entry_date || todayIso(),
+        weight_lbs: e.weight_kg != null ? kgToLbs(e.weight_kg) : "",
+        ldl_mg_dl: e.ldl_mg_dl ?? "",
+        hdl_mg_dl: e.hdl_mg_dl ?? "",
+        total_cholesterol_mg_dl: e.total_cholesterol_mg_dl ?? "",
+        triglycerides_mg_dl: e.triglycerides_mg_dl ?? "",
+        blood_pressure_systolic: e.blood_pressure_systolic ?? "",
+        blood_pressure_diastolic: e.blood_pressure_diastolic ?? "",
+        blood_glucose_mg_dl: e.blood_glucose_mg_dl ?? "",
+        member_id: selectedMemberId ?? "",
+      }))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bloodworkJob.result]);
+
+  async function handleBloodworkSubmit(e) {
+    e.preventDefault();
+    setBloodworkEnqueueError(null);
+    bloodworkJob.clear();
+    setBloodworkPreview([]);
+    if (!bloodworkFile && !bloodworkText.trim()) {
+      setBloodworkEnqueueError("Upload a file (PDF/CSV/photo) or paste the values as text.");
+      return;
+    }
+    try {
+      const form = new FormData();
+      if (bloodworkFile) form.append("file", bloodworkFile);
+      if (bloodworkText.trim()) form.append("text", bloodworkText.trim());
+      const enqueued = await api.post("/health/import", form);
+      bloodworkJob.poll(enqueued.job_id);
+    } catch (err) {
+      setBloodworkEnqueueError(err.message);
+    }
+  }
+
+  function updateBloodworkRow(key, field, value) {
+    setBloodworkPreview((rows) => rows.map((r) => (r._key === key ? { ...r, [field]: value } : r)));
+  }
+
+  function discardBloodworkRow(key) {
+    setBloodworkPreview((rows) => rows.filter((r) => r._key !== key));
+  }
+
+  async function confirmBloodworkRow(row) {
+    if (!row.member_id) {
+      setError("Choose a household member for this entry before confirming.");
+      return;
+    }
+    setBloodworkConfirming(true);
+    try {
+      await api.post("/health/metrics", {
+        household_member_id: Number(row.member_id),
+        entry_date: row.entry_date,
+        weight_kg: lbsToKg(row.weight_lbs),
+        ldl_mg_dl: row.ldl_mg_dl === "" ? null : Number(row.ldl_mg_dl),
+        hdl_mg_dl: row.hdl_mg_dl === "" ? null : Number(row.hdl_mg_dl),
+        total_cholesterol_mg_dl: row.total_cholesterol_mg_dl === "" ? null : Number(row.total_cholesterol_mg_dl),
+        triglycerides_mg_dl: row.triglycerides_mg_dl === "" ? null : Number(row.triglycerides_mg_dl),
+        blood_pressure_systolic: row.blood_pressure_systolic === "" ? null : Number(row.blood_pressure_systolic),
+        blood_pressure_diastolic: row.blood_pressure_diastolic === "" ? null : Number(row.blood_pressure_diastolic),
+        blood_glucose_mg_dl: row.blood_glucose_mg_dl === "" ? null : Number(row.blood_glucose_mg_dl),
+        source: "import",
+      });
+      discardBloodworkRow(row._key);
+      if (Number(row.member_id) === selectedMemberId) await refreshMemberData(selectedMemberId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBloodworkConfirming(false);
+    }
+  }
+
+  async function confirmAllBloodworkRows() {
+    for (const row of bloodworkPreview) {
+      // eslint-disable-next-line no-await-in-loop -- deliberately serial,
+      // same reasoning as anywhere else in this app that posts several
+      // rows in sequence: keeps error attribution to one row at a time
+      // rather than racing several POSTs against the same member's log.
+      await confirmBloodworkRow(row);
+    }
   }
 
   const selectedMember = members.find((m) => m.id === selectedMemberId) || null;
@@ -527,6 +632,185 @@ export default function HealthPage() {
               </button>
             </div>
           </form>
+
+          <button type="button" className="btn-link" onClick={() => setShowBloodworkImport((v) => !v)}>
+            {showBloodworkImport ? "Hide" : "Show"} bloodwork import (backlog B8.1)
+          </button>
+          {showBloodworkImport && (
+            <div className="bloodwork-import">
+              <p className="hint">
+                Upload a lab report (PDF or a photo of a printed report), a CSV/text export, or paste values
+                directly -- extracted numbers are a preview to review before anything is saved. Unit
+                conversion (lbs, mmol/L) is done by the AI model reading the source, not a guaranteed-exact
+                calculation -- double-check anything that looks off before confirming.
+              </p>
+              <form onSubmit={handleBloodworkSubmit}>
+                <div className="form-row">
+                  <label>
+                    File (PDF, CSV, or photo)
+                    <input
+                      type="file"
+                      accept=".pdf,.csv,.txt,image/*"
+                      onChange={(e) => setBloodworkFile(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Or paste values as text
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. LDL 130, HDL 45, Total 210, Triglycerides 150, dated 7/15/2026"
+                    value={bloodworkText}
+                    onChange={(e) => setBloodworkText(e.target.value)}
+                  />
+                </label>
+                <div className="form-actions">
+                  <button className="btn btn-secondary" type="submit" disabled={bloodworkImporting}>
+                    {bloodworkImporting && <span className="busy-spinner" aria-hidden="true" />}
+                    {bloodworkJob.status === "queued" ? "Queued..." : bloodworkImporting ? "Reading..." : "Extract"}
+                  </button>
+                </div>
+                {(bloodworkEnqueueError || bloodworkJob.error) && (
+                  <p className="error-text">{bloodworkEnqueueError || bloodworkJob.error}</p>
+                )}
+              </form>
+
+              {bloodworkPreview.length > 0 && (
+                <>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th>Date</th>
+                        <th>Weight (lbs)</th>
+                        <th>LDL</th>
+                        <th>HDL</th>
+                        <th>Total chol.</th>
+                        <th>Trig.</th>
+                        <th>BP</th>
+                        <th>Glucose</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bloodworkPreview.map((row) => (
+                        <tr key={row._key}>
+                          <td data-label="Member">
+                            <select
+                              value={row.member_id}
+                              onChange={(e) => updateBloodworkRow(row._key, "member_id", e.target.value)}
+                            >
+                              <option value="">-- choose --</option>
+                              {members.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td data-label="Date">
+                            <input
+                              type="date"
+                              value={row.entry_date}
+                              onChange={(e) => updateBloodworkRow(row._key, "entry_date", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Weight (lbs)">
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.weight_lbs}
+                              onChange={(e) => updateBloodworkRow(row._key, "weight_lbs", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="LDL">
+                            <input
+                              type="number"
+                              value={row.ldl_mg_dl}
+                              onChange={(e) => updateBloodworkRow(row._key, "ldl_mg_dl", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="HDL">
+                            <input
+                              type="number"
+                              value={row.hdl_mg_dl}
+                              onChange={(e) => updateBloodworkRow(row._key, "hdl_mg_dl", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Total cholesterol">
+                            <input
+                              type="number"
+                              value={row.total_cholesterol_mg_dl}
+                              onChange={(e) => updateBloodworkRow(row._key, "total_cholesterol_mg_dl", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Triglycerides">
+                            <input
+                              type="number"
+                              value={row.triglycerides_mg_dl}
+                              onChange={(e) => updateBloodworkRow(row._key, "triglycerides_mg_dl", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Blood pressure">
+                            <input
+                              type="number"
+                              placeholder="sys"
+                              value={row.blood_pressure_systolic}
+                              onChange={(e) => updateBloodworkRow(row._key, "blood_pressure_systolic", e.target.value)}
+                              style={{ width: "3.5em" }}
+                            />
+                            /
+                            <input
+                              type="number"
+                              placeholder="dia"
+                              value={row.blood_pressure_diastolic}
+                              onChange={(e) => updateBloodworkRow(row._key, "blood_pressure_diastolic", e.target.value)}
+                              style={{ width: "3.5em" }}
+                            />
+                          </td>
+                          <td data-label="Glucose">
+                            <input
+                              type="number"
+                              value={row.blood_glucose_mg_dl}
+                              onChange={(e) => updateBloodworkRow(row._key, "blood_glucose_mg_dl", e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-link"
+                              disabled={bloodworkConfirming}
+                              onClick={() => confirmBloodworkRow(row)}
+                            >
+                              Add
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-link btn-link-danger"
+                              disabled={bloodworkConfirming}
+                              onClick={() => discardBloodworkRow(row._key)}
+                            >
+                              Discard
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={bloodworkConfirming}
+                      onClick={confirmAllBloodworkRows}
+                    >
+                      {bloodworkConfirming ? "Adding..." : "Add all to log"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {metrics.length > 0 && (
             <table className="data-table">

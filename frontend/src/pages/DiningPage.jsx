@@ -66,19 +66,62 @@ export default function DiningPage() {
       return;
     }
     setGeoStatus("Locating...");
+
+    // Bug fix (2026-08-02, author-reported on a real iPad): getCurrentPosition
+    // was called with no options, so its default `timeout` is Infinity. A
+    // WiFi-only iPad has no GPS chip and relies entirely on WiFi-based
+    // positioning -- if that fix never resolves (weak/unfamiliar WiFi
+    // environment, indoors, Location Services still initializing), NEITHER
+    // callback ever fires and the button is stuck on "Locating..." forever
+    // with no way out except reloading the page. Two independent fixes:
+    // (1) pass an explicit timeout/maximumAge so the browser's own API gives
+    // up and calls the error callback instead of hanging indefinitely, and
+    // (2) a belt-and-suspenders JS-side fallback timer, since a small number
+    // of WebKit versions have shipped with geolocation callbacks that don't
+    // reliably fire at all in some states (e.g. Low Power Mode, background
+    // tab during the permission prompt) -- if the browser's own timeout
+    // doesn't save us, this one still will.
+    let settled = false;
+    const fallbackTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setGeoStatus(
+        "Still couldn't get a location fix after 20s (common on WiFi-only iPads away from a well-mapped network) -- enter coordinates manually."
+      );
+    }, 20000);
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
         setLat(String(pos.coords.latitude.toFixed(5)));
         setLon(String(pos.coords.longitude.toFixed(5)));
         setGeoStatus(null);
       },
-      () => {
-        // Most commonly this fails because the page isn't served over
-        // HTTPS (this app is commonly run on plain HTTP on a LAN) -- the
-        // manual fields above are always available specifically for
-        // this reason, not just as a fallback.
-        setGeoStatus("Couldn't get your location (this needs HTTPS in most browsers) -- enter coordinates manually.");
-      }
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        // PERMISSION_DENIED=1, POSITION_UNAVAILABLE=2, TIMEOUT=3 (the
+        // MDN-documented GeolocationPositionError codes) -- give a message
+        // that actually matches what happened instead of always blaming
+        // HTTPS, which as of B15.1 this app now supports either way.
+        if (err.code === 1) {
+          setGeoStatus(
+            "Location permission was denied -- check your browser/iOS Settings > Privacy > Location Services for this site, or enter coordinates manually."
+          );
+        } else if (err.code === 3) {
+          setGeoStatus("Timed out getting your location -- enter coordinates manually.");
+        } else if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
+          // Only blame HTTPS when the page genuinely isn't in a secure
+          // context -- most browsers refuse to even ask in that case.
+          setGeoStatus("Couldn't get your location (this needs HTTPS in most browsers) -- enter coordinates manually.");
+        } else {
+          setGeoStatus("Couldn't get your location -- enter coordinates manually.");
+        }
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
     );
   }
 
