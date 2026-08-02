@@ -514,6 +514,27 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
             f"raw_output_chars={len(raw_output)} detected_items={len(detected)}",
             flush=True,
         )
+        if raw_output and not detected:
+            # The exact author-reported case that the existing logging
+            # above could NOT explain on its own (2026-08-02): a
+            # non-empty model response that nonetheless parses to zero
+            # items -- which looks identical in the UI to "this receipt
+            # genuinely had no food on it". ollama_client's own response
+            # log already shows the first 300 chars of content; what it
+            # can't show is the END of the response, and the END is what
+            # distinguishes the two failure shapes that matter here: a
+            # response cut off mid-array by the context/num_predict limit
+            # (no closing "]", done_reason "length") versus a complete
+            # response whose JSON is simply surrounded by prose. Logged
+            # ONLY on the zero-items path, so a normal successful import
+            # adds no extra noise.
+            head = raw_output[:500].replace("\n", " ")
+            tail = raw_output[-300:].replace("\n", " ")
+            print(
+                f"[inventory._inventory_import_job] ZERO ITEMS from a non-empty response -- "
+                f"head={head!r} tail={tail!r}",
+                flush=True,
+            )
         return InventoryImportResponse(detected_items=detected, raw_model_output=raw_output, source_type=source_type).model_dump()
     finally:
         db.close()

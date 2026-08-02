@@ -220,3 +220,132 @@ def test_inventory_import_job_logs_zero_detected_items_when_response_is_empty(db
     assert result["detected_items"] == []
     out = capsys.readouterr().out
     assert "raw_output_chars=0 detected_items=0" in out
+
+
+def test_inventory_import_job_logs_head_and_tail_when_a_non_empty_response_parses_to_zero(
+    db_session, capsys
+):
+    # Second reported shape of the same symptom (2026-08-02): the "Show
+    # raw AI response" link IS rendered (the frontend only renders it
+    # when raw_model_output is truthy -- InventoryPage.jsx), so the model
+    # DID answer, yet zero items came out. ollama_client's response log
+    # only shows the first 300 chars of content; the TAIL is what tells a
+    # response truncated mid-array apart from a complete one wrapped in
+    # prose, so it must be logged too -- and only on this path, never for
+    # a successful import.
+    unparseable = "I was unable to format this as JSON. " * 5
+    with patch("app.routers.inventory.SessionLocal", return_value=db_session):
+        result = _inventory_import_job("pdf", lambda db: unparseable)
+    assert result["detected_items"] == []
+    out = capsys.readouterr().out
+    assert "ZERO ITEMS from a non-empty response" in out
+    assert "head=" in out and "tail=" in out
+
+
+def test_inventory_import_job_does_not_log_the_zero_items_excerpt_on_success(db_session, capsys):
+    with patch("app.routers.inventory.SessionLocal", return_value=db_session):
+        _inventory_import_job("text", lambda db: '[{"name": "Eggs", "category": "fridge"}]')
+    assert "ZERO ITEMS" not in capsys.readouterr().out
+
+
+# ---- Bug fix (2026-08-02, author-reported: "0 items identified from your
+# pdf" WITH the raw-response link visible, i.e. a non-empty model response
+# that parsed to nothing): _extract_json_array's fallback used a GREEDY
+# `\[.*\]` regex, spanning the first "[" anywhere in the output to the
+# last "]" anywhere in the output. Any stray square bracket outside the
+# real array turned that slice into unparseable JSON and produced zero
+# items. Each test below is a real output shape a local model produces on
+# this app's own receipt prompt; every one of them returned 0 items
+# before the bracket-matching scan replaced that regex. ----------------
+
+
+def test_extract_json_array_survives_trailing_commentary_containing_brackets():
+    # The prompt explicitly asks the model to skip non-food lines, which
+    # makes exactly this kind of trailing note likely.
+    raw = (
+        '[{"name": "Eggs", "category": "fridge"}]\n\n'
+        "Note: I skipped the non-food lines [paper towels, lint roller, cat litter]."
+    )
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs"]
+
+
+def test_extract_json_array_survives_a_lead_in_containing_brackets():
+    raw = 'Here are the food items [from the receipt you provided]:\n[{"name": "Eggs", "category": "fridge"}]'
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs"]
+
+
+def test_extract_json_array_survives_a_second_array_later_in_the_response():
+    raw = (
+        '[{"name": "Eggs", "category": "fridge"}]\n'
+        'For reference, the lines I excluded were: [{"name": "Lint roller"}]'
+    )
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs"]
+
+
+def test_extract_json_array_ignores_an_inline_thinking_trace():
+    # ollama_client passes think=False, but that is only honored by a new
+    # enough Ollama server / model template -- an inline trace must not be
+    # able to hijack the parse, especially since a trace often contains
+    # both square brackets AND a draft of the array itself.
+    raw = (
+        "<think>\nThe receipt has lines [1-15]. A first draft would be "
+        '[{"name": "Wrong draft item"}] but let me re-check.\n</think>\n'
+        '[{"name": "Eggs", "category": "fridge"}]'
+    )
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs"]
+
+
+def test_extract_json_array_ignores_a_reasoning_trace_with_only_a_closing_tag():
+    # What you get when the chat template itself opens <think>, so only
+    # the closing tag appears in the returned content.
+    raw = 'Let me work through lines [1-15] one at a time.\n</think>\n[{"name": "Eggs", "category": "fridge"}]'
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs"]
+
+
+def test_extract_json_array_salvages_a_response_truncated_mid_array():
+    # What a generation that hits the context/num_predict limit looks
+    # like (done_reason "length" in ollama_client's response log): the
+    # array never closes. Every element BEFORE the cut is complete and
+    # perfectly usable -- returning a partial receipt beats returning
+    # nothing and telling the user their receipt had no food on it.
+    raw = (
+        '[\n {"name": "Eggs", "category": "fridge"},\n'
+        ' {"name": "Milk", "category": "fridge"},\n'
+        ' {"name": "Progresso Gluten Free Chicken No'
+    )
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs", "Milk"]
+
+
+def test_extract_json_array_salvages_an_array_with_a_trailing_comma():
+    raw = '[{"name": "Eggs", "category": "fridge"}, {"name": "Milk", "category": "fridge"},]'
+    items = inventory_service.parse_vision_response(raw)
+    assert [i["name"] for i in items] == ["Eggs", "Milk"]
+
+
+def test_extract_json_array_is_not_confused_by_brackets_inside_string_values():
+    # The prompt asks for a free-text "confidence_note", which is exactly
+    # where a model puts a bracketed aside.
+    raw = '[{"name": "Milk", "category": "fridge", "confidence_note": "abbreviated [GV 2% MLK GAL]"}]'
+    items = inventory_service.parse_vision_response(raw)
+    assert len(items) == 1
+    assert items[0]["confidence_note"] == "abbreviated [GV 2% MLK GAL]"
+
+
+def test_extract_json_array_still_honors_a_genuinely_empty_array():
+    # The prompt tells the model to answer `[]` when nothing on the
+    # receipt is food -- that must keep meaning "no food", not be
+    # "recovered" into something else by the salvage paths above.
+    assert inventory_service.parse_vision_response("[]") == []
+    assert inventory_service.parse_vision_response("  []  ") == []
+
+
+def test_extract_json_array_returns_nothing_for_prose_only_and_empty_responses():
+    assert inventory_service.parse_vision_response("I could not find any food items on this receipt.") == []
+    assert inventory_service.parse_vision_response("") == []
+    assert inventory_service.parse_vision_response("   ") == []
