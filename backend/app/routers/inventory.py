@@ -103,98 +103,56 @@ Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
 # doubling to survive .format(), and the bullet list alone is unambiguous
 # without one.
 RECEIPT_IMPORT_PROMPT = """\
-You are extracting grocery/food items from either a photo of a paper \
-receipt, a PDF receipt, or a plain-text list of items someone typed or \
-pasted. Today's date is {today}. Here is the content to parse:
+You are extracting food/grocery items that were purchased, from a photo \
+of a paper receipt, a PDF receipt, or a plain-text list someone typed or \
+pasted. Today's date is {today}. Content to parse:
 
 {content}
 
-Extract every actual food/grocery line item that was purchased or listed. \
-SKIP anything that is not itself a purchasable item: subtotals, tax, \
-total, tender/change amounts, coupons, loyalty/rewards messages, store \
-name/address/phone, and cashier/register/date-time header lines.
-
-A real receipt or order can have MANY lines -- 15, 20, or more. You MUST \
-evaluate every single line individually, in order, from the first item \
-through the very last one before the subtotal, no matter how long the \
-list is. Do not stop early, do not summarize, and do not skip a run of \
-lines just because you have already found several items -- keep going \
-until every line has been considered. It is also common for the SAME \
-brand or product name to appear on two or more SEPARATE lines (e.g. the \
-same soup purchased in two different flavors, or the same item bought \
-twice at different times) -- each PRINTED LINE is its own purchase and \
-gets its own JSON object in your output. Never merge, deduplicate, or \
-combine two distinct lines into one entry just because their names look \
-similar; only skip a line if it is genuinely not a food/grocery item per \
-the rules below.
-
-This is a FOOD inventory, not a general purchase log -- a real store \
-receipt (Walmart, Target, a grocery store, etc.) very often mixes food in \
-with household and personal items on the SAME receipt. You MUST also SKIP \
-every non-food line item, including but not limited to: household/\
-cleaning supplies (paper towels, lint rollers, laundry detergent, trash \
-bags), personal care/hygiene/beauty products (soap, cotton swabs, \
-floss, shampoo, conditioner, lotion), over-the-counter medication/\
+List every food/grocery line item that was purchased, one JSON object \
+per printed line -- even if two lines share the same product name, they \
+are separate purchases and are never merged into one entry. Skip \
+subtotal, tax, total, tender/change, coupon/loyalty, and store/cashier/\
+date header lines. Also skip any non-food purchase mixed onto the same \
+receipt: household/cleaning supplies (paper towels, lint rollers, \
+laundry detergent), personal care/hygiene/beauty products (soap, cotton \
+swabs, floss, shampoo, conditioner), over-the-counter medication/\
 vitamins/supplements (probiotics, pain relievers, allergy pills), pet \
-food/litter/supplies, baby items that aren't food (diapers, wipes), \
-clothing, electronics, toys, and office/school supplies. When genuinely \
-unsure whether something is food (e.g. a pet treat, a protein bar that \
-could read as either food or supplement), include it but say so plainly \
-in "confidence_note" rather than silently guessing either way. It is \
-far better to skip a real food item by mistake (the user can add it \
-manually) than to fill a food-inventory list with lint rollers and cat \
-litter.
+food/litter/supplies, non-food baby items (diapers, wipes), clothing, \
+electronics, toys, and office/school supplies. If genuinely unsure \
+whether something is food, include it and explain the uncertainty in \
+"confidence_note" rather than guessing either way.
 
-Receipt item names are frequently abbreviated by point-of-sale systems \
-(e.g. "ORG BANANA", "GV 2% MLK GAL"). Expand these into a normal, \
-readable food name when you are reasonably confident what it means (e.g. \
-"Organic bananas", "Great Value 2% milk, 1 gallon"). If an abbreviation \
-is genuinely ambiguous, keep your best-guess name but say so in \
-"confidence_note" -- never silently invent a specific brand or variety \
-you are not reasonably sure of.
+Expand abbreviated point-of-sale names into normal readable names when \
+you're reasonably confident (e.g. "ORG BANANA" -> "Organic bananas"); \
+note real ambiguity in "confidence_note" instead of inventing a specific \
+brand or variety you aren't sure of.
 
-Look for a single order/transaction date printed once near the top of the \
-receipt or order confirmation (e.g. "Jul 30, 2026 order", "Order Date:", \
-a header timestamp) -- that ONE date applies to every item in this list, \
-since a receipt records a single purchase event. If the printed date has \
-no year (common on register receipts), assume the most recent occurrence \
-of that month/day on or before today's date given above, not a future \
-date. If genuinely no date is printed anywhere, use null -- never guess \
-a date from nothing.
+"estimated_quantity" is the purchased quantity -- how many were bought \
+(usually an explicit "Qty" next to the price; default to 1 if none is \
+shown) -- never a size/count descriptor baked into the product's own \
+name (e.g. "6 Count", "24 oz", "4 Pack"). Put that descriptor in "unit" \
+instead (e.g. "8 oz bag", "14 oz can", "4-pack of 8 fl oz bottles") so \
+it's captured, not discarded, without ever overwriting the purchased \
+quantity -- a "6 Count" hot-dog package is 1 purchased item, not 6, \
+exactly like a "500 g" bag is 1 item, not 500. "count" is a reasonable \
+default unit when nothing more specific is available.
 
-Getting "estimated_quantity" and "unit" right requires distinguishing TWO \
-different numbers that often both appear on the same line, and this is a \
-common mistake to avoid: (1) how many of that item/package were actually \
-PURCHASED -- usually shown as an explicit "Qty"/quantity next to the \
-price (default to 1 if the source shows no explicit purchase quantity for \
-a line), and (2) a size/count descriptor that is part of the PRODUCT'S \
-OWN NAME, describing what's inside a single package (e.g. "6 Count", "24 \
-oz", "4 Pack", "300 Count"). "estimated_quantity" is ALWAYS the first one \
-(how many were purchased) -- NEVER the second. The same "never invent a \
-conversion" principle applies here as everywhere else in this app: a \
-"6 Count" hot-dog package is 1 purchased item, not 6, exactly like a \
-"500 g" bag is 1 item, not 500. If the product's own name states a size/\
-count descriptor, put that in "unit" instead (e.g. "8 oz bag", "14 oz \
-can", "300 count", "4-pack of 8 fl oz bottles") so the size information \
-is captured, not discarded -- just never let it overwrite the purchased \
-quantity. When nothing more specific is available, "count" is a \
-reasonable default unit rather than leaving it null.
+"unit_price" is the line's own printed price for its whole purchased \
+quantity as printed (e.g. "Qty 2 ... $6.96" means "unit_price": 6.96, \
+covering both), not a re-derived per-single-unit price -- null if no \
+price is printed for that line.
 
-If a per-line price is printed (the item's own price, not a subtotal/tax/ \
-total), extract it into "unit_price" as a plain number with no currency \
-symbol -- this field name means the price paid for that line's WHOLE \
-purchased quantity as printed (e.g. "Qty 2 ... $6.96" means \
-"unit_price": 6.96, covering both), not a re-derived per-single-unit \
-price. Use null if no price is printed for that line.
+"purchased_date" is the single order/transaction date printed once near \
+the top (e.g. "Jul 30, 2026 order", "Order Date:") -- formatted \
+"YYYY-MM-DD", the SAME value for every item on this receipt. If the \
+printed date has no year, use the most recent occurrence of that \
+month/day on or before today, not a future date. Use null only if no \
+date is printed anywhere -- never guess one from nothing.
 
-Before responding, double check: have you produced one JSON object for \
-EVERY food/grocery line in the source, all the way to the last line \
-before the subtotal, with no two distinct lines merged together?
-
-Respond with ONLY a JSON array (no other text, no markdown fences) -- if \
-truly nothing on this receipt/list is food, respond with an empty array \
-`[]`, never prose explaining why. Each element of the array is an object \
-with these keys:
+Respond with ONLY a JSON array (no other text, no markdown fences) -- an \
+empty array `[]` only if this source genuinely contains zero food/\
+grocery items. Each element of the array is an object with these keys:
 - "name": string, the food item's name
 - "estimated_quantity": number or null -- see the purchased-quantity-vs-\
 package-size guidance above
@@ -207,7 +165,7 @@ item is typically still good for, or null if you can't estimate -- this \
 is always a category-based estimate, never something printed on the \
 source
 - "purchased_date": string "YYYY-MM-DD" or null -- see the date guidance \
-above; the SAME value for every item on one receipt
+above
 - "unit_price": number or null -- see the price guidance above
 - "confidence_note": a short string noting any uncertainty (e.g. an \
 ambiguous abbreviation, or "included despite being borderline food"), or \
@@ -221,36 +179,59 @@ null
 # sent to the model) -- it was the model dropping items partway through
 # a long, repetitive list.
 #
-# CORRECTION (2026-08-02, same day): the first attempt at a fix set only
-# `temperature=0.1`, on the unverified assumption that a lower
+# CORRECTION #1 (2026-08-02, same day): the first attempt at a fix set
+# only `temperature=0.1`, on the unverified assumption that a lower
 # temperature makes a local model more likely to mechanically finish a
 # long enumeration. That assumption was never checked against this
-# model's own documentation before shipping, which was a mistake --
-# exactly the kind of guess this project can't afford more of. The
-# author then pulled real data straight from their own Ollama container
-# (`ollama show qwen3.5:9b`), which showed this model's baked-in default
-# parameters are `temperature=1, presence_penalty=1.5, top_p=0.95,
-# top_k=20` -- and Qwen's own official documentation (Hugging Face model
-# card, Qwen/Qwen3.5-9B, checked live) recommends, for non-thinking
-# general tasks specifically, `temperature=0.7, top_p=0.8, top_k=20,
-# presence_penalty=1.5, repetition_penalty=1.0`. Two things follow: (1)
-# `presence_penalty=1.5` is NOT an unusual/aggressive value some
-# community Modelfile added -- it's Qwen's own documented recommendation
-# for exactly this model in exactly this mode, so leaving it alone was
-# correct. (2) Overriding ONLY `temperature` down to 0.1 while leaving
-# `presence_penalty` at its baked-in 1.5 created a combination Qwen
-# never tested or recommends -- not their general-task preset (0.7/1.5)
-# and not their reasoning-task preset (1.0/2.0). A strong presence
-# penalty pushes the model away from repeating tokens it already used
-# (relevant here: JSON schema keys repeated once per item, and any
-# receipt with two lines of the same product); at very low temperature
-# the model has little room to pick a good alternative once its
-# preferred token is penalized, which is a plausible way to get
-# degenerate or incomplete output. Replaced the guess with Qwen's own
-# tested general-task recommendation, set explicitly rather than relying
-# on this Ollama library build's own baked-in defaults (which may not be
-# identical across quantizations/rebuilds). Applied to both receipt
-# intake paths (text/PDF below, and the photo path in import_inventory).
+# model's own documentation before shipping. The author then pulled real
+# data straight from their own Ollama container (`ollama show
+# qwen3.5:9b`), which showed this model's baked-in default parameters
+# are `temperature=1, presence_penalty=1.5, top_p=0.95, top_k=20` -- and
+# Qwen's own official documentation (Hugging Face model card,
+# Qwen/Qwen3.5-9B, checked live, and cross-checked against a discussion
+# thread comparing two sections of that same README against each other)
+# recommends, for non-thinking general tasks specifically,
+# `temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5,
+# repetition_penalty=1.0`. `presence_penalty=1.5` is NOT an unusual/
+# aggressive value some community Modelfile added -- it's Qwen's own
+# documented recommendation. The bug was overriding ONLY `temperature`
+# down to 0.1 while leaving `presence_penalty` at its baked-in 1.5, a
+# combination Qwen never tested or recommends. Fixed by setting all four
+# values explicitly to Qwen's own tested general-task recommendation.
+#
+# CORRECTION #2 (2026-08-02, same day, after correction #1 deployed):
+# the author retried with corrected sampling and got a clean, non-
+# truncated, exception-free response of literally `[]` -- confirmed via
+# real `docker compose logs` output showing `done_reason='stop'`
+# (not "length" -- generation was NOT cut off) and `eval_count=2` (only
+# two output tokens: the model didn't attempt the task, it took the
+# prompt's own "if truly nothing is food, respond with `[]`" escape
+# hatch almost immediately). A controlled live A/B against the author's
+# real Ollama container -- same receipt text, same corrected sampling
+# options, only the prompt differing -- proved this decisively: the
+# FULL prompt at the time (7723 chars, six paragraphs of rules including
+# a "MANY lines... do not stop early... do not summarize" meta-paragraph
+# and a "before responding, double check" pre-response checklist added
+# by the earlier "4 of 8 items" fix above) reproduced `[]` in 2 output
+# tokens; a stripped-down ~1800-char prompt with the SAME text and
+# options immediately began extracting real items (`eval_count=107`).
+# The prompt itself, not sampling or parsing, was overwhelming this 9B
+# model into bailing out via its own documented escape hatch rather
+# than attempting the task. BUT the minimal test prompt also let a
+# "Purina Friskies ... Wet Cat Food" line through despite being told to
+# skip "pet" items -- proving brevity isn't free, it costs instruction-
+# following accuracy on the exclusion rules specifically. Rewritten
+# above to cut the verbose meta-commentary (the "MANY lines" paragraph
+# and the pre-response checklist, both added by the earlier fix and
+# both absent from the minimal prompt that worked) while keeping the
+# detailed non-food exclusion list and field-level guidance intact
+# (since THOSE need the detail per the cat-food miss). Roughly half the
+# character count of the version this replaces. Not yet verified live
+# against a real long multi-item receipt at this exact length -- only
+# the two tested extremes (7723 chars failing, ~1800 chars succeeding
+# but under-filtering) have real data; this is a reasoned middle point,
+# not a third empirically-confirmed data point, and is worth the author
+# retesting once deployed.
 _RECEIPT_EXTRA_OPTIONS = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
 
 

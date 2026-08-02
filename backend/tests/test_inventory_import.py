@@ -94,20 +94,29 @@ def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quanti
 # second "Progresso Gluten Free..." line for a different soup, were
 # genuinely present in the ~1400 chars sent to the model (nowhere near
 # the ~13,000-char budget), so this was the model itself stopping
-# partway through a long list, not a truncation bug. Fixed with an
-# explicit anti-stop/anti-merge instruction in the prompt (below), plus
-# a sampling-options fix -- see _RECEIPT_EXTRA_OPTIONS's own docstring
-# in routers/inventory.py for the full story, including a same-day
-# correction: the first attempt (temperature=0.1 alone) was an
-# unverified guess, replaced once the author pulled this model's real
-# baked-in parameters and Qwen's own documented recommendation showed
-# the guess combined badly with this model's presence_penalty. -------
+# partway through a long list, not a truncation bug. See
+# _RECEIPT_EXTRA_OPTIONS's docstring in routers/inventory.py for the
+# full two-correction story: correction #1 fixed sampling params using
+# real data pulled from the author's own Ollama container plus Qwen's
+# documented recommendation; correction #2 -- the one that matters for
+# the tests below -- used a live A/B test against the author's real
+# container to prove the PROMPT ITSELF (specifically the verbose
+# "evaluate every single line, do not stop early" meta-paragraph and a
+# "before responding, double check" checklist added by the original fix
+# for this same bug) was overwhelming this 9B model into bailing out to
+# a literal `[]` in 2 output tokens rather than attempting the task.
+# Both were cut; the completeness requirement is now a single clause
+# folded into the main instruction instead of a standalone paragraph. --
 
 
-def test_receipt_import_prompt_instructs_evaluating_every_line_without_stopping_early():
+def test_receipt_import_prompt_instructs_one_json_object_per_printed_line():
+    # Replaces the earlier "do not stop early... every single line"
+    # meta-paragraph, which the live A/B test in the module comment
+    # above proved was part of what made this model bail out to `[]`.
+    # This still asserts the completeness requirement is present, just
+    # via the shorter phrasing that replaced it.
     rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
-    assert "do not stop early" in rendered
-    assert "every single line" in rendered or "every line" in rendered
+    assert "one json object" in rendered and "per printed line" in rendered
 
 
 def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():

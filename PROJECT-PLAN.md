@@ -1099,6 +1099,49 @@ Picked as "the next feature (no preference)" per the author's compound message t
 
 ## Session log
 
+- **2026-08-02**: REAL ROOT CAUSE of the receipt-import "0 items" saga, found via a live, controlled
+  A/B test against the author's actual Ollama container rather than another guess -- this is the
+  entry that finally resolved it, after the sampling-options correction directly below turned out
+  to be necessary but not sufficient. The author retried the fixed code and shared real
+  `docker compose logs` output: `done=True done_reason='stop' eval_count=2 prompt_eval_count=2043
+  content_chars=2 content_preview='[]'`. Read precisely rather than pattern-matched onto a prior
+  theory: `done_reason='stop'` (not `"length"`) proves generation was NOT cut off by the context
+  window; `prompt_eval_count=2043` confirms the full, untruncated, correct 1423-char receipt text
+  reached the model (matches the independently-recomputed expected token count from two entries
+  ago); `eval_count=2` means the model generated exactly two output tokens -- it didn't attempt the
+  task and fail partway, it answered immediately with the prompt's own literal escape-hatch text,
+  `[]`. This ruled out truncation, parsing, thinking-routing, and sampling-parameter mismatch all at
+  once -- every prior fix in this saga was independently correct and is still needed, none of them
+  caused this. To find the actual cause without guessing again, ran a controlled live experiment:
+  wrote a script (reusing the app's own `ollama_client.chat`, so its existing logging did the
+  measuring) that sent the SAME real receipt text through two calls with IDENTICAL, already-corrected
+  sampling options -- Test A used the current full `RECEIPT_IMPORT_PROMPT` (7723 chars) as a control,
+  Test B used a deliberately minimal ~1800-char prompt with the same task. The author ran it against
+  their real container. Result: Test A reproduced `[]`/`eval_count=2` exactly again; Test B
+  immediately began extracting real items (`eval_count=107`, real JSON with real item names). This is
+  as close to a proof as this investigation gets: the PROMPT ITSELF, not any code path, was causing
+  this specific 9B model to bail out via its own documented "if truly nothing is food, respond with
+  `[]`" escape hatch rather than attempt a task it apparently judged too complex to execute. One
+  important nuance the same A/B surfaced and did NOT ignore: Test B's minimal prompt also let a
+  "Purina Friskies ... Wet Cat Food" line through despite being told to skip "pet" items -- proving
+  prompt brevity has a real accuracy cost, not just a free win. Rewrote `RECEIPT_IMPORT_PROMPT`
+  accordingly: cut the two additions from the earlier "4 of 8 items" fix that are also the two
+  sections absent from the minimal prompt that worked -- a "MANY lines... do not stop early... do not
+  summarize" meta-paragraph and a "before responding, double check" pre-response checklist -- folding
+  the completeness requirement into a single clause in the main instruction instead. Kept the detailed
+  non-food exclusion list and field-level (quantity/unit/price/date) guidance fully intact, since the
+  cat-food miss shows THAT detail earns its keep. Net result: prompt template shrank from 6307 to 3629
+  characters (~42% shorter), rendered-with-real-content from 7724 to 5046 chars -- a reasoned point
+  between the two empirically-tested extremes (1800 under-filtering, 7723 bailing out entirely), not
+  itself a third tested data point. One test's premise no longer held (the removed meta-paragraph) and
+  was replaced with an equivalent-intent assertion against the new phrasing rather than deleted
+  outright; the anti-merge test needed no change since its replacement phrasing still satisfies the
+  original assertion. 535 backend tests passing (same count -- one test swapped, not added/removed).
+  **Not yet verified live**: this exact ~5000-char rendered length hasn't itself been tested against
+  the real model -- worth the author retrying the same real PDF import after this deploys and sharing
+  the `[ollama_client]` log line one more time, this time hopefully to confirm success rather than
+  diagnose failure.
+
 - **2026-08-02**: Correction to the receipt-import sampling-options fix (two entries below this
   one), same day, prompted directly by the author pulling real data from their own Ollama
   container rather than accepting another guess. The prior fix set `temperature=0.1` on the
