@@ -345,7 +345,15 @@ export default function DiningPage() {
               Search radius (km)
               <input
                 type="number"
-                min="0.1"
+                // Bug fix (2026-08-02, author-reported): min="0.1" + step="0.5"
+                // meant the browser's native step validation only accepted
+                // 0.1, 0.6, 1.1, ...4.6, 5.1... -- the default value of 5 was
+                // never actually a valid step from that min, so submitting
+                // with the untouched default (or several other round numbers)
+                // failed native validation with "enter a valid value" despite
+                // a number clearly being present. min="0.5" makes every
+                // half-step round number (0.5, 1, 1.5, ...5...) valid.
+                min="0.5"
                 max="20"
                 step="0.5"
                 value={radiusKm}
