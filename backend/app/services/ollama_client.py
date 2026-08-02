@@ -200,14 +200,31 @@ def extract_content(response) -> str:
     return content or ""
 
 
-def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
+def chat(
+    db: Session, messages: list[dict], model: str | None = None, extra_options: dict | None = None
+) -> dict:
     """messages: OpenAI/Ollama-style list of {"role", "content"} dicts.
     Returns the raw Ollama response dict. Connection errors propagate --
     callers (chat endpoint, Phase 7) decide how to surface a friendly
-    "Ollama unreachable" message."""
+    "Ollama unreachable" message.
+
+    `extra_options` (2026-08-02, author-reported follow-up: a receipt
+    import with `think=False` now correctly populates content, but only
+    captured 4 of 8 real food items from a real 15-line receipt --
+    verified by extracting that exact PDF's text locally and confirming
+    ALL 8 items were genuinely present in what was sent to the model, so
+    this is not a truncation/budget bug, it's the model itself stopping
+    partway through a long list. Merged into the num_ctx options dict
+    (never silently overwritten -- `extra_options` wins on key
+    collision) so a caller doing extraction over a long, repetitive list
+    can request e.g. a low `temperature` for more complete, less
+    "creative" recall, without changing the default behavior for
+    every other caller (meal planning genuinely benefits from some
+    creativity; extraction does not)."""
     client = _client(db)
     chat_model = model or settings_service.get_setting(db, "ollama_chat_model")
     num_ctx = _num_ctx(db)
+    options = {"num_ctx": num_ctx, **(extra_options or {})}
     last_content = messages[-1].get("content", "") if messages else ""
     _log_call("chat", settings_service.get_setting(db, "ollama_base_url"), chat_model, num_ctx, len(last_content))
     try:
@@ -216,7 +233,7 @@ def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
         # thinking-capable model (e.g. the default qwen3.5:9b) spend
         # generation time/tokens on one -- and leaving thinking on is
         # exactly what caused message.content to come back empty.
-        response = client.chat(model=chat_model, messages=messages, options={"num_ctx": num_ctx}, think=False)
+        response = client.chat(model=chat_model, messages=messages, options=options, think=False)
     except Exception as exc:
         print(f"[ollama_client] chat EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
         raise
@@ -224,13 +241,17 @@ def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
     return response
 
 
-def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | None = None) -> dict:
+def describe_image(
+    db: Session, image_bytes: bytes, prompt: str, model: str | None = None, extra_options: dict | None = None
+) -> dict:
     """For inventory photo intake (Phase 3): send an image to the
     configured vision model with a text prompt asking it to identify
-    food items and, where visible, quantity/expiration."""
+    food items and, where visible, quantity/expiration. `extra_options`
+    -- see chat()'s docstring."""
     client = _client(db)
     vision_model = model or settings_service.get_setting(db, "ollama_vision_model")
     num_ctx = _num_ctx(db)
+    options = {"num_ctx": num_ctx, **(extra_options or {})}
     _log_call("describe_image", settings_service.get_setting(db, "ollama_base_url"), vision_model, num_ctx, len(prompt))
     try:
         # think=False -- see chat() above, same reasoning applies to the
@@ -238,7 +259,7 @@ def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | No
         response = client.chat(
             model=vision_model,
             messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
-            options={"num_ctx": num_ctx},
+            options=options,
             think=False,
         )
     except Exception as exc:

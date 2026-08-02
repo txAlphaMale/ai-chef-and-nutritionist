@@ -133,6 +133,46 @@ def test_extract_content_falls_back_to_str_for_a_totally_unexpected_shape():
     assert ollama_client.extract_content("not a response object at all") == "not a response object at all"
 
 
+def test_chat_merges_extra_options_with_num_ctx(db_session):
+    # Author follow-up (2026-08-02): a real receipt with 8 food items
+    # only came back with 4 even with think=False -- verified the full
+    # text genuinely reached the model (not a truncation bug), so
+    # extra_options exists to let a caller request e.g. a lower
+    # temperature for more complete list extraction. Must be MERGED with
+    # num_ctx, not replace it.
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "ok"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(
+            db_session, [{"role": "user", "content": "hi"}], extra_options={"temperature": 0.1}
+        )
+    _, kwargs = mock_client.chat.call_args
+    assert kwargs["options"] == {"num_ctx": 8192, "temperature": 0.1}
+
+
+def test_describe_image_merges_extra_options_with_num_ctx(db_session):
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "ok"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.describe_image(
+            db_session, b"fake-bytes", "describe this", extra_options={"temperature": 0.1}
+        )
+    _, kwargs = mock_client.chat.call_args
+    assert kwargs["options"] == {"num_ctx": 8192, "temperature": 0.1}
+
+
+def test_chat_without_extra_options_only_sends_num_ctx(db_session):
+    # Default behavior for every OTHER caller (meal planning, recipe
+    # generation, chat) must stay exactly as before -- no unexpected keys
+    # sneaking into `options` for callers that don't ask for them.
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "ok"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    _, kwargs = mock_client.chat.call_args
+    assert kwargs["options"] == {"num_ctx": 8192}
+
+
 def test_chat_logs_thinking_chars_when_answer_is_routed_to_thinking_not_content(db_session, capsys):
     # The exact bug this whole investigation uncovered: a thinking model
     # can return a fully successful response (done=True, eval_count>0)

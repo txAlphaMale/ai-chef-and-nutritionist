@@ -17,7 +17,12 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.routers.inventory import RECEIPT_IMPORT_PROMPT, _inventory_import_job, _receipt_text_extraction
+from app.routers.inventory import (
+    RECEIPT_IMPORT_PROMPT,
+    _RECEIPT_EXTRA_OPTIONS,
+    _inventory_import_job,
+    _receipt_text_extraction,
+)
 from app.services import inventory_service
 
 _TODAY = "2026-08-02"
@@ -79,6 +84,41 @@ def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quanti
     rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
     assert "6 count" in rendered
     assert "never" in rendered and "purchased quantity" in rendered
+
+
+# ---- Bug fix (2026-08-02, author-reported live against a real 15-line
+# Walmart receipt with 8 genuine food items): the importer correctly
+# excluded all 7 non-food lines (proving the exclusion instruction works)
+# but only returned 4 of the 8 real food items -- verified by extracting
+# that exact PDF's text locally and confirming all 8 lines, including a
+# second "Progresso Gluten Free..." line for a different soup, were
+# genuinely present in the ~1400 chars sent to the model (nowhere near
+# the ~13,000-char budget), so this was the model itself stopping
+# partway through a long list, not a truncation bug. Two-part fix: an
+# explicit anti-stop/anti-merge instruction in the prompt, and a lower
+# `temperature` (via the new ollama_client.chat/describe_image
+# `extra_options` parameter) to make a local model more likely to
+# mechanically finish a long enumeration. ---------------------------
+
+
+def test_receipt_import_prompt_instructs_evaluating_every_line_without_stopping_early():
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    assert "do not stop early" in rendered
+    assert "every single line" in rendered or "every line" in rendered
+
+
+def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    assert "never merge" in rendered or "do not merge" in rendered
+    assert "separate" in rendered or "distinct" in rendered
+
+
+def test_receipt_text_extraction_uses_a_low_temperature_for_more_complete_extraction(db_session):
+    with patch("app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}) as mock_chat:
+        _receipt_text_extraction(db_session, "some receipt text")
+    _, kwargs = mock_chat.call_args
+    assert kwargs["extra_options"] == _RECEIPT_EXTRA_OPTIONS
+    assert _RECEIPT_EXTRA_OPTIONS["temperature"] < 0.5  # meaningfully lower than Ollama's own default (~0.8)
 
 
 def test_parse_vision_response_extracts_unit_price_and_purchased_date():

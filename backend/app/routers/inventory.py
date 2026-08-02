@@ -114,6 +114,20 @@ SKIP anything that is not itself a purchasable item: subtotals, tax, \
 total, tender/change amounts, coupons, loyalty/rewards messages, store \
 name/address/phone, and cashier/register/date-time header lines.
 
+A real receipt or order can have MANY lines -- 15, 20, or more. You MUST \
+evaluate every single line individually, in order, from the first item \
+through the very last one before the subtotal, no matter how long the \
+list is. Do not stop early, do not summarize, and do not skip a run of \
+lines just because you have already found several items -- keep going \
+until every line has been considered. It is also common for the SAME \
+brand or product name to appear on two or more SEPARATE lines (e.g. the \
+same soup purchased in two different flavors, or the same item bought \
+twice at different times) -- each PRINTED LINE is its own purchase and \
+gets its own JSON object in your output. Never merge, deduplicate, or \
+combine two distinct lines into one entry just because their names look \
+similar; only skip a line if it is genuinely not a food/grocery item per \
+the rules below.
+
 This is a FOOD inventory, not a general purchase log -- a real store \
 receipt (Walmart, Target, a grocery store, etc.) very often mixes food in \
 with household and personal items on the SAME receipt. You MUST also SKIP \
@@ -173,6 +187,10 @@ purchased quantity as printed (e.g. "Qty 2 ... $6.96" means \
 "unit_price": 6.96, covering both), not a re-derived per-single-unit \
 price. Use null if no price is printed for that line.
 
+Before responding, double check: have you produced one JSON object for \
+EVERY food/grocery line in the source, all the way to the last line \
+before the subtotal, with no two distinct lines merged together?
+
 Respond with ONLY a JSON array (no other text, no markdown fences) -- if \
 truly nothing on this receipt/list is food, respond with an empty array \
 `[]`, never prose explaining why. Each element of the array is an object \
@@ -195,6 +213,24 @@ above; the SAME value for every item on one receipt
 ambiguous abbreviation, or "included despite being borderline food"), or \
 null
 """
+
+# Bug fix (2026-08-02, author-reported): a real 15-line Walmart receipt
+# with 8 genuine food items only came back with 4 -- verified by
+# extracting that exact PDF's text locally with this app's own
+# extract_pdf_text and confirming all 8 items were genuinely present in
+# what was sent to the model (1423 chars, nowhere near the ~13,000-char
+# budget), so this was not a truncation/budget bug, it was the model
+# itself stopping partway through a long, repetitive list (it also
+# dropped a second "Progresso Gluten Free..." line, suggesting it may
+# have treated a repeated brand/product name as an already-covered
+# duplicate rather than a separate purchased line -- see the prompt's
+# new anti-merge instruction above). A lower temperature makes local
+# open-weight models noticeably more likely to mechanically finish a
+# long enumeration instead of "coasting" -- worth applying to both
+# receipt intake paths (text/PDF below, and the photo path in
+# import_inventory) since the same completeness risk applies to either
+# input format equally.
+_RECEIPT_EXTRA_OPTIONS = {"temperature": 0.1}
 
 
 @router.get("", response_model=list[InventoryItemRead])
@@ -453,7 +489,7 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
         flush=True,
     )
     prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:budget], today=date.today().isoformat())
-    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
+    response = ollama_client.chat(db, [{"role": "user", "content": prompt}], extra_options=_RECEIPT_EXTRA_OPTIONS)
     raw_output = ollama_client.extract_content(response)
     print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
     return raw_output
@@ -518,7 +554,7 @@ async def import_inventory(
             source_type = "photo"
 
             def extractor(db: Session) -> str:
-                response = ollama_client.describe_image(db, raw_bytes, prompt)
+                response = ollama_client.describe_image(db, raw_bytes, prompt, extra_options=_RECEIPT_EXTRA_OPTIONS)
                 return ollama_client.extract_content(response)
 
         elif content_type == "application/pdf" or filename.endswith(".pdf"):

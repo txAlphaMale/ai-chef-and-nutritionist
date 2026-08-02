@@ -6,6 +6,8 @@ standing constraint as every other external-network feature in this
 project."""
 from __future__ import annotations
 
+import httpx
+
 from app.services import dining_service
 
 
@@ -227,35 +229,61 @@ def test_parse_ip_geolocation_response_optional_fields_default_none():
     assert result == {"lat": 30.0, "lon": -97.0, "city": None, "region": None, "country": None}
 
 
-# ---- search_nearby_restaurants headers (bug fix, 2026-08-02, author-
-# reported live: "502 Could not reach OpenStreetMap's Overpass API:
-# Client error 406 Not Acceptable") -------------------------------------
+# ---- search_nearby_restaurants headers + mirror fallback (bug fixes,
+# 2026-08-02, both author-reported live from the same "Look up" button)
+# -------------------------------------------------------------------
 #
-# Root cause: this call went out with no headers at all, so httpx sent
-# its own generic default User-Agent, which overpass-api.de rejects with
-# 406 as an anti-abuse measure. parse_overpass_response/build_overpass_
-# query above were already covered, but nothing exercised the actual
-# search_nearby_restaurants HTTP call itself -- this locks down the fix
-# by faking httpx.AsyncClient (same "no live egress from this sandbox"
-# constraint as every other external call in this project, see
-# test_barcode_lookup.py's sync equivalent) and asserting the real
-# identifying User-Agent header is present on the request.
+# First: "502 Could not reach OpenStreetMap's Overpass API: Client error
+# 406 Not Acceptable" -- this call went out with no headers at all, so
+# httpx sent its own generic default User-Agent, which overpass-api.de
+# rejects with 406 as an anti-abuse measure. Fixed by adding the
+# identifying User-Agent header.
+#
+# Then, AFTER that fix deployed: "502 Could not reach OpenStreetMap's
+# Overpass API: Server error '504 Gateway Timeout'" -- a genuinely
+# different failure, the free public overpass-api.de instance itself
+# being overloaded, not anything wrong with this app's request. Fixed by
+# falling back to a second, verified-live public mirror (private.coffee,
+# formerly kumi.systems -- see OVERPASS_FALLBACK_URL's own comment for
+# the live source used to confirm it) on a server-side (5xx/timeout/
+# connection) failure, while still failing fast (no fallback attempt) on
+# a 4xx client error, which would fail identically on the mirror.
+#
+# parse_overpass_response/build_overpass_query above were already
+# covered, but nothing exercised the actual search_nearby_restaurants
+# HTTP call itself before the User-Agent test below -- this fakes
+# httpx.AsyncClient (same "no live egress from this sandbox" constraint
+# as every other external call in this project, see test_barcode_lookup
+# .py's sync equivalent) with a SCRIPTED sequence of per-call behaviors,
+# since search_nearby_restaurants opens a fresh `async with
+# httpx.AsyncClient(...)` per attempt -- a single instance's own call
+# count can't distinguish "primary attempt" from "fallback attempt".
 
 
 class _FakeOverpassResponse:
-    def __init__(self, payload):
+    def __init__(self, payload=None, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
-        pass
+        if self.status_code >= 400:
+            request = httpx.Request("POST", "http://example.invalid")
+            response = httpx.Response(self.status_code, request=request)
+            raise httpx.HTTPStatusError(f"{self.status_code} error", request=request, response=response)
 
     def json(self):
         return self._payload
 
 
-class _FakeAsyncClient:
-    captured_headers = None
-    captured_url = None
+class _ScriptedAsyncClient:
+    """Each test sets `.behaviors` to a list consumed one-per-`.post()`
+    call, in order -- a `_FakeOverpassResponse` to return, or an
+    `Exception` instance to raise (simulating a timeout/connection
+    failure that never even produces a response object)."""
+
+    behaviors: list = []
+    captured_urls: list = []
+    captured_headers: list = []
 
     def __init__(self, timeout=None):
         pass
@@ -267,19 +295,78 @@ class _FakeAsyncClient:
         return False
 
     async def post(self, url, data=None, headers=None):
-        _FakeAsyncClient.captured_url = url
-        _FakeAsyncClient.captured_headers = headers
-        return _FakeOverpassResponse({"elements": []})
+        _ScriptedAsyncClient.captured_urls.append(url)
+        _ScriptedAsyncClient.captured_headers.append(headers)
+        behavior = _ScriptedAsyncClient.behaviors.pop(0)
+        if isinstance(behavior, Exception):
+            raise behavior
+        return behavior
+
+
+def _script(monkeypatch, behaviors):
+    _ScriptedAsyncClient.behaviors = list(behaviors)
+    _ScriptedAsyncClient.captured_urls = []
+    _ScriptedAsyncClient.captured_headers = []
+    monkeypatch.setattr(dining_service.httpx, "AsyncClient", _ScriptedAsyncClient)
 
 
 def test_search_nearby_restaurants_sends_identifying_user_agent(monkeypatch):
     import asyncio
 
-    monkeypatch.setattr(dining_service.httpx, "AsyncClient", _FakeAsyncClient)
+    _script(monkeypatch, [_FakeOverpassResponse({"elements": []})])
     asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
-    assert _FakeAsyncClient.captured_headers is not None
-    assert "User-Agent" in _FakeAsyncClient.captured_headers
-    assert _FakeAsyncClient.captured_headers["User-Agent"] != ""
+    headers = _ScriptedAsyncClient.captured_headers[0]
+    assert headers is not None
+    assert "User-Agent" in headers
+    assert headers["User-Agent"] != ""
     # Must not be left to httpx's own generic default -- that's the exact
     # bug: a real, non-empty, app-identifying string.
-    assert "chef-meal-planner" in _FakeAsyncClient.captured_headers["User-Agent"]
+    assert "chef-meal-planner" in headers["User-Agent"]
+
+
+def test_search_nearby_restaurants_falls_back_to_mirror_on_server_error(monkeypatch):
+    import asyncio
+
+    _script(
+        monkeypatch,
+        [_FakeOverpassResponse(status_code=504), _FakeOverpassResponse({"elements": []}, status_code=200)],
+    )
+    result = asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
+    assert result == []
+    assert _ScriptedAsyncClient.captured_urls == [dining_service.OVERPASS_URL, dining_service.OVERPASS_FALLBACK_URL]
+
+
+def test_search_nearby_restaurants_does_not_fall_back_on_client_error(monkeypatch):
+    # A 4xx means this app's own request is malformed -- retrying against
+    # the mirror would fail identically and just hide a real bug.
+    import asyncio
+
+    import pytest
+
+    _script(monkeypatch, [_FakeOverpassResponse(status_code=400)])
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
+    assert _ScriptedAsyncClient.captured_urls == [dining_service.OVERPASS_URL]  # never tried the mirror
+
+
+def test_search_nearby_restaurants_falls_back_to_mirror_on_timeout(monkeypatch):
+    import asyncio
+
+    _script(
+        monkeypatch,
+        [httpx.TimeoutException("timed out"), _FakeOverpassResponse({"elements": []})],
+    )
+    result = asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
+    assert result == []
+    assert _ScriptedAsyncClient.captured_urls == [dining_service.OVERPASS_URL, dining_service.OVERPASS_FALLBACK_URL]
+
+
+def test_search_nearby_restaurants_raises_if_both_primary_and_mirror_fail(monkeypatch):
+    import asyncio
+
+    import pytest
+
+    _script(monkeypatch, [_FakeOverpassResponse(status_code=504), _FakeOverpassResponse(status_code=504)])
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(dining_service.search_nearby_restaurants(30.2672, -97.7431, 5000))
+    assert _ScriptedAsyncClient.captured_urls == [dining_service.OVERPASS_URL, dining_service.OVERPASS_FALLBACK_URL]

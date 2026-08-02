@@ -54,6 +54,22 @@ import math
 import httpx
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Fallback mirror (2026-08-02, author-reported live: "502 Could not reach
+# OpenStreetMap's Overpass API: Server error '504 Gateway Timeout'", hit
+# AFTER the 406/User-Agent fix above already deployed -- a different,
+# genuine failure mode: overpass-api.de's own gateway returned a real 504,
+# meaning the free public instance was itself overloaded/slow, not
+# anything wrong with this app's request). overpass-api.de's own usage
+# policy page only asks callers to stay under 10,000 queries/day and 1GB/
+# day -- it doesn't promise uptime, and the public instance is a shared,
+# best-effort community resource. Verified live (wiki.openstreetmap.org/
+# wiki/Overpass_API, "Public Overpass API instances" table, fetched
+# 2026-08-02) rather than guessed at a URL: private.coffee's instance
+# (formerly overpass.kumi.systems) is a real, currently-listed, global-
+# coverage mirror with an explicit "no rate limit in place" policy and
+# comparable hardware (4 servers, 20 cores/256GB RAM each) -- a
+# reasonable single fallback rather than guessing at an arbitrary mirror.
+OVERPASS_FALLBACK_URL = "https://overpass.private.coffee/api/interpreter"
 OVERPASS_TIMEOUT = 20.0
 
 # Backlog B10.1 follow-up (author-requested 2026-08-02): geocoding, so an
@@ -189,22 +205,44 @@ async def search_nearby_restaurants(lat: float, lon: float, radius_m: int = 5000
     so this function itself is verified only by its two pure halves
     (build_overpass_query, parse_overpass_response) plus a live curl
     pass against the actual real deployment target once network access
-    exists there."""
+    exists there.
+
+    Bug fix (2026-08-02, author-reported live: a 406 first, then --
+    after that was fixed by adding the User-Agent header below -- a real
+    504 Gateway Timeout from overpass-api.de's own server). Tries the
+    main instance first, then falls back to OVERPASS_FALLBACK_URL ONLY on
+    a server-side failure (5xx status, timeout, or connection error) --
+    deliberately does NOT retry on a 4xx client error (e.g. a malformed
+    query), since that would fail identically on the mirror and just
+    delay surfacing a real bug in this app's own request."""
     query = build_overpass_query(lat, lon, radius_m)
-    async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
-        # Bug fix (2026-08-02, author-reported live: "502 Could not reach
-        # OpenStreetMap's Overpass API: Client error 406 Not Acceptable").
-        # This call went out with no headers at all, so httpx sent its own
-        # default User-Agent (e.g. "python-httpx/0.27.0"). overpass-api.de
-        # started rejecting generic/default HTTP-client User-Agents with
-        # 406 as an anti-abuse measure -- the same courtesy-identification
-        # requirement Nominatim's usage policy already documents below,
-        # just enforced by Overpass's own server instead of a written
-        # policy. Reuses the same identifying header for both OSM services
-        # rather than keeping two near-duplicate ones.
-        response = await client.post(OVERPASS_URL, data={"data": query}, headers=_osm_headers())
-        response.raise_for_status()
-    return parse_overpass_response(response.json(), lat, lon)
+    urls = (OVERPASS_URL, OVERPASS_FALLBACK_URL)
+    for attempt, url in enumerate(urls):
+        is_last_attempt = attempt == len(urls) - 1
+        try:
+            async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
+                # Bug fix (2026-08-02, author-reported live: "502 Could
+                # not reach OpenStreetMap's Overpass API: Client error
+                # 406 Not Acceptable"). This call went out with no
+                # headers at all, so httpx sent its own default User-
+                # Agent (e.g. "python-httpx/0.27.0"). overpass-api.de
+                # started rejecting generic/default HTTP-client User-
+                # Agents with 406 as an anti-abuse measure -- the same
+                # courtesy-identification requirement Nominatim's usage
+                # policy already documents below, just enforced by
+                # Overpass's own server instead of a written policy.
+                # Reuses the same identifying header for both OSM
+                # services rather than keeping two near-duplicate ones.
+                response = await client.post(url, data={"data": query}, headers=_osm_headers())
+                response.raise_for_status()
+            return parse_overpass_response(response.json(), lat, lon)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500 or is_last_attempt:
+                raise
+        except (httpx.TimeoutException, httpx.TransportError):
+            if is_last_attempt:
+                raise
+    raise AssertionError("unreachable -- the loop above always returns or raises on its last attempt")
 
 
 def _osm_headers() -> dict:
