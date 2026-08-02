@@ -31,6 +31,8 @@ separate UI" guidance.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -103,7 +105,7 @@ Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
 RECEIPT_IMPORT_PROMPT = """\
 You are extracting grocery/food items from either a photo of a paper \
 receipt, a PDF receipt, or a plain-text list of items someone typed or \
-pasted. Here is the content to parse:
+pasted. Today's date is {today}. Here is the content to parse:
 
 {content}
 
@@ -137,20 +139,58 @@ is genuinely ambiguous, keep your best-guess name but say so in \
 "confidence_note" -- never silently invent a specific brand or variety \
 you are not reasonably sure of.
 
+Look for a single order/transaction date printed once near the top of the \
+receipt or order confirmation (e.g. "Jul 30, 2026 order", "Order Date:", \
+a header timestamp) -- that ONE date applies to every item in this list, \
+since a receipt records a single purchase event. If the printed date has \
+no year (common on register receipts), assume the most recent occurrence \
+of that month/day on or before today's date given above, not a future \
+date. If genuinely no date is printed anywhere, use null -- never guess \
+a date from nothing.
+
+Getting "estimated_quantity" and "unit" right requires distinguishing TWO \
+different numbers that often both appear on the same line, and this is a \
+common mistake to avoid: (1) how many of that item/package were actually \
+PURCHASED -- usually shown as an explicit "Qty"/quantity next to the \
+price (default to 1 if the source shows no explicit purchase quantity for \
+a line), and (2) a size/count descriptor that is part of the PRODUCT'S \
+OWN NAME, describing what's inside a single package (e.g. "6 Count", "24 \
+oz", "4 Pack", "300 Count"). "estimated_quantity" is ALWAYS the first one \
+(how many were purchased) -- NEVER the second. The same "never invent a \
+conversion" principle applies here as everywhere else in this app: a \
+"6 Count" hot-dog package is 1 purchased item, not 6, exactly like a \
+"500 g" bag is 1 item, not 500. If the product's own name states a size/\
+count descriptor, put that in "unit" instead (e.g. "8 oz bag", "14 oz \
+can", "300 count", "4-pack of 8 fl oz bottles") so the size information \
+is captured, not discarded -- just never let it overwrite the purchased \
+quantity. When nothing more specific is available, "count" is a \
+reasonable default unit rather than leaving it null.
+
+If a per-line price is printed (the item's own price, not a subtotal/tax/ \
+total), extract it into "unit_price" as a plain number with no currency \
+symbol -- this field name means the price paid for that line's WHOLE \
+purchased quantity as printed (e.g. "Qty 2 ... $6.96" means \
+"unit_price": 6.96, covering both), not a re-derived per-single-unit \
+price. Use null if no price is printed for that line.
+
 Respond with ONLY a JSON array (no other text, no markdown fences) -- if \
 truly nothing on this receipt/list is food, respond with an empty array \
 `[]`, never prose explaining why. Each element of the array is an object \
 with these keys:
 - "name": string, the food item's name
-- "estimated_quantity": number or null (default to 1 if the source shows \
-no explicit quantity for a line item)
-- "unit": string or null (e.g. "count", "lbs", "oz", "gallon")
+- "estimated_quantity": number or null -- see the purchased-quantity-vs-\
+package-size guidance above
+- "unit": string or null (e.g. "count", "lbs", "oz", "gallon", "8 oz \
+bag") -- see the guidance above
 - "category": one of "pantry", "fridge", "freezer", "produce", "spice", \
 "other"
 - "estimated_expiration_days": integer number of days from today this \
-item is typically still good for, or null if you can't estimate -- \
-receipts/lists never print an expiration date, so this is always a \
-category-based estimate, not something read off the source
+item is typically still good for, or null if you can't estimate -- this \
+is always a category-based estimate, never something printed on the \
+source
+- "purchased_date": string "YYYY-MM-DD" or null -- see the date guidance \
+above; the SAME value for every item on one receipt
+- "unit_price": number or null -- see the price guidance above
 - "confidence_note": a short string noting any uncertainty (e.g. an \
 ambiguous abbreviation, or "included despite being borderline food"), or \
 null
@@ -396,7 +436,7 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     caller now runs this from inside a job body on the background worker
     thread, never from a request handler awaiting it directly, so there's
     nothing left to await here."""
-    prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:8000])
+    prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:8000], today=date.today().isoformat())
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
@@ -449,7 +489,9 @@ async def import_inventory(
         filename = (file.filename or "").lower()
 
         if content_type.startswith("image/"):
-            prompt = RECEIPT_IMPORT_PROMPT.format(content="[see attached photo of a receipt]")
+            prompt = RECEIPT_IMPORT_PROMPT.format(
+                content="[see attached photo of a receipt]", today=date.today().isoformat()
+            )
             source_type = "photo"
 
             def extractor(db: Session) -> str:

@@ -151,10 +151,33 @@ def parse_vision_response(raw_text: str, today: date | None = None) -> list[dict
                 "unit": entry.get("unit") or None,
                 "category": category,
                 "expiration_date": expiration_date,
+                # Bug fix (2026-08-02, author-reported): these two keys
+                # were never read here even though RECEIPT_IMPORT_PROMPT
+                # now asks the model for them and VisionDetectedItem has
+                # had fields for both since the B10.3 order-history
+                # importer -- they were silently dropped on the floor for
+                # every AI-driven import (receipt/photo/PDF/pasted text),
+                # even when the model dutifully returned them, because
+                # this function just never looked for them.
+                "unit_price": _safe_float(entry.get("unit_price")),
+                "purchased_date": _safe_iso_date(entry.get("purchased_date")),
                 "confidence_note": entry.get("confidence_note") or None,
             }
         )
     return items
+
+
+def _safe_iso_date(value) -> date | None:
+    """Parses a model-provided "YYYY-MM-DD" string into a real date,
+    returning None (never raising) for anything else -- a null, an
+    empty string, or a malformed value a model occasionally produces
+    despite the prompt's explicit format instruction."""
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
 
 
 def _extract_json_array(raw_text: str) -> list:

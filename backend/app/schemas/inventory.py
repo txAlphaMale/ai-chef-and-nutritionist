@@ -18,8 +18,10 @@ class InventoryItemBase(BaseModel):
     is_priority: bool = False
     priority_note: str | None = None
     # Backlog B10.3 -- price actually paid for this quantity, as
-    # purchased. Nullable: most intake sources have no price signal;
-    # today only the order-history importer populates this.
+    # purchased. Nullable: many intake sources (a manual add, a bare
+    # pantry photo) genuinely have no price signal. Populated by the
+    # order-history importer, and, since 2026-08-02, the receipt/list AI
+    # import too when a per-line price is printed on the source.
     unit_price: float | None = None
     notes: str | None = None
 
@@ -165,8 +167,11 @@ class VisionDetectedItem(BaseModel):
     expiration_date: date | None = None
     confidence_note: str | None = None
     # Backlog B10.3 -- optional so this shape keeps working unchanged for
-    # every intake source that has no price signal (vision, receipt/list
-    # AI import); populated only by the order-history importer below.
+    # intake sources with no price/date signal at all (a bare pantry
+    # photo has neither). Populated by the order-history importer, and,
+    # since 2026-08-02, by the receipt/list AI import too whenever the
+    # source actually prints a price and/or a purchase date -- see
+    # RECEIPT_IMPORT_PROMPT and inventory_service.parse_vision_response.
     unit_price: float | None = None
     purchased_date: date | None = None
 
