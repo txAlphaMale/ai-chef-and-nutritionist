@@ -317,11 +317,9 @@ export const WIKI_ENTRIES = [
             "land on a bare JSON response (`{\"status\":\"ok\"}` or similar) -- that's expected, this address is " +
             "the API, not a page meant to be browsed. Trusting it is all that matters.",
           "Reload the frontend address from step 4 (not a hard requirement, but clears up any page that loaded " +
-            "mid-transition). The camera and location features now work. Bookmark the new `https://...:5174` " +
-            "address going forward -- the old plain-HTTP address on port 5173 still works for everything except " +
-            "camera/location (Chef deliberately doesn't auto-redirect the frontend's HTTP port to HTTPS; see the " +
-            "note in `docker-entrypoint.sh` for why), so it's easy to accidentally end up back on it via an old " +
-            "bookmark or browser history entry.",
+            "mid-transition). The camera and location features now work. The old plain-HTTP address on port " +
+            "5173 now auto-redirects to the HTTPS one -- an old bookmark or browser history entry still lands " +
+            "you in the right place, no manual re-typing needed.",
         ],
       },
       {

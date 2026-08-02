@@ -19,14 +19,14 @@
 #    origin the PAGE ITSELF loaded from -- the frontend needs to serve
 #    HTTPS too, not only the API it calls.
 #
-# Known simplification, stated plainly rather than silently missing:
-# unlike the backend (which keeps a tiny redirect listener on its old
-# HTTP port once HTTPS takes over, see backend/app/run_server.py), this
-# script does NOT run an HTTP-to-HTTPS redirect on FRONTEND_PORT once
-# HTTPS is active -- `serve` has no built-in way to do that, and writing
-# a second Node listener just for a redirect wasn't worth it for what's
-# a one-time, one-line bookmark update (http://host:5173 ->
-# https://host:5174). See the in-app WIKI's HTTPS entry.
+# 3. Backlog B15.1 follow-up (2026-08-02, author-requested): once HTTPS
+#    is active, ALSO runs a tiny plain-HTTP redirect listener on
+#    FRONTEND_PORT (redirect-server.js, plain Node `http`, no new
+#    dependency) so a bookmarked/typed http://host:5173 URL 307-redirects
+#    to https://host:5174 instead of going dead. Mirrors the backend's
+#    own redirect listener in backend/app/run_server.py. This used to be
+#    a documented, deliberate gap ("serve has no built-in way to do
+#    that") -- built now since the author asked for it directly.
 set -e
 
 BACKEND_PORT="${BACKEND_PORT:-8095}"
@@ -36,6 +36,7 @@ FRONTEND_HTTPS_PORT="${FRONTEND_HTTPS_PORT:-5174}"
 CERT_FILE="/app/tls/cert.pem"
 KEY_FILE="/app/tls/key.pem"
 SERVER_PID=""
+REDIRECT_PID=""
 
 cert_active() {
   [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]
@@ -72,16 +73,29 @@ start_server() {
   if cert_active; then
     echo "[chef-frontend] starting HTTPS on port ${FRONTEND_HTTPS_PORT} (cert: ${CERT_FILE})..."
     serve -s dist -l "tcp://0.0.0.0:${FRONTEND_HTTPS_PORT}" --ssl-cert "$CERT_FILE" --ssl-key "$KEY_FILE" &
+    SERVER_PID=$!
+    echo "[chef-frontend] also starting a plain-HTTP redirect on port ${FRONTEND_PORT} -> https://<host>:${FRONTEND_HTTPS_PORT}..."
+    REDIRECT_LISTEN_PORT="$FRONTEND_PORT" REDIRECT_TARGET_PORT="$FRONTEND_HTTPS_PORT" node redirect-server.js &
+    REDIRECT_PID=$!
   else
     echo "[chef-frontend] starting plain HTTP on port ${FRONTEND_PORT} (no certificate yet -- set one up under Settings > Security > Certificate)..."
     serve -s dist -l "tcp://0.0.0.0:${FRONTEND_PORT}" &
+    SERVER_PID=$!
+    REDIRECT_PID=""
   fi
-  SERVER_PID=$!
+}
+
+stop_server() {
+  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
+  [ -n "$REDIRECT_PID" ] && kill "$REDIRECT_PID" 2>/dev/null
+  wait "$SERVER_PID" 2>/dev/null || true
+  [ -n "$REDIRECT_PID" ] && wait "$REDIRECT_PID" 2>/dev/null
+  true
 }
 
 shutdown() {
   echo "[chef-frontend] shutting down..."
-  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
+  stop_server
   exit 0
 }
 trap shutdown TERM INT
@@ -104,13 +118,21 @@ while true; do
   current_state=$(cert_state)
   if [ "$current_state" != "$last_state" ]; then
     echo "[chef-frontend] certificate state changed -- restarting server..."
-    kill "$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
+    stop_server
     start_server
     last_state="$current_state"
   elif ! kill -0 "$SERVER_PID" 2>/dev/null; then
     echo "[chef-frontend] server process exited unexpectedly -- restarting..."
+    stop_server
     start_server
     last_state=$(cert_state)
+  elif [ -n "$REDIRECT_PID" ] && ! kill -0 "$REDIRECT_PID" 2>/dev/null; then
+    # Best-effort, matching redirect-server.js's own "must never take
+    # down the real HTTPS server" philosophy -- if just the redirect
+    # listener died (e.g. its port got taken by something else), restart
+    # only it rather than bouncing the whole main server too.
+    echo "[chef-frontend] redirect listener exited unexpectedly -- restarting it..."
+    REDIRECT_LISTEN_PORT="$FRONTEND_PORT" REDIRECT_TARGET_PORT="$FRONTEND_HTTPS_PORT" node redirect-server.js &
+    REDIRECT_PID=$!
   fi
 done

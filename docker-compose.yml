@@ -82,12 +82,12 @@ services:
       # Backlog B15.1 -- see the matching backend port above; the
       # frontend independently watches the same chef-tls volume and
       # switches to serving HTTPS here once a certificate appears (see
-      # frontend/docker-entrypoint.sh). Known simplification: unlike the
-      # backend, the frontend does NOT run a plain-HTTP-to-HTTPS
-      # redirect listener on FRONTEND_PORT once HTTPS takes over -- a
-      # bookmarked http://host:5173 link will need to be manually
-      # updated to https://host:5174 rather than auto-redirecting. See
-      # the in-app WIKI's HTTPS entry.
+      # frontend/docker-entrypoint.sh). Backlog B15.1 follow-up
+      # (2026-08-02, author-requested): the frontend now ALSO runs a
+      # plain-HTTP-to-HTTPS redirect listener on FRONTEND_PORT once HTTPS
+      # is active (redirect-server.js) -- a bookmarked http://host:5173
+      # link auto-redirects to https://host:5174 instead of needing a
+      # manual update.
       - "${FRONTEND_HTTPS_PORT:-5174}:${FRONTEND_HTTPS_PORT:-5174}"
     volumes:
       # Backlog B15.1 -- read-only: the frontend only ever READS the

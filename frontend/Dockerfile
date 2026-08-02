@@ -10,6 +10,7 @@ WORKDIR /app
 RUN npm install -g serve
 COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh .
+COPY redirect-server.js .
 RUN chmod +x docker-entrypoint.sh
 
 # Backlog B15.1 (2026-08-01) -- shared with the backend container via
