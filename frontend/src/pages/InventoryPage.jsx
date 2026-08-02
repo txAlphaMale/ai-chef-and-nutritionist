@@ -114,6 +114,14 @@ export default function InventoryPage() {
   const [showImportForm, setShowImportForm] = useState(false);
   const importJob = useBackgroundJob("chef.job.inventory_import"); // B11.1, same rationale as visionJob above
   const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text" | "order_history"
+  // Bug fix (2026-08-02, author-reported): "Parse text" and the file-upload
+  // button both derive their busy label from the same shared importJob, so
+  // BOTH showed "Parsing..." at once no matter which one was actually
+  // clicked -- looked like two things were parsing when only one was.
+  // Tracks which button actually triggered the in-flight job so only that
+  // one shows "Parsing...."; the other stays disabled (can't start a
+  // second import mid-job either way) but keeps its normal label.
+  const [importTrigger, setImportTrigger] = useState(null); // "text" | "file" | null
   const [importItems, setImportItems] = useState(null); // editable rows, or null when no preview is active
   const [importText, setImportText] = useState("");
   // Bug fix (2026-08-02, author-reported): confirming an import previously
@@ -290,6 +298,7 @@ export default function InventoryPage() {
 
   async function handleImportText() {
     if (!importText.trim()) return;
+    setImportTrigger("text");
     const formData = new FormData();
     formData.append("text", importText);
     await runImport(formData);
@@ -298,6 +307,7 @@ export default function InventoryPage() {
   async function handleImportFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImportTrigger("file");
     const formData = new FormData();
     formData.append("file", file);
     await runImport(formData);
@@ -364,6 +374,7 @@ export default function InventoryPage() {
   function discardImport() {
     setImportItems(null);
     setImportSourceType(null);
+    setImportTrigger(null);
     importJob.clear();
     setImportText("");
     setImportConfirmError(null);
@@ -474,8 +485,21 @@ export default function InventoryPage() {
           <option value="spice">Spice</option>
           <option value="other">Other</option>
         </select>
-        <button className="btn btn-primary" onClick={() => setShowAddForm((v) => !v)}>
-          {showAddForm ? "Close" : "+ Add item"}
+        {/* Bug fix (2026-08-02, author-reported): these four buttons used
+            to all swap their label to a bare "Close" while open, so with
+            more than one panel open at once the toolbar showed several
+            identical, unlabeled "Close" buttons in a row with no way to
+            tell which one belonged to which panel below. Each button now
+            keeps its own distinct label at all times and gets a
+            highlighted "pressed" style (`.btn-toggle-active`) plus
+            `aria-pressed` while its panel is open -- click the SAME
+            button again to close that specific panel. */}
+        <button
+          className={showAddForm ? "btn btn-toggle-active" : "btn btn-primary"}
+          aria-pressed={showAddForm}
+          onClick={() => setShowAddForm((v) => !v)}
+        >
+          + Add item
         </button>
         <label className="btn btn-secondary file-btn">
           {visionJob.busy ? (
@@ -488,21 +512,30 @@ export default function InventoryPage() {
           )}
           <input type="file" accept="image/*" onChange={handleVisionUpload} disabled={visionJob.busy} hidden />
         </label>
-        <button className="btn btn-secondary" onClick={() => setShowImportForm((v) => !v)}>
-          {showImportForm ? "Close" : "🧾 Import receipt/list"}
-        </button>
-        <button className="btn btn-secondary" onClick={() => setShowOrderImportForm((v) => !v)}>
-          {showOrderImportForm ? "Close" : "📊 Import order history"}
+        <button
+          className={showImportForm ? "btn btn-toggle-active" : "btn btn-secondary"}
+          aria-pressed={showImportForm}
+          onClick={() => setShowImportForm((v) => !v)}
+        >
+          🧾 Import receipt/list
         </button>
         <button
-          className="btn btn-secondary"
+          className={showOrderImportForm ? "btn btn-toggle-active" : "btn btn-secondary"}
+          aria-pressed={showOrderImportForm}
+          onClick={() => setShowOrderImportForm((v) => !v)}
+        >
+          📊 Import order history
+        </button>
+        <button
+          className={showScanner ? "btn btn-toggle-active" : "btn btn-secondary"}
+          aria-pressed={showScanner}
           onClick={() => {
             setBarcodeResult(null);
             setBarcodeLookupError(null);
             setShowScanner((v) => !v);
           }}
         >
-          {showScanner ? "Close" : "🔎 Scan barcode"}
+          🔎 Scan barcode
         </button>
       </div>
 
@@ -596,11 +629,15 @@ export default function InventoryPage() {
               onClick={handleImportText}
               disabled={importJob.busy || !importText.trim()}
             >
-              {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
-              {importJob.busy ? (importJob.status === "queued" ? "Queued..." : "Parsing...") : "Parse text"}
+              {importJob.busy && importTrigger === "text" && <span className="busy-spinner" aria-hidden="true" />}
+              {importJob.busy && importTrigger === "text"
+                ? importJob.status === "queued"
+                  ? "Queued..."
+                  : "Parsing..."
+                : "Parse text"}
             </button>
             <label className="btn btn-secondary file-btn">
-              {importJob.busy ? (
+              {importJob.busy && importTrigger === "file" ? (
                 <>
                   <span className="busy-spinner" aria-hidden="true" />
                   {importJob.status === "queued" ? "Queued..." : "Parsing..."}

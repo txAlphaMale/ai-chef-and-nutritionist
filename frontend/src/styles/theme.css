@@ -329,6 +329,20 @@ body {
   border-color: var(--color-border);
 }
 
+/* Bug fix (2026-08-02, author-reported): the Inventory toolbar's four
+   panel-toggle buttons all used to switch their label to the same bare
+   "Close" text while open -- with several panels open at once, that
+   produced multiple identical, context-free "Close" buttons in a row.
+   Each toggle button now keeps its own distinctive label at all times
+   (see InventoryPage.jsx) and gets this highlighted "pressed" treatment
+   instead, so which panel a given button belongs to -- and whether it's
+   currently open -- stays visually and textually unambiguous. */
+.btn-toggle-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
 .file-btn {
   display: inline-flex;
   align-items: center;
