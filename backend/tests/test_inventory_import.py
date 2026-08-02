@@ -94,11 +94,14 @@ def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quanti
 # second "Progresso Gluten Free..." line for a different soup, were
 # genuinely present in the ~1400 chars sent to the model (nowhere near
 # the ~13,000-char budget), so this was the model itself stopping
-# partway through a long list, not a truncation bug. Two-part fix: an
-# explicit anti-stop/anti-merge instruction in the prompt, and a lower
-# `temperature` (via the new ollama_client.chat/describe_image
-# `extra_options` parameter) to make a local model more likely to
-# mechanically finish a long enumeration. ---------------------------
+# partway through a long list, not a truncation bug. Fixed with an
+# explicit anti-stop/anti-merge instruction in the prompt (below), plus
+# a sampling-options fix -- see _RECEIPT_EXTRA_OPTIONS's own docstring
+# in routers/inventory.py for the full story, including a same-day
+# correction: the first attempt (temperature=0.1 alone) was an
+# unverified guess, replaced once the author pulled this model's real
+# baked-in parameters and Qwen's own documented recommendation showed
+# the guess combined badly with this model's presence_penalty. -------
 
 
 def test_receipt_import_prompt_instructs_evaluating_every_line_without_stopping_early():
@@ -113,12 +116,18 @@ def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():
     assert "separate" in rendered or "distinct" in rendered
 
 
-def test_receipt_text_extraction_uses_a_low_temperature_for_more_complete_extraction(db_session):
+def test_receipt_text_extraction_uses_qwens_documented_non_thinking_sampling_params(db_session):
+    # Values must match Qwen's own official non-thinking/general-task
+    # recommendation (temperature=0.7, top_p=0.8, top_k=20,
+    # presence_penalty=1.5 -- Qwen/Qwen3.5-9B model card, verified live)
+    # exactly, not an unverified guess -- see the module comment above
+    # and _RECEIPT_EXTRA_OPTIONS's docstring for why this replaced an
+    # earlier temperature=0.1-only attempt.
     with patch("app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}) as mock_chat:
         _receipt_text_extraction(db_session, "some receipt text")
     _, kwargs = mock_chat.call_args
     assert kwargs["extra_options"] == _RECEIPT_EXTRA_OPTIONS
-    assert _RECEIPT_EXTRA_OPTIONS["temperature"] < 0.5  # meaningfully lower than Ollama's own default (~0.8)
+    assert _RECEIPT_EXTRA_OPTIONS == {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
 
 
 def test_parse_vision_response_extracts_unit_price_and_purchased_date():

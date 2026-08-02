@@ -215,22 +215,43 @@ null
 """
 
 # Bug fix (2026-08-02, author-reported): a real 15-line Walmart receipt
-# with 8 genuine food items only came back with 4 -- verified by
-# extracting that exact PDF's text locally with this app's own
-# extract_pdf_text and confirming all 8 items were genuinely present in
-# what was sent to the model (1423 chars, nowhere near the ~13,000-char
-# budget), so this was not a truncation/budget bug, it was the model
-# itself stopping partway through a long, repetitive list (it also
-# dropped a second "Progresso Gluten Free..." line, suggesting it may
-# have treated a repeated brand/product name as an already-covered
-# duplicate rather than a separate purchased line -- see the prompt's
-# new anti-merge instruction above). A lower temperature makes local
-# open-weight models noticeably more likely to mechanically finish a
-# long enumeration instead of "coasting" -- worth applying to both
-# receipt intake paths (text/PDF below, and the photo path in
-# import_inventory) since the same completeness risk applies to either
-# input format equally.
-_RECEIPT_EXTRA_OPTIONS = {"temperature": 0.1}
+# with 8 genuine food items only came back with 4. Root cause was NOT a
+# truncation/budget bug (verified by extracting that exact PDF's text
+# locally and confirming all 8 items were genuinely present in what was
+# sent to the model) -- it was the model dropping items partway through
+# a long, repetitive list.
+#
+# CORRECTION (2026-08-02, same day): the first attempt at a fix set only
+# `temperature=0.1`, on the unverified assumption that a lower
+# temperature makes a local model more likely to mechanically finish a
+# long enumeration. That assumption was never checked against this
+# model's own documentation before shipping, which was a mistake --
+# exactly the kind of guess this project can't afford more of. The
+# author then pulled real data straight from their own Ollama container
+# (`ollama show qwen3.5:9b`), which showed this model's baked-in default
+# parameters are `temperature=1, presence_penalty=1.5, top_p=0.95,
+# top_k=20` -- and Qwen's own official documentation (Hugging Face model
+# card, Qwen/Qwen3.5-9B, checked live) recommends, for non-thinking
+# general tasks specifically, `temperature=0.7, top_p=0.8, top_k=20,
+# presence_penalty=1.5, repetition_penalty=1.0`. Two things follow: (1)
+# `presence_penalty=1.5` is NOT an unusual/aggressive value some
+# community Modelfile added -- it's Qwen's own documented recommendation
+# for exactly this model in exactly this mode, so leaving it alone was
+# correct. (2) Overriding ONLY `temperature` down to 0.1 while leaving
+# `presence_penalty` at its baked-in 1.5 created a combination Qwen
+# never tested or recommends -- not their general-task preset (0.7/1.5)
+# and not their reasoning-task preset (1.0/2.0). A strong presence
+# penalty pushes the model away from repeating tokens it already used
+# (relevant here: JSON schema keys repeated once per item, and any
+# receipt with two lines of the same product); at very low temperature
+# the model has little room to pick a good alternative once its
+# preferred token is penalized, which is a plausible way to get
+# degenerate or incomplete output. Replaced the guess with Qwen's own
+# tested general-task recommendation, set explicitly rather than relying
+# on this Ollama library build's own baked-in defaults (which may not be
+# identical across quantizations/rebuilds). Applied to both receipt
+# intake paths (text/PDF below, and the photo path in import_inventory).
+_RECEIPT_EXTRA_OPTIONS = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
 
 
 @router.get("", response_model=list[InventoryItemRead])
