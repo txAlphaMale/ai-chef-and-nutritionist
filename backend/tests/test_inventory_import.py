@@ -15,7 +15,9 @@ since that's the exact function this new intake source reuses unchanged.
 """
 from __future__ import annotations
 
-from app.routers.inventory import RECEIPT_IMPORT_PROMPT
+from unittest.mock import patch
+
+from app.routers.inventory import RECEIPT_IMPORT_PROMPT, _inventory_import_job, _receipt_text_extraction
 from app.services import inventory_service
 
 _TODAY = "2026-08-02"
@@ -138,3 +140,43 @@ def test_parse_vision_response_skips_non_item_entries_missing_a_name():
     items = inventory_service.parse_vision_response(raw)
     assert len(items) == 1
     assert items[0]["name"] == "Eggs"
+
+
+# ---- diagnostic logging (2026-08-02, author-reported: "you've tried and
+# failed three times... what do you need from me?") ---------------------
+#
+# Locks down that the new print()-based diagnostics on the receipt-import
+# path actually fire with real, useful numbers -- content length before/
+# after truncation, and the raw model output's length vs. how many items
+# it actually parsed into -- so the NEXT live import attempt's backend
+# logs are guaranteed to show real evidence (empty response? non-empty
+# but unparseable? parsed but 0 items?) instead of nothing at all.
+
+
+def test_receipt_text_extraction_logs_content_length_and_budget(db_session, capsys):
+    with patch("app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}):
+        _receipt_text_extraction(db_session, "some receipt text " * 50)
+    out = capsys.readouterr().out
+    assert "extracted_content_chars=" in out
+    assert "budget_chars=" in out
+    assert "raw_output_chars=2" in out  # len("[]")
+
+
+def test_inventory_import_job_logs_raw_output_length_vs_detected_count(db_session):
+    def fake_extractor(db):
+        return '[{"name": "Eggs", "category": "fridge"}, {"name": "Milk", "category": "fridge"}]'
+
+    with patch("app.routers.inventory.SessionLocal", return_value=db_session):
+        result = _inventory_import_job("text", fake_extractor)
+    assert len(result["detected_items"]) == 2
+
+
+def test_inventory_import_job_logs_zero_detected_items_when_response_is_empty(db_session, capsys):
+    # The exact reported symptom: extractor returns successfully (no
+    # exception) but with empty content -- must be visibly logged as
+    # "raw_output_chars=0 detected_items=0", not silent.
+    with patch("app.routers.inventory.SessionLocal", return_value=db_session):
+        result = _inventory_import_job("pdf", lambda db: "")
+    assert result["detected_items"] == []
+    out = capsys.readouterr().out
+    assert "raw_output_chars=0 detected_items=0" in out

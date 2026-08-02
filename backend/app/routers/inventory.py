@@ -447,9 +447,16 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     budget = ollama_client.content_char_budget(
         db, prompt_overhead_chars=len(RECEIPT_IMPORT_PROMPT), response_reserve_tokens=3000
     )
+    print(
+        f"[inventory._receipt_text_extraction] extracted_content_chars={len(content)} "
+        f"budget_chars={budget} truncated={len(content) > budget}",
+        flush=True,
+    )
     prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:budget], today=date.today().isoformat())
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    raw_output = response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
+    print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
+    return raw_output
 
 
 def _inventory_import_job(source_type: str, extractor) -> dict:
@@ -466,6 +473,11 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
     try:
         raw_output = extractor(db)
         detected = inventory_service.parse_vision_response(raw_output)
+        print(
+            f"[inventory._inventory_import_job] source_type={source_type!r} "
+            f"raw_output_chars={len(raw_output)} detected_items={len(detected)}",
+            flush=True,
+        )
         return InventoryImportResponse(detected_items=detected, raw_model_output=raw_output, source_type=source_type).model_dump()
     finally:
         db.close()

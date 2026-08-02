@@ -109,3 +109,81 @@ def test_content_char_budget_never_collapses_to_an_unusably_tiny_value(db_sessio
     settings_service.set_setting(db_session, "ollama_num_ctx", "2048")
     budget = ollama_client.content_char_budget(db_session, prompt_overhead_chars=50000, response_reserve_tokens=50000)
     assert budget > 0
+
+
+# ---- diagnostic print logging (2026-08-02, author-reported: "you've
+# tried and failed three times... what do you need from me?") ----------
+#
+# This module had ZERO logging anywhere before this -- every prior round
+# of debugging a live "0 items" report had to be reasoned about from
+# outside this sandbox (no live Ollama reachable here) with no way to see
+# what Ollama actually received or returned. These lock down that the new
+# print()-based diagnostics (chosen over `logging` to match this
+# codebase's own established docker-logs-visible convention, see
+# run_server.py) actually fire with the right, useful content -- so the
+# NEXT real import attempt's `docker compose logs backend` output is
+# guaranteed to show real evidence instead of nothing.
+
+
+def test_chat_logs_request_and_response_details(db_session, capsys):
+    settings_service.set_setting(db_session, "ollama_num_ctx", "8192")
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "hello world"}, "done": True}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(db_session, [{"role": "user", "content": "x" * 500}], model="test-model")
+    out = capsys.readouterr().out
+    assert "model='test-model'" in out
+    assert "num_ctx=8192" in out
+    assert "prompt_chars=500" in out
+    assert "content_chars=11" in out  # len("hello world")
+    assert "hello world" in out
+
+
+def test_chat_logs_empty_content_clearly_rather_than_hiding_it(db_session, capsys):
+    # The exact symptom under investigation: Ollama call succeeds (no
+    # exception), but message.content comes back empty. This must be
+    # loudly, unambiguously visible in the logs, not indistinguishable
+    # from a normal short response.
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": ""}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    out = capsys.readouterr().out
+    assert "content_chars=0" in out
+
+
+def test_chat_logs_and_reraises_on_exception(db_session, capsys):
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = RuntimeError("connection refused")
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        try:
+            ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+            assert False, "expected the exception to propagate"
+        except RuntimeError:
+            pass
+    out = capsys.readouterr().out
+    assert "EXCEPTION" in out
+    assert "connection refused" in out
+
+
+def test_chat_logs_an_unexpected_non_dict_response_without_crashing(db_session, capsys):
+    # Guards the logging code itself against the exact "what if the
+    # response isn't shaped how we assumed" scenario this whole
+    # investigation is about -- must never raise while trying to log.
+    mock_client = MagicMock()
+    mock_client.chat.return_value = "not a dict at all"
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        result = ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    assert result == "not a dict at all"
+    out = capsys.readouterr().out
+    assert "UNEXPECTED response type=str" in out
+
+
+def test_describe_image_logs_request_and_response_details(db_session, capsys):
+    mock_client = MagicMock()
+    mock_client.chat.return_value = {"message": {"content": "[]"}}
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
+        ollama_client.describe_image(db_session, b"fake-bytes", "describe this photo", model="test-vision-model")
+    out = capsys.readouterr().out
+    assert "describe_image" in out
+    assert "model='test-vision-model'" in out

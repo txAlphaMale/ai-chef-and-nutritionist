@@ -10,6 +10,21 @@ from sqlalchemy.orm import Session
 from app.models import SystemPrompt
 from app.services import settings_service
 
+# Diagnostic visibility (2026-08-02, author-reported): this module had
+# ZERO logging anywhere in it before this -- every prior round of
+# debugging a "receipt import returns 0 items" report had to be done by
+# reasoning about prompt/token math from OUTSIDE this sandbox (no live
+# Ollama reachable here), with no way to see what Ollama actually
+# received or returned for a real, live call. `print(..., flush=True)`
+# is used rather than the stdlib `logging` module to match this
+# codebase's own established convention for anything that must reliably
+# reach `docker compose logs` (see run_server.py) -- avoids any risk of
+# uvicorn's own logging config swallowing a `logging.getLogger()` call
+# that isn't wired into its dictConfig. Always-on, not gated behind a
+# debug flag: one line per AI call is cheap, and the alternative (no
+# visibility at all into the single most failure-prone part of this app)
+# is worse than a little log noise.
+
 
 def _client(db: Session) -> ollama.Client:
     base_url = settings_service.get_setting(db, "ollama_base_url")
@@ -83,6 +98,34 @@ def get_active_prompt(db: Session, prompt_key: str) -> str | None:
     return row.content if row else None
 
 
+def _log_call(label: str, base_url: str, model: str, num_ctx: int, prompt_chars: int) -> None:
+    print(
+        f"[ollama_client] -> {label} model={model!r} num_ctx={num_ctx} "
+        f"prompt_chars={prompt_chars} base_url={base_url!r}",
+        flush=True,
+    )
+
+
+def _log_response(label: str, response) -> None:
+    """Logs enough of the response shape to answer, from a real live
+    call, the exact question every prior debugging round could only
+    guess at: did Ollama return the expected {"message": {"content":
+    "..."}} shape at all, and if so, was "content" actually empty?
+    Never logs the full content (could be long/contain personal data,
+    e.g. bloodwork) -- a length plus a short preview is enough to tell
+    "empty," "truncated-looking," or "looks like real JSON" apart."""
+    if isinstance(response, dict):
+        content = response.get("message", {}).get("content", "")
+        preview = content[:300].replace("\n", " ")
+        print(
+            f"[ollama_client] <- {label} response_keys={list(response.keys())} "
+            f"content_chars={len(content)} content_preview={preview!r}",
+            flush=True,
+        )
+    else:
+        print(f"[ollama_client] <- {label} UNEXPECTED response type={type(response).__name__}: {response!r:.300}", flush=True)
+
+
 def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
     """messages: OpenAI/Ollama-style list of {"role", "content"} dicts.
     Returns the raw Ollama response dict. Connection errors propagate --
@@ -90,7 +133,16 @@ def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
     "Ollama unreachable" message."""
     client = _client(db)
     chat_model = model or settings_service.get_setting(db, "ollama_chat_model")
-    return client.chat(model=chat_model, messages=messages, options={"num_ctx": _num_ctx(db)})
+    num_ctx = _num_ctx(db)
+    last_content = messages[-1].get("content", "") if messages else ""
+    _log_call("chat", settings_service.get_setting(db, "ollama_base_url"), chat_model, num_ctx, len(last_content))
+    try:
+        response = client.chat(model=chat_model, messages=messages, options={"num_ctx": num_ctx})
+    except Exception as exc:
+        print(f"[ollama_client] chat EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
+        raise
+    _log_response("chat", response)
+    return response
 
 
 def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | None = None) -> dict:
@@ -99,11 +151,19 @@ def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | No
     food items and, where visible, quantity/expiration."""
     client = _client(db)
     vision_model = model or settings_service.get_setting(db, "ollama_vision_model")
-    return client.chat(
-        model=vision_model,
-        messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
-        options={"num_ctx": _num_ctx(db)},
-    )
+    num_ctx = _num_ctx(db)
+    _log_call("describe_image", settings_service.get_setting(db, "ollama_base_url"), vision_model, num_ctx, len(prompt))
+    try:
+        response = client.chat(
+            model=vision_model,
+            messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
+            options={"num_ctx": num_ctx},
+        )
+    except Exception as exc:
+        print(f"[ollama_client] describe_image EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
+        raise
+    _log_response("describe_image", response)
+    return response
 
 
 def embed(db: Session, text: str, model: str | None = None) -> list[float]:
