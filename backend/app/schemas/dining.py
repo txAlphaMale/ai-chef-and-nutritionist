@@ -22,3 +22,13 @@ class RestaurantCandidate(BaseModel):
     per_allergen: dict[str, str] = Field(default_factory=dict)
     allergens_with_no_data_source: list[str] = Field(default_factory=list)
     caution: str
+
+
+class GeocodeResult(BaseModel):
+    """One candidate match for a free-text address/zip lookup (backlog
+    B10.1 follow-up, 2026-08-02) -- see dining_service.geocode's
+    docstring for why this can return more than one result."""
+
+    lat: float
+    lon: float
+    display_name: str

@@ -215,7 +215,11 @@ export default function MealPlanPage() {
     <div>
       <div className="page-toolbar">
         {plans.length > 0 && (
-          <select value={selectedPlanId ?? ""} onChange={(e) => setSelectedPlanId(Number(e.target.value))}>
+          <select
+            value={selectedPlanId ?? ""}
+            aria-label="Select meal plan week"
+            onChange={(e) => setSelectedPlanId(Number(e.target.value))}
+          >
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
                 Week of {p.week_start_date} ({p.status})
@@ -322,11 +326,13 @@ export default function MealPlanPage() {
                     <span className="day-guidance-label">{day}</span>
                     <input
                       placeholder="tags, e.g. quick, portable"
+                      aria-label={`${day} guidance tags`}
                       value={guidance[i].tags}
                       onChange={(e) => updateGuidance(i, "tags", e.target.value)}
                     />
                     <input
                       placeholder="notes, e.g. picnic lunch"
+                      aria-label={`${day} guidance notes`}
                       value={guidance[i].notes}
                       onChange={(e) => updateGuidance(i, "notes", e.target.value)}
                     />
@@ -361,7 +367,11 @@ export default function MealPlanPage() {
                 <span className="preview-entry-label">
                   {DAY_NAMES[entry.day_of_week]} <span className="tag">{entry.meal_type}</span>
                 </span>
-                <select value={entry.selection} onChange={(e) => updatePreviewEntry(i, "selection", e.target.value)}>
+                <select
+                  value={entry.selection}
+                  aria-label={`Recipe for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type} (preview)`}
+                  onChange={(e) => updatePreviewEntry(i, "selection", e.target.value)}
+                >
                   <option value="">-- no recipe --</option>
                   {entry.new_recipe && <option value="new">New: {entry.new_recipe.title}</option>}
                   {recipeCatalog.map((r) => (
@@ -373,12 +383,14 @@ export default function MealPlanPage() {
                 <input
                   type="number"
                   min="1"
+                  aria-label={`Servings for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type} (preview)`}
                   value={entry.servings}
                   onChange={(e) => updatePreviewEntry(i, "servings", e.target.value)}
                   style={{ maxWidth: 70 }}
                 />
                 <input
                   placeholder="tags"
+                  aria-label={`Requested tags for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type} (preview)`}
                   value={entry.requested_tags}
                   onChange={(e) => updatePreviewEntry(i, "requested_tags", e.target.value)}
                 />

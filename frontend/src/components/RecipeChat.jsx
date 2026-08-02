@@ -138,10 +138,21 @@ export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
 
   return (
     <div className="card recipe-chat">
-      <div className="recipe-chat-header" onClick={() => setOpen((v) => !v)}>
+      {/* Accessibility fix (2026-08-02, backlog B7.4): this was a bare
+          <div onClick>, unreachable by keyboard and invisible to a
+          screen reader as an interactive control. A real <button> is
+          natively focusable/Enter-Space-activatable and gets a
+          role/name for free; aria-expanded announces open/closed state,
+          the same information the ▲/▼ glyph conveys visually. */}
+      <button
+        type="button"
+        className="recipe-chat-header"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
         <h3>💬 Ask the Chef about this recipe</h3>
-        <span>{open ? "▲" : "▼"}</span>
-      </div>
+        <span aria-hidden="true">{open ? "▲" : "▼"}</span>
+      </button>
       {open && (
         <>
           <p className="hint">
@@ -162,6 +173,7 @@ export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
           <div className="form-row">
             <input
               placeholder="I'm out of buttermilk, what can I use?"
+              aria-label="Ask the Chef about this recipe"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

@@ -56,6 +56,17 @@ import httpx
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT = 20.0
 
+# Backlog B10.1 follow-up (author-requested 2026-08-02): geocoding, so an
+# address or zip code works as well as manually-typed coordinates or
+# browser geolocation (the latter needing a secure context, and even then
+# capable of hanging/failing on some devices -- see PROJECT-PLAN.md's
+# geolocation bug-fix notes). Nominatim is OSM's own free, keyless
+# geocoder -- the same data-source family and "no per-user API key to
+# distribute with a self-hosted repo" reasoning as the Overpass search
+# above, not a new dependency class for this app.
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_TIMEOUT = 15.0
+
 # The diet:* keys this app actually surfaces per result -- restricted to
 # ones with real coverage in this app's own allergen taxonomy plus the
 # handful of broader dietary-pattern tags a household might also find
@@ -164,6 +175,54 @@ async def search_nearby_restaurants(lat: float, lon: float, radius_m: int = 5000
         response = await client.post(OVERPASS_URL, data={"data": query})
         response.raise_for_status()
     return parse_overpass_response(response.json(), lat, lon)
+
+
+def _nominatim_headers() -> dict:
+    # Nominatim's usage policy (operations.osmfoundation.org/policies/
+    # nominatim/) requires a real, identifying User-Agent -- generic/
+    # default HTTP client user-agents are explicitly disallowed and can
+    # get silently rate-limited or blocked. No API key involved, this
+    # header is the only non-optional part of using the service politely.
+    return {"User-Agent": "chef-meal-planner/1.0 (self-hosted personal use; no public deployment)"}
+
+
+def parse_nominatim_response(data: list) -> list[dict]:
+    """Pure -- turns raw Nominatim JSON results into a normalized list of
+    candidates. Independently testable without a network call, same
+    split as parse_overpass_response above. Skips any entry missing a
+    parseable lat/lon rather than raising -- real-world geocoder
+    responses occasionally include partial/malformed entries."""
+    results = []
+    for entry in data or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            lat = float(entry["lat"])
+            lon = float(entry["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        results.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "display_name": entry.get("display_name") or f"{lat}, {lon}",
+            }
+        )
+    return results
+
+
+async def geocode(query: str, limit: int = 5) -> list[dict]:
+    """The only other network call in this module, same "pure parser +
+    thin async network wrapper" split as search_nearby_restaurants above.
+    Returns up to `limit` candidates rather than just the top hit -- a
+    bare zip code or a common street name is genuinely ambiguous, and
+    letting the user pick the right one from a short list beats silently
+    trusting Nominatim's own ranking to be correct every time."""
+    params = {"q": query, "format": "jsonv2", "limit": limit, "addressdetails": 0}
+    async with httpx.AsyncClient(timeout=NOMINATIM_TIMEOUT) as client:
+        response = await client.get(NOMINATIM_URL, params=params, headers=_nominatim_headers())
+        response.raise_for_status()
+    return parse_nominatim_response(response.json())
 
 
 def evaluate_restrictions(place: dict, restricted_allergens: list[str], gluten_observance_level: str | None) -> dict:

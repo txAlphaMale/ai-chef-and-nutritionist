@@ -25,6 +25,19 @@ def test_receipt_import_prompt_formats_with_real_text():
     assert "{content}" not in rendered  # placeholder actually got filled, not left literal
 
 
+def test_receipt_import_prompt_instructs_skipping_non_food_items():
+    # Bug fix (2026-08-02, author-reported): a real Walmart order printout
+    # mixes food with household/personal-care/pet items on the same
+    # receipt, and the original prompt only told the model to skip
+    # subtotal/tax/tender lines -- nothing about non-food purchases. This
+    # locks down that the exclusion instruction is actually present so a
+    # future prompt edit can't silently drop it again.
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant")
+    for phrase in ("household", "personal care", "pet food", "supplements"):
+        assert phrase in rendered.lower()
+    assert "empty array" in rendered.lower()
+
+
 def test_receipt_import_prompt_formats_with_photo_placeholder():
     # Mirrors recipe_service.RECIPE_IMPORT_PROMPT's own trick: the same
     # template is reused for the image-upload path by substituting a

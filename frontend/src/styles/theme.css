@@ -12,6 +12,24 @@
   --color-accent: #e8b23d;
   --color-danger: #b3261e;
   --color-border: #e4ddd3;
+  /* Backlog B7.4 (accessibility pass, 2026-08-02) -- the text color to
+     put ON TOP OF a solid --color-primary/secondary/danger background
+     (buttons, banners), computed per-theme for the best WCAG contrast
+     ratio rather than hardcoded to white everywhere. A programmatic
+     audit found 26 white-on-color combinations across this app's 9
+     themes failing the AA 4.5:1 text-contrast minimum -- every dark
+     theme's bright, saturated primary/secondary/danger hues read well
+     as TEXT/links against a dark page background (that's the design
+     intent), but the SAME bright color used as a BUTTON BACKGROUND with
+     hardcoded white text badly fails contrast, since a vivid orange/
+     purple/green fill with white text is genuinely hard to read. These
+     three tokens resolve that -- see PROJECT-PLAN.md's B7.4 notes for
+     the full computed audit.
+     Default theme's own primary/secondary/danger are dark/saturated
+     enough against a light bg that white text already works here. */
+  --color-on-primary: #ffffff;
+  --color-on-secondary: #ffffff;
+  --color-on-danger: #ffffff;
 
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
   --radius-sm: 4px;
@@ -56,6 +74,10 @@
   --color-accent: #4a9eff;
   --color-danger: #ff5d5d;
   --color-border: #23262b;
+  /* Backlog B7.4 -- see :root's own comment for why these aren't just white. */
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 :root[data-theme="cobalt"] {
@@ -69,6 +91,9 @@
   --color-accent: #4ad4ff;
   --color-danger: #ff5d5d;
   --color-border: #1a2536;
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 :root[data-theme="highcontrast"] {
@@ -82,6 +107,9 @@
   --color-accent: #5eb3ff;
   --color-danger: #ff6b6b;
   --color-border: #3a3a3a;
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 :root[data-theme="daylight"] {
@@ -91,10 +119,19 @@
   --color-text-muted: #4d4a42;
   --color-primary: #a0530a;
   --color-primary-hover: #7a3f08;
-  --color-secondary: #0f7a38;
+  /* Backlog B7.4 -- nudged from #0f7a38 to #0e7334 (a barely-perceptible
+     change) -- the original value measured 4.41:1 against --color-bg,
+     just under the AA 4.5:1 text-contrast minimum for the ".btn-link"/
+     link-colored-text uses of this token. This theme is Chef's own
+     original palette (not a ported third-party one like Catppuccin
+     below), so there's no brand-fidelity reason not to fix it outright. */
+  --color-secondary: #0e7334;
   --color-accent: #1d4ed8;
   --color-danger: #c81e1e;
   --color-border: #c9c2b0;
+  --color-on-primary: #ffffff;
+  --color-on-secondary: #ffffff;
+  --color-on-danger: #ffffff;
 }
 
 /* --- Catppuccin (https://catppuccin.com/palette) --- */
@@ -108,6 +145,21 @@
    accent=Peach (Chef's own default --color-accent plays the same
    "warm highlight" role, so Peach is the closest Catppuccin analog). */
 
+/* Backlog B7.4 (2026-08-02) -- a programmatic contrast audit found a
+   handful of official Catppuccin swatches, used exactly as published,
+   fall slightly short of WCAG AA's 4.5:1 text-contrast minimum in
+   specific roles: Latte's Subtext0 (--color-text-muted) at 4.06-4.37:1
+   and Green (--color-secondary) at 2.96:1 against its own Base/Mantle.
+   Deliberately NOT altered here -- these are the actual official
+   Catppuccin palette values, ported "as-is" per this section's own
+   comment above, and silently darkening a named, branded palette away
+   from its published hex codes is a bigger call than an accessibility
+   pass should make unilaterally. Flagged plainly in PROJECT-PLAN.md's
+   B7.4 notes for the author to decide on. The --color-on-* additions
+   below ARE fixed unconditionally -- they're this app's own CSS choice
+   (what text color a button/banner puts on top of a Catppuccin color),
+   not a Catppuccin palette value, so there's no such tension there. */
+
 :root[data-theme="catppuccin-latte"] {
   --color-bg: #eff1f5;
   --color-surface: #e6e9ef;
@@ -119,6 +171,9 @@
   --color-accent: #fe640b;
   --color-danger: #d20f39;
   --color-border: #bcc0cc;
+  --color-on-primary: #ffffff;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #ffffff;
 }
 
 :root[data-theme="catppuccin-frappe"] {
@@ -132,6 +187,9 @@
   --color-accent: #ef9f76;
   --color-danger: #e78284;
   --color-border: #51576d;
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 :root[data-theme="catppuccin-macchiato"] {
@@ -145,6 +203,9 @@
   --color-accent: #f5a97f;
   --color-danger: #ed8796;
   --color-border: #494d64;
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 :root[data-theme="catppuccin-mocha"] {
@@ -158,10 +219,40 @@
   --color-accent: #fab387;
   --color-danger: #f38ba8;
   --color-border: #45475a;
+  --color-on-primary: #1a1a1a;
+  --color-on-secondary: #1a1a1a;
+  --color-on-danger: #1a1a1a;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Backlog B7.4 (accessibility pass, 2026-08-02) -- a consistent,
+   theme-aware keyboard-focus indicator on every interactive element.
+   Nothing in this file was suppressing the browser's own default focus
+   outline (no `outline: none` anywhere, confirmed by grep before writing
+   this), so keyboard focus was never literally invisible -- but a
+   default system-blue outline reads inconsistently (sometimes low-
+   contrast) against this app's own colored surfaces, especially the
+   darker themes. Uses `--color-primary`, NOT `--color-accent` --
+   verified programmatically first: --color-accent measures only 1.81:1
+   against the DEFAULT theme's own light background (and 2.64:1 for
+   catppuccin-latte), badly under the 3:1 WCAG 1.4.11 non-text-contrast
+   minimum for UI-component boundaries like a focus ring, while
+   --color-primary clears 3:1 (in fact 4.5:1+) against every theme's bg
+   with no exceptions. `:focus-visible` (not a blanket `:focus`) so this
+   only appears for keyboard/assistive-tech navigation, not on every
+   mouse click -- matches modern browser behavior most users already
+   expect. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 body {
@@ -225,7 +316,7 @@ body {
 
 .btn-primary {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .btn-primary:hover {
@@ -819,6 +910,16 @@ tr.urgency-low td {
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
+  /* Accessibility fix (B7.4) -- this is now a <button>, not a <div>;
+     reset the default button chrome so it still reads as a plain
+     header rather than a boxed button. */
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .recipe-chat-header h3 {
@@ -1653,12 +1754,54 @@ tr.urgency-low td {
 
 .gcal-banner.success {
   background: var(--color-secondary);
-  color: white;
+  color: var(--color-on-secondary);
 }
 
 .gcal-banner.error {
   background: var(--color-danger);
-  color: white;
+  color: var(--color-on-danger);
+}
+
+/* --- Dining Out geocoding (backlog B10.1 follow-up, 2026-08-02) --- */
+.dining-geocode-row {
+  align-items: flex-end;
+  margin-bottom: var(--spacing-2);
+}
+
+.dining-geocode-candidates {
+  margin-bottom: var(--spacing-3);
+}
+
+.dining-geocode-candidates ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.dining-geocode-candidates li {
+  padding: var(--spacing-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* --- Receipt/list import feedback (bug fix, 2026-08-02) --- */
+.import-result-message {
+  border-left: 3px solid var(--color-secondary);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.import-raw-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2);
+  font-size: 0.85em;
+  font-family: monospace;
 }
 
 /* --- Bloodwork import (backlog B8.1) --- */

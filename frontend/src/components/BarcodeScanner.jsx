@@ -141,6 +141,7 @@ export default function BarcodeScanner({ onDetected, onClose }) {
       <form className="barcode-scanner-manual" onSubmit={handleManualSubmit}>
         <input
           placeholder="Or type the barcode number"
+          aria-label="Barcode number"
           value={manualBarcode}
           onChange={(e) => setManualBarcode(e.target.value)}
           inputMode="numeric"

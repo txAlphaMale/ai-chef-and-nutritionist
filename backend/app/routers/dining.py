@@ -10,10 +10,33 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import HouseholdPreferences
-from app.schemas.dining import RestaurantCandidate
+from app.schemas.dining import GeocodeResult, RestaurantCandidate
 from app.services import dining_service
 
 router = APIRouter(prefix="/api/dining", tags=["dining"])
+
+
+@router.get("/geocode", response_model=list[GeocodeResult])
+async def geocode_location(query: str):
+    """Backlog B10.1 follow-up (author-requested 2026-08-02): an address
+    or zip code as a third way to set a search location, alongside manual
+    lat/lon and browser geolocation (the latter needing a secure context
+    and, even then, able to hang or fail on some devices -- see
+    PROJECT-PLAN.md's geolocation bug-fix notes). Returns candidate
+    matches for the frontend to let the user disambiguate, rather than
+    silently trusting the first result is the right one."""
+    query = query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Provide an address or zip code.")
+    try:
+        results = await dining_service.geocode(query)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Could not reach OpenStreetMap's geocoding service: {exc}"
+        ) from exc
+    if not results:
+        raise HTTPException(status_code=404, detail=f'Couldn\'t find a location matching "{query}".')
+    return results
 
 
 @router.get("/nearby", response_model=list[RestaurantCandidate])

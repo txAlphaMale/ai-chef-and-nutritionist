@@ -152,3 +152,39 @@ def test_evaluate_restrictions_never_returns_a_bare_safe_verdict():
     place = {"diet_tags": {"diet:gluten_free": "only"}}
     result = dining_service.evaluate_restrictions(place, ["gluten"], "strict_no_cross_contact")
     assert "safe" not in str(result).lower().replace("unsafe", "")
+
+
+# ---- parse_nominatim_response (backlog B10.1 follow-up, 2026-08-02) ----
+
+
+def test_parse_nominatim_response_extracts_candidates():
+    data = [
+        {"lat": "30.267200", "lon": "-97.743100", "display_name": "Austin, Travis County, Texas, USA"},
+        {"lat": "30.3000", "lon": "-97.7500", "display_name": "North Austin, Travis County, Texas, USA"},
+    ]
+    results = dining_service.parse_nominatim_response(data)
+    assert len(results) == 2
+    assert results[0] == {"lat": 30.2672, "lon": -97.7431, "display_name": "Austin, Travis County, Texas, USA"}
+
+
+def test_parse_nominatim_response_skips_unparseable_entries():
+    data = [
+        {"lat": "not-a-number", "lon": "-97.7431", "display_name": "Bad entry"},
+        {"lon": "-97.7431", "display_name": "Missing lat"},
+        "not even a dict",
+        {"lat": "30.27", "lon": "-97.74", "display_name": "Good entry"},
+    ]
+    results = dining_service.parse_nominatim_response(data)
+    assert len(results) == 1
+    assert results[0]["display_name"] == "Good entry"
+
+
+def test_parse_nominatim_response_empty_input():
+    assert dining_service.parse_nominatim_response([]) == []
+    assert dining_service.parse_nominatim_response(None) == []
+
+
+def test_parse_nominatim_response_falls_back_to_coordinates_when_no_display_name():
+    data = [{"lat": "30.27", "lon": "-97.74"}]
+    results = dining_service.parse_nominatim_response(data)
+    assert results[0]["display_name"] == "30.27, -97.74"

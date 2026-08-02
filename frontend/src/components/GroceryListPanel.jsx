@@ -169,11 +169,41 @@ export default function GroceryListPanel({ planId, refreshKey }) {
           </div>
         ))
       )}
+      {/* Accessibility fix (2026-08-02, backlog B7.4): these four fields
+          previously relied on `placeholder` alone, which isn't a reliable
+          accessible name (it disappears once text is entered and isn't
+          treated as a label by every screen reader). The checkbox above
+          (line ~155) is already fine as-is -- it's wrapped in a <label>
+          with visible text, which is a valid native accessible name. */}
       <form className="form-row" onSubmit={addItem}>
-        <input placeholder="Add item" value={newName} onChange={(e) => setNewName(e.target.value)} />
-        <input placeholder="qty" type="number" step="any" value={newQty} onChange={(e) => setNewQty(e.target.value)} style={{ maxWidth: 90 }} />
-        <input placeholder="unit" value={newUnit} onChange={(e) => setNewUnit(e.target.value)} style={{ maxWidth: 90 }} />
-        <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} style={{ maxWidth: 130 }}>
+        <input
+          placeholder="Add item"
+          aria-label="New grocery item name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+        />
+        <input
+          placeholder="qty"
+          aria-label="New grocery item quantity"
+          type="number"
+          step="any"
+          value={newQty}
+          onChange={(e) => setNewQty(e.target.value)}
+          style={{ maxWidth: 90 }}
+        />
+        <input
+          placeholder="unit"
+          aria-label="New grocery item unit"
+          value={newUnit}
+          onChange={(e) => setNewUnit(e.target.value)}
+          style={{ maxWidth: 90 }}
+        />
+        <select
+          value={newCategory}
+          aria-label="New grocery item category"
+          onChange={(e) => setNewCategory(e.target.value)}
+          style={{ maxWidth: 130 }}
+        >
           <option value="">(guess aisle)</option>
           {CATEGORY_ORDER.map((c) => (
             <option key={c} value={c}>

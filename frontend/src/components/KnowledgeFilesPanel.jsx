@@ -100,6 +100,7 @@ export default function KnowledgeFilesPanel() {
       <div className="form-row">
         <input
           placeholder="Description (optional)"
+          aria-label="Knowledge file description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           style={{ flex: 1 }}

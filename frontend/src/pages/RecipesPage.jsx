@@ -213,7 +213,12 @@ export default function RecipesPage() {
   return (
     <div>
       <div className="page-toolbar">
-        <input placeholder="Search recipes..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input
+          placeholder="Search recipes..."
+          aria-label="Search recipes"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <label className="checkbox-label inline">
           <input type="checkbox" checked={stapleOnly} onChange={(e) => setStapleOnly(e.target.checked)} />
           Staples only

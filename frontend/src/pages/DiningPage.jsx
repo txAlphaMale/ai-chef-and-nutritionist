@@ -39,6 +39,17 @@ export default function DiningPage() {
   const [sendError, setSendError] = useState(null);
   const [sendDone, setSendDone] = useState(null);
 
+  // Backlog B10.1 follow-up (author-requested 2026-08-02) -- a zip code
+  // or address as a third way to set a location, alongside manual lat/
+  // lon and "Use my location". Nominatim (OSM's free geocoder) sometimes
+  // returns several plausible matches for an ambiguous query (a bare zip
+  // spanning multiple towns, a common street name) -- those are shown as
+  // a pick list rather than silently trusting the first result.
+  const [addressQuery, setAddressQuery] = useState("");
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState(null);
+  const [geocodeCandidates, setGeocodeCandidates] = useState(null);
+
   useEffect(() => {
     api
       .get("/household/allergen-options")
@@ -125,6 +136,34 @@ export default function DiningPage() {
     );
   }
 
+  // Backlog B10.1 follow-up (author-requested 2026-08-02).
+  async function handleGeocode(e) {
+    e.preventDefault();
+    if (!addressQuery.trim()) return;
+    setGeocoding(true);
+    setGeocodeError(null);
+    setGeocodeCandidates(null);
+    try {
+      const candidates = await api.get(`/dining/geocode?query=${encodeURIComponent(addressQuery.trim())}`);
+      if (candidates.length === 1) {
+        applyGeocodeCandidate(candidates[0]);
+      } else {
+        setGeocodeCandidates(candidates);
+      }
+    } catch (err) {
+      setGeocodeError(err.message);
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  function applyGeocodeCandidate(candidate) {
+    setLat(String(candidate.lat.toFixed(5)));
+    setLon(String(candidate.lon.toFixed(5)));
+    setGeocodeCandidates(null);
+    setGeoStatus(null);
+  }
+
   async function handleSearch(e) {
     e.preventDefault();
     if (lat === "" || lon === "") {
@@ -188,6 +227,39 @@ export default function DiningPage() {
           restricted allergens. This is a best-effort check, not a guarantee -- always confirm with the
           restaurant directly, especially for a strict/celiac-level restriction.
         </p>
+        <div className="form-row dining-geocode-row">
+          <label style={{ flex: 1 }}>
+            Address or zip code
+            <input
+              placeholder="e.g. 78701 or 500 Congress Ave, Austin TX"
+              value={addressQuery}
+              onChange={(e) => setAddressQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleGeocode(e);
+              }}
+            />
+          </label>
+          <button type="button" className="btn btn-secondary" onClick={handleGeocode} disabled={geocoding || !addressQuery.trim()}>
+            {geocoding && <span className="busy-spinner" aria-hidden="true" />}
+            {geocoding ? "Looking up..." : "Look up"}
+          </button>
+        </div>
+        {geocodeError && <p className="error-text">{geocodeError}</p>}
+        {geocodeCandidates && geocodeCandidates.length > 0 && (
+          <div className="dining-geocode-candidates">
+            <p className="hint">Multiple matches -- pick the right one:</p>
+            <ul>
+              {geocodeCandidates.map((c, i) => (
+                <li key={i}>
+                  <button type="button" className="btn-link" onClick={() => applyGeocodeCandidate(c)}>
+                    {c.display_name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <form onSubmit={handleSearch}>
           <div className="form-row">
             <label>

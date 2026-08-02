@@ -112,6 +112,23 @@ SKIP anything that is not itself a purchasable item: subtotals, tax, \
 total, tender/change amounts, coupons, loyalty/rewards messages, store \
 name/address/phone, and cashier/register/date-time header lines.
 
+This is a FOOD inventory, not a general purchase log -- a real store \
+receipt (Walmart, Target, a grocery store, etc.) very often mixes food in \
+with household and personal items on the SAME receipt. You MUST also SKIP \
+every non-food line item, including but not limited to: household/\
+cleaning supplies (paper towels, lint rollers, laundry detergent, trash \
+bags), personal care/hygiene/beauty products (soap, cotton swabs, \
+floss, shampoo, conditioner, lotion), over-the-counter medication/\
+vitamins/supplements (probiotics, pain relievers, allergy pills), pet \
+food/litter/supplies, baby items that aren't food (diapers, wipes), \
+clothing, electronics, toys, and office/school supplies. When genuinely \
+unsure whether something is food (e.g. a pet treat, a protein bar that \
+could read as either food or supplement), include it but say so plainly \
+in "confidence_note" rather than silently guessing either way. It is \
+far better to skip a real food item by mistake (the user can add it \
+manually) than to fill a food-inventory list with lint rollers and cat \
+litter.
+
 Receipt item names are frequently abbreviated by point-of-sale systems \
 (e.g. "ORG BANANA", "GV 2% MLK GAL"). Expand these into a normal, \
 readable food name when you are reasonably confident what it means (e.g. \
@@ -120,8 +137,10 @@ is genuinely ambiguous, keep your best-guess name but say so in \
 "confidence_note" -- never silently invent a specific brand or variety \
 you are not reasonably sure of.
 
-Respond with ONLY a JSON array (no other text, no markdown fences) where \
-each element is an object with these keys:
+Respond with ONLY a JSON array (no other text, no markdown fences) -- if \
+truly nothing on this receipt/list is food, respond with an empty array \
+`[]`, never prose explaining why. Each element of the array is an object \
+with these keys:
 - "name": string, the food item's name
 - "estimated_quantity": number or null (default to 1 if the source shows \
 no explicit quantity for a line item)
@@ -133,7 +152,8 @@ item is typically still good for, or null if you can't estimate -- \
 receipts/lists never print an expiration date, so this is always a \
 category-based estimate, not something read off the source
 - "confidence_note": a short string noting any uncertainty (e.g. an \
-ambiguous abbreviation), or null
+ambiguous abbreviation, or "included despite being borderline food"), or \
+null
 """
 
 

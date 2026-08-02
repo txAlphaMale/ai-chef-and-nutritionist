@@ -116,6 +116,19 @@ export default function InventoryPage() {
   const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text" | "order_history"
   const [importItems, setImportItems] = useState(null); // editable rows, or null when no preview is active
   const [importText, setImportText] = useState("");
+  // Bug fix (2026-08-02, author-reported): confirming an import previously
+  // had no error handling at all -- a failed POST (network error, a
+  // validation error) silently did nothing, which is the most likely
+  // explanation for "I imported a receipt and nothing showed up" with no
+  // visible error anywhere. Also addresses the author's explicit ask for
+  // feedback on how many items were identified/added, and surfaces the
+  // raw model output so a real extraction problem (e.g. the model
+  // returning prose instead of JSON) is visible without needing
+  // browser-console/server-log access.
+  const [importConfirmError, setImportConfirmError] = useState(null);
+  const [importConfirmBusy, setImportConfirmBusy] = useState(false);
+  const [importResultMessage, setImportResultMessage] = useState(null);
+  const [showImportRawOutput, setShowImportRawOutput] = useState(false);
 
   // The job body returns the exact same {detected_items, raw_model_output,
   // source_type} shape the old synchronous endpoint used to return
@@ -125,6 +138,9 @@ export default function InventoryPage() {
   // before the page was last closed.
   useEffect(() => {
     if (!importJob.result) return;
+    setImportConfirmError(null);
+    setImportResultMessage(null);
+    setShowImportRawOutput(false);
     setImportSourceType(importJob.result.source_type);
     setImportItems(
       importJob.result.detected_items.map((d) => ({
@@ -250,9 +266,17 @@ export default function InventoryPage() {
       expiration_date: d.expiration_date || null,
       source: "vision",
     }));
-    await api.post("/inventory/vision-intake/confirm", { items });
-    visionJob.clear();
-    refresh();
+    try {
+      const created = await api.post("/inventory/vision-intake/confirm", { items });
+      visionJob.clear();
+      refresh();
+      window.alert(`Added ${created.length} item(s) to inventory.`);
+    } catch (err) {
+      // Bug fix (2026-08-02) -- this used to have no error handling at
+      // all, so a failed confirm (e.g. a validation error) silently did
+      // nothing with zero visible feedback.
+      window.alert(`Could not add these items: ${err.message}`);
+    }
   }
 
   async function runImport(formData) {
@@ -289,6 +313,7 @@ export default function InventoryPage() {
   }
 
   async function confirmImportItems() {
+    setImportConfirmError(null);
     const sourceTag =
       importSourceType === "photo"
         ? "import_photo"
@@ -310,9 +335,30 @@ export default function InventoryPage() {
         source: sourceTag,
       }));
     if (items.length === 0) return;
-    await api.post("/inventory/import/confirm", { items });
-    discardImport();
-    refresh();
+    setImportConfirmBusy(true);
+    try {
+      const created = await api.post("/inventory/import/confirm", { items });
+      discardImport();
+      refresh();
+      // Author-requested feedback (2026-08-02): a clear count of what
+      // actually landed in inventory -- persists across discardImport
+      // clearing the review table, since it's set AFTER that call, not
+      // wiped by it.
+      setImportResultMessage(
+        `Added ${created.length} item(s) to inventory` +
+          (created.length < items.length ? ` (${items.length - created.length} did not save -- see below).` : ".")
+      );
+    } catch (err) {
+      // Bug fix (2026-08-02, author-reported): this previously had no
+      // try/catch at all, so a failed confirm (bad data, a network
+      // hiccup, a validation error) silently did nothing -- no error, no
+      // items added, no visible sign anything went wrong. This is the
+      // most likely explanation for "I imported a receipt and nothing
+      // showed up in inventory."
+      setImportConfirmError(err.message);
+    } finally {
+      setImportConfirmBusy(false);
+    }
   }
 
   function discardImport() {
@@ -320,6 +366,8 @@ export default function InventoryPage() {
     setImportSourceType(null);
     importJob.clear();
     setImportText("");
+    setImportConfirmError(null);
+    setShowImportRawOutput(false);
     setOrderFile(null);
     setOrderHeaders([]);
     setOrderMapping({ name_column: "", quantity_column: "", unit_column: "", price_column: "", date_column: "" });
@@ -413,7 +461,11 @@ export default function InventoryPage() {
   return (
     <div>
       <div className="page-toolbar">
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+        <select
+          value={categoryFilter}
+          aria-label="Filter inventory by category"
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
           <option value="">All categories</option>
           <option value="pantry">Pantry</option>
           <option value="fridge">Fridge</option>
@@ -653,11 +705,30 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {importResultMessage && <p className="hint import-result-message">{importResultMessage}</p>}
+
       {importItems && (
         <div className="card">
           <h3>Review imported items</h3>
+          <p className="hint">
+            {importItems.length} item{importItems.length === 1 ? "" : "s"} identified
+            {importSourceType ? ` from your ${importSourceType === "order_history" ? "order history" : importSourceType}` : ""}
+            . Uncheck or edit anything before adding to inventory.
+          </p>
+          {importJob.result?.raw_model_output && (
+            <>
+              <button type="button" className="btn-link" onClick={() => setShowImportRawOutput((v) => !v)}>
+                {showImportRawOutput ? "Hide" : "Show"} raw AI response (for troubleshooting)
+              </button>
+              {showImportRawOutput && <pre className="import-raw-output">{importJob.result.raw_model_output}</pre>}
+            </>
+          )}
           {importItems.length === 0 ? (
-            <p>No items recognized. Try a clearer photo/scan, or add items manually.</p>
+            <p>
+              No items recognized. This could mean the receipt genuinely had nothing food-related on it, or the
+              AI model's response couldn't be parsed -- check the raw AI response above, or try a clearer photo/
+              scan, or add items manually.
+            </p>
           ) : (
             <>
               <table className="data-table">
@@ -747,13 +818,17 @@ export default function InventoryPage() {
                 </tbody>
               </table>
               <div className="form-actions">
-                <button className="btn btn-primary" onClick={confirmImportItems}>
-                  Add {importItems.filter((r) => r.included).length} item(s) to inventory
+                <button className="btn btn-primary" onClick={confirmImportItems} disabled={importConfirmBusy}>
+                  {importConfirmBusy && <span className="busy-spinner" aria-hidden="true" />}
+                  {importConfirmBusy
+                    ? "Adding..."
+                    : `Add ${importItems.filter((r) => r.included).length} item(s) to inventory`}
                 </button>
-                <button className="btn btn-secondary" onClick={discardImport}>
+                <button className="btn btn-secondary" onClick={discardImport} disabled={importConfirmBusy}>
                   Discard
                 </button>
               </div>
+              {importConfirmError && <p className="error-text">Could not add these items: {importConfirmError}</p>}
             </>
           )}
         </div>

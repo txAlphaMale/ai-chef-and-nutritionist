@@ -326,6 +326,7 @@ export default function ChatWidget() {
           <div className="form-row">
             <input
               placeholder="We made the lentil soup..."
+              aria-label="Message the Chef"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

@@ -132,8 +132,13 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
         ))}
       </div>
 
+      {/* Accessibility fix (2026-08-02, backlog B7.4): neither field had
+          an accessible name (no wrapping <label>, aria-label, or title) --
+          a screen reader would announce these as bare, unidentified
+          "combobox"/"spinbutton" controls. */}
       <select
         value={entry.recipe_id ?? ""}
+        aria-label={`Recipe for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type}`}
         onChange={(e) =>
           patch({
             recipe_id: e.target.value ? Number(e.target.value) : null,
@@ -153,6 +158,7 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
       <input
         type="number"
         min="1"
+        aria-label={`Servings for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type}`}
         value={servings}
         onChange={(e) => setServings(e.target.value)}
         onBlur={() => Number(servings) !== entry.servings && patch({ servings: Number(servings) || 1 })}
