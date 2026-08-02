@@ -427,16 +427,27 @@ def _bulk_create_items(db: Session, items_in: list[InventoryItemCreate]) -> list
 
 def _receipt_text_extraction(db: Session, content: str) -> str:
     """Chat-based extraction for the text/PDF receipt-import paths --
-    mirrors routers/recipes.py's _run_text_extraction (same 8000-char
-    truncation convention, same response-unwrapping idiom), kept as its
-    own function here rather than imported from recipes.py since the two
+    mirrors routers/recipes.py's _run_text_extraction (same content-
+    budget convention, same response-unwrapping idiom), kept as its own
+    function here rather than imported from recipes.py since the two
     routers shouldn't depend on each other for something this small.
+
+    Bug fix (2026-08-02, author-reported follow-up): this used to hard-
+    cap content at a flat `content[:8000]` regardless of the actual
+    configured context window -- now scales via
+    ollama_client.content_char_budget (see its docstring). A receipt can
+    legitimately have dozens of line items, each needing real JSON
+    response space (name/quantity/unit/category/dates/price/confidence
+    per item), so this uses a generous response reserve.
 
     Plain sync (no longer `async def`, backlog B11.1, 2026-08-01) -- every
     caller now runs this from inside a job body on the background worker
     thread, never from a request handler awaiting it directly, so there's
     nothing left to await here."""
-    prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:8000], today=date.today().isoformat())
+    budget = ollama_client.content_char_budget(
+        db, prompt_overhead_chars=len(RECEIPT_IMPORT_PROMPT), response_reserve_tokens=3000
+    )
+    prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:budget], today=date.today().isoformat())
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 

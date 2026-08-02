@@ -38,6 +38,44 @@ def _num_ctx(db: Session) -> int:
     return max(value, 2048)
 
 
+# Rough, deliberately conservative chars-per-token estimate for English
+# prose -- there's no real tokenizer available here (the model doing the
+# actual tokenizing is whatever the user configured, possibly not even
+# downloaded on this machine), so this is an approximation, not a
+# guarantee. Erring toward "fewer chars per token" (i.e. UNDER-estimating
+# how much text fits) is the safe direction: it leaves extra headroom
+# rather than risking the exact silent-truncation bug this exists to fix.
+_CHARS_PER_TOKEN = 3.5
+
+
+def content_char_budget(db: Session, prompt_overhead_chars: int = 0, response_reserve_tokens: int = 1500) -> int:
+    """Author-reported follow-up (2026-08-02) to the num_ctx fix above:
+    every AI-import prompt in this app (receipt, recipe, bloodwork) used
+    to hard-cap its raw extracted content at a flat `content[:8000]`
+    regardless of the actual configured context window -- a number that,
+    not coincidentally, works out to roughly Ollama's OLD 2048-token
+    default (8000 chars / ~4 chars-per-token). Now that num_ctx is
+    configurable (default 8192, 4x higher), that flat 8000-char cap is
+    needlessly conservative AND, for the specific case the author asked
+    about, backwards: it was never actually sized off the context window
+    at all, just a leftover guess, and recipe imports are exactly the
+    case most likely to need MORE room than a receipt -- a recipe blog
+    page without schema.org JSON-LD markup (the messiest source, and the
+    only one that reaches this AI-prompt path at all -- see B9.3's
+    JSON-LD-first import order) commonly runs long on its own SEO/life-
+    story prose even after trafilatura's extraction. Replaces every
+    hardcoded `content[:8000]` in this app with a call to this function,
+    so the usable content length scales with whatever num_ctx the user
+    has actually configured, always leaving room for the surrounding
+    prompt's own instructions (`prompt_overhead_chars`) and the model's
+    response (`response_reserve_tokens` -- higher for a prompt whose
+    response can itself be long, e.g. a big multi-item receipt or a
+    detailed recipe with many ingredients/steps)."""
+    overhead_tokens = (prompt_overhead_chars / _CHARS_PER_TOKEN) + response_reserve_tokens
+    available_tokens = max(_num_ctx(db) - overhead_tokens, 500)  # never collapse to an unusably tiny budget
+    return int(available_tokens * _CHARS_PER_TOKEN)
+
+
 def get_active_prompt(db: Session, prompt_key: str) -> str | None:
     """e.g. prompt_key='main_chef' or 'dietary_onboarding' -- see
     app/seed.py for the seeded content."""

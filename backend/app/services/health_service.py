@@ -303,7 +303,14 @@ def run_bloodwork_extraction(db: Session, content: str) -> str:
     """The one Ollama-calling step -- always invoked from inside a
     background job body (job_queue, backlog B11.1), never directly from
     a request handler, same discipline as every other AI-consuming
-    endpoint in this app since that backlog item."""
-    prompt = BLOODWORK_IMPORT_PROMPT.format(content=content[:8000])
+    endpoint in this app since that backlog item.
+
+    Bug fix (2026-08-02, author-reported follow-up): used to hard-cap
+    content at a flat `content[:8000]` -- see ollama_client.
+    content_char_budget's docstring."""
+    budget = ollama_client.content_char_budget(
+        db, prompt_overhead_chars=len(BLOODWORK_IMPORT_PROMPT), response_reserve_tokens=1500
+    )
+    prompt = BLOODWORK_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)

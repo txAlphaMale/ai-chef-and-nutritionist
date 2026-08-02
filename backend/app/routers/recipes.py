@@ -297,8 +297,22 @@ async def import_recipe(
 def _run_text_extraction(db: Session, content: str) -> str:
     """Plain sync (no longer `async def`, backlog B11.1) -- always called
     from inside a job body on the background worker thread now, never
-    awaited directly from a request handler."""
-    prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:8000])
+    awaited directly from a request handler.
+
+    Bug fix (2026-08-02, author-reported follow-up to the num_ctx fix):
+    used to hard-cap content at a flat `content[:8000]` regardless of the
+    actual configured context window -- see
+    ollama_client.content_char_budget's docstring. This is specifically
+    the path most likely to need real headroom: B9.3's JSON-LD-first
+    import order means this AI-prompt fallback only runs for sources with
+    NO structured recipe data (a photo, a PDF, pasted text, or a URL
+    whose site publishes no schema.org markup) -- exactly the messiest
+    sources, where a scraped blog page's SEO/life-story prose commonly
+    runs well past what a flat 8000-char cap ever allowed through."""
+    budget = ollama_client.content_char_budget(
+        db, prompt_overhead_chars=len(recipe_service.RECIPE_IMPORT_PROMPT), response_reserve_tokens=2500
+    )
+    prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 

@@ -825,8 +825,19 @@ def _extract_via_ollama(db: Session, content: str) -> str:
     functions rather than one shared cross-module private import -- an
     underscore-prefixed function is module-internal by convention in
     this codebase; this is recipe_service.py's own copy for its own
-    internal use, not exported)."""
-    prompt = RECIPE_IMPORT_PROMPT.format(content=content[:8000])
+    internal use, not exported).
+
+    Bug fix (2026-08-02, author-reported follow-up): used to hard-cap
+    content at a flat `content[:8000]` -- see ollama_client.
+    content_char_budget's docstring. This function backs BOTH a single
+    photo/PDF upload and every file recipe_folder_import_service.py
+    processes -- there is no JSON-LD available for either (that's a URL-
+    only shortcut, see routers/recipes.py's import order), so this is
+    always the messier, no-structured-data path for file-based imports."""
+    budget = ollama_client.content_char_budget(
+        db, prompt_overhead_chars=len(RECIPE_IMPORT_PROMPT), response_reserve_tokens=2500
+    )
+    prompt = RECIPE_IMPORT_PROMPT.format(content=content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", "") if isinstance(response, dict) else str(response)
 
