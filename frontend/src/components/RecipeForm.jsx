@@ -283,24 +283,36 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
         {form.ingredients.map((ing, i) => (
           <div className="form-row ingredient-row" key={i}>
             <input
+              className="ingredient-name-input"
               placeholder="ingredient"
               value={ing.ingredient_name}
               onChange={(e) => setIngredient(i, "ingredient_name", e.target.value)}
             />
             <input
+              className="ingredient-qty-input"
               placeholder="qty"
               type="number"
               step="any"
               value={ing.quantity}
               onChange={(e) => setIngredient(i, "quantity", e.target.value)}
             />
-            <input placeholder="unit" value={ing.unit} onChange={(e) => setIngredient(i, "unit", e.target.value)} />
             <input
+              className="ingredient-unit-input"
+              placeholder="unit"
+              value={ing.unit}
+              onChange={(e) => setIngredient(i, "unit", e.target.value)}
+            />
+            <input
+              className="ingredient-prep-input"
               placeholder="prep note"
               value={ing.prep_note}
               onChange={(e) => setIngredient(i, "prep_note", e.target.value)}
             />
-            <button type="button" className="btn-link btn-link-danger" onClick={() => removeIngredient(i)}>
+            <button
+              type="button"
+              className="btn-link btn-link-danger ingredient-remove-btn"
+              onClick={() => removeIngredient(i)}
+            >
               ✕
             </button>
           </div>

@@ -165,7 +165,17 @@ reasonable default like 4)
 - "instructions": array of strings, one per step
 - "ingredients": array of objects with "ingredient_name" (string), \
 "quantity" (number or null), "unit" (string or null), "prep_note" \
-(string or null, e.g. "diced")
+(string or null, e.g. "diced"). Copy each ingredient's quantity and unit \
+EXACTLY as written in the source -- never convert between units (e.g. \
+"2 Tbsp." must stay quantity 2 / unit "Tbsp.", NOT be converted to a \
+fraction of a cup or any other unit) and never guess a quantity/unit \
+that isn't actually stated; leave both null rather than invent one. If \
+the same ingredient name (e.g. "sugar", "kosher salt") appears more than \
+once in the source, for a different part of the recipe (a crust vs. a \
+filling, a marinade vs. a sauce, etc.), list each occurrence as its OWN \
+separate ingredient entry with ONLY the quantity/unit/prep_note stated \
+for THAT specific occurrence -- never merge, average, or carry a \
+modifier like "divided" from one occurrence onto a different one.
 - "nutrition": object with best-effort per-serving estimates as numbers \
 or null: {NUTRITION_PROMPT_HINT}
 - "tags": array of short lowercase strings from this set where \

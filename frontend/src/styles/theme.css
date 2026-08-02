@@ -590,7 +590,30 @@ body {
   padding: var(--spacing-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
+  background: var(--color-surface);
   color: var(--color-text);
+}
+
+/* Bug fix (2026-08-02, author-reported): "the font (grey on white) makes
+   it extremely difficult to see the content." An import that only
+   partially parses (see the ingredient-row fix above) leaves most fields
+   showing their empty-state placeholder hint rather than a real value --
+   with no explicit ::placeholder rule, the browser's own default
+   placeholder color/opacity was the only thing distinguishing "empty,
+   showing a hint" from "filled in," and on review that read as one
+   undifferentiated wash of grey text rather than a clear signal of which
+   fields still need attention. Filled values now render in full-strength
+   --color-text (explicit background above also guards against a filled
+   value inheriting a transparent/unstyled background in some browsers);
+   placeholders are explicitly muted AND italicized so a half-empty
+   import reads as "these need review," not "everything is grey." */
+.item-form input::placeholder,
+.item-form textarea::placeholder,
+.settings-row input::placeholder,
+.settings-row textarea::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+  font-style: italic;
 }
 
 /* Generic, not scoped to .item-form -- backlog B10.4 found this rule had
@@ -766,6 +789,58 @@ tr.urgency-low td {
 .ingredient-row input,
 .instruction-row input {
   margin-bottom: 0;
+}
+
+/* Bug fix (2026-08-02, author-reported): a recipe import's ingredient
+   rows were rendering as if half the ingredients were malformed --
+   really a layout bug, not a data bug. The 4 bare <input>s here (name/
+   qty/unit/prep_note) had no flex-basis/min-width of their own (the
+   generic ".form-row label { flex:1; min-width:140px }" rule only
+   targets <label> children, and these inputs sit in the row directly,
+   unwrapped), so each one just took its browser-default width. On a
+   desktop viewport wide enough to stay off the 640px column breakpoint
+   but too narrow to fit all 4 default-width inputs + the delete button
+   on one line, ".form-row"'s own `flex-wrap: wrap` (needed elsewhere,
+   not removed) silently wrapped the row's tail -- usually just the
+   prep_note input + the (X) button -- onto its own line. That orphaned
+   fragment then read as a whole separate, broken ingredient (an
+   ingredient-less row with only a "prep note" placeholder and a delete
+   button), which is exactly what the author's screenshot showed and
+   reported as "ingredients seem amazingly wrong." The underlying parsed
+   data was mostly fine; the form just couldn't lay it out coherently.
+   Fixed by giving each field its own sized flex-basis (name and prep
+   note get the most room, qty/unit stay compact) and forcing this
+   specific row to not wrap above the mobile breakpoint -- fields now
+   compress to fit the available width instead of wrapping mid-ingredient.
+   The existing `.form-row { flex-direction: column }` mobile override
+   still applies below 640px (that rule doesn't care about wrap), so
+   phones still get one full-width field per line as before. */
+.ingredient-row {
+  flex-wrap: nowrap;
+}
+
+.ingredient-name-input {
+  flex: 2 1 0;
+  min-width: 110px;
+}
+
+.ingredient-prep-input {
+  flex: 2 1 0;
+  min-width: 110px;
+}
+
+.ingredient-qty-input {
+  flex: 0 1 70px;
+  min-width: 55px;
+}
+
+.ingredient-unit-input {
+  flex: 0 1 90px;
+  min-width: 65px;
+}
+
+.ingredient-remove-btn {
+  flex: 0 0 auto;
 }
 
 .step-number {
@@ -1520,6 +1595,23 @@ tr.urgency-low td {
   }
 
   .form-row label {
+    min-width: 0;
+  }
+
+  /* The ingredient row's per-field flex-basis/min-width (see the desktop
+     rule above) is only meant to size 4 fields onto one line; below this
+     breakpoint .form-row already stacks everything into a single column
+     (the rule above), so these reset to full-width like every other
+     stacked field rather than staying pinned to their desktop sizing. */
+  .ingredient-row {
+    flex-wrap: wrap;
+  }
+
+  .ingredient-name-input,
+  .ingredient-prep-input,
+  .ingredient-qty-input,
+  .ingredient-unit-input {
+    flex: initial;
     min-width: 0;
   }
 
