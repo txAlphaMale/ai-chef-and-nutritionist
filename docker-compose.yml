@@ -16,14 +16,32 @@ services:
     env_file:
       - .env
     ports:
-      - "${BACKEND_PORT:-8095}:8095"
+      # Both sides of each mapping deliberately use the SAME env var --
+      # fixed 2026-08-02 after an author-reported live bug: B15.1's new
+      # run_server.py binds the container's OWN internal uvicorn listener
+      # to whatever BACKEND_PORT/BACKEND_HTTPS_PORT says (see
+      # backend/app/run_server.py's HTTP_PORT/HTTPS_PORT), replacing the
+      # old Dockerfile CMD that always hardcoded --port 8095 regardless
+      # of the env var. Before this fix, the right-hand (container-side)
+      # port here was still hardcoded to the literal default (8095/8446),
+      # so anyone who had customized BACKEND_PORT away from 8095 (e.g.
+      # because 8095 was already taken on their host -- a real, previously
+      # -fixed scenario, see the 2026-07-31 session-log entry) got a
+      # container listening on their custom port with NOTHING mapped to
+      # it on the host side: Docker forwarded host:<custom port> to a
+      # now-empty container:8095, so every single API request failed as
+      # a browser-level "Failed to fetch" with zero trace in the
+      # container's own logs (the request never reached the app at all).
+      # Confirmed live against the author's own docker compose logs
+      # before applying this fix, not guessed.
+      - "${BACKEND_PORT:-8095}:${BACKEND_PORT:-8095}"
       # Backlog B15.1 (2026-08-01) -- only actually listening once a
       # certificate is generated/imported under Settings > Security >
       # Certificate (see app/services/tls_service.py). Until then the
       # backend serves plain HTTP on BACKEND_PORT above, same as always;
       # once a cert exists, BACKEND_PORT switches to a redirect-only
       # listener and this becomes the real one.
-      - "${BACKEND_HTTPS_PORT:-8446}:8446"
+      - "${BACKEND_HTTPS_PORT:-8446}:${BACKEND_HTTPS_PORT:-8446}"
     volumes:
       - chef-data:/app/data
       # Backlog B15.1 -- where the backend writes the active TLS
@@ -54,7 +72,13 @@ services:
     env_file:
       - .env
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      # Same host==container port-mapping fix as the backend above, and
+      # for the same reason: docker-entrypoint.sh's supervisor loop binds
+      # `serve` to the live FRONTEND_PORT/FRONTEND_HTTPS_PORT env vars,
+      # not a hardcoded default, so both sides of each mapping need to
+      # track the same variable or a customized port silently goes
+      # unreachable from outside the container.
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
       # Backlog B15.1 -- see the matching backend port above; the
       # frontend independently watches the same chef-tls volume and
       # switches to serving HTTPS here once a certificate appears (see
@@ -64,7 +88,7 @@ services:
       # bookmarked http://host:5173 link will need to be manually
       # updated to https://host:5174 rather than auto-redirecting. See
       # the in-app WIKI's HTTPS entry.
-      - "${FRONTEND_HTTPS_PORT:-5174}:5174"
+      - "${FRONTEND_HTTPS_PORT:-5174}:${FRONTEND_HTTPS_PORT:-5174}"
     volumes:
       # Backlog B15.1 -- read-only: the frontend only ever READS the
       # certificate the backend generated/imported, never writes one.
