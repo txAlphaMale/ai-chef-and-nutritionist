@@ -16,6 +16,28 @@ def _client(db: Session) -> ollama.Client:
     return ollama.Client(host=base_url)
 
 
+def _num_ctx(db: Session) -> int:
+    """Bug fix (2026-08-02, author-reported): every call in this module
+    used to omit `options`, so Ollama silently fell back to its own
+    default context window (2048 tokens) with no error whatsoever when a
+    prompt exceeded it -- just quietly clipped content off. This was
+    traced as the likely real cause of a receipt-import PDF suddenly
+    returning zero items right after RECEIPT_IMPORT_PROMPT grew
+    substantially longer (adding purchase-date/price/quantity-vs-unit
+    guidance): the prompt template alone is now ~1300+ tokens before even
+    adding the receipt's own text, comfortably capable of pushing a
+    typical import past 2048 with the actual content silently dropped.
+    Reads the new `ollama_num_ctx` setting (default 8192, GUI-editable in
+    Settings) rather than hardcoding a value, since the right number
+    depends on the user's model/VRAM budget."""
+    raw = settings_service.get_setting(db, "ollama_num_ctx")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 8192
+    return max(value, 2048)
+
+
 def get_active_prompt(db: Session, prompt_key: str) -> str | None:
     """e.g. prompt_key='main_chef' or 'dietary_onboarding' -- see
     app/seed.py for the seeded content."""
@@ -30,7 +52,7 @@ def chat(db: Session, messages: list[dict], model: str | None = None) -> dict:
     "Ollama unreachable" message."""
     client = _client(db)
     chat_model = model or settings_service.get_setting(db, "ollama_chat_model")
-    return client.chat(model=chat_model, messages=messages)
+    return client.chat(model=chat_model, messages=messages, options={"num_ctx": _num_ctx(db)})
 
 
 def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | None = None) -> dict:
@@ -42,6 +64,7 @@ def describe_image(db: Session, image_bytes: bytes, prompt: str, model: str | No
     return client.chat(
         model=vision_model,
         messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
+        options={"num_ctx": _num_ctx(db)},
     )
 
 

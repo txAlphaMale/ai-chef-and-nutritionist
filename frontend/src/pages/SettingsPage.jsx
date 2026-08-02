@@ -59,7 +59,13 @@ const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/calendar/google/callback";
 // keys render in which sub-tab. Anything not listed here still renders
 // (a new setting added to settings_service.py without a bucket entry
 // falls into DEFAULT_SETTINGS_TAB below rather than silently vanishing).
-const AI_MODEL_SETTING_KEYS = ["ollama_base_url", "ollama_chat_model", "ollama_vision_model", "ollama_embed_model"];
+const AI_MODEL_SETTING_KEYS = [
+  "ollama_base_url",
+  "ollama_chat_model",
+  "ollama_vision_model",
+  "ollama_embed_model",
+  "ollama_num_ctx",
+];
 const INTEGRATION_SETTING_KEYS = [
   "tavily_api_key",
   "usda_fdc_api_key",

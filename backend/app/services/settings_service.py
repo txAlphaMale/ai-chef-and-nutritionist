@@ -89,6 +89,25 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="OLLAMA_EMBED_MODEL",
     ),
     SettingSpec(
+        key="ollama_num_ctx",
+        label="Ollama context window (tokens)",
+        is_secret=False,
+        default="8192",
+        description=(
+            "Maximum prompt+response length (in tokens) sent to Ollama on every "
+            "call. Ollama's own default is a conservative 2048 tokens if this "
+            "isn't set explicitly -- and critically, it does NOT error when a "
+            "prompt exceeds this: it silently clips the overflow with zero "
+            "warning, which is a real, hard-to-diagnose failure mode (e.g. a "
+            "long receipt or recipe import producing an empty or garbled "
+            "result with no visible error at all). 8192 comfortably fits this "
+            "app's longer prompts (a full receipt/recipe plus instructions) "
+            "with headroom; raise it further for very long imports, or lower "
+            "it if a smaller/quantized model runs out of VRAM at this size."
+        ),
+        env_fallback="OLLAMA_NUM_CTX",
+    ),
+    SettingSpec(
         key="tavily_api_key",
         label="Tavily API key",
         is_secret=True,
