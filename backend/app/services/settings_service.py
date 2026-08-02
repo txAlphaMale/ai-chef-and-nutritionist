@@ -55,15 +55,19 @@ SETTING_SPECS: list[SettingSpec] = [
         key="ollama_chat_model",
         label="Ollama chat model",
         is_secret=False,
-        default="qwen3.5:9b",
+        default="qwen3.6:27b",
         description=(
-            "Ollama model used for chat, meal planning, and recipe generation. "
-            "Chosen (2026-07-31) to comfortably fit a single 11GB-class GPU (e.g. "
-            "a GTX 1080 Ti) with headroom, leaving a second GPU free for the "
-            "vision model -- a larger dense model like qwen3.6:27b is a "
-            "reasonable upgrade on beefier/single-larger-GPU hardware, but "
-            "doesn't fit one 11GB card and Ollama's multi-GPU split doesn't "
-            "speed up a single request, only lets a bigger model fit."
+            "Ollama model used for chat, meal planning, recipe generation, and "
+            "receipt/list import. Changed (2026-08-02, author-directed) from the "
+            "original 9B pick, which a live investigation traced to bailing out "
+            "with an empty response on moderately complex prompts -- see "
+            "PROJECT-PLAN.md's session log. Uses both GPUs (Ollama splits a model "
+            "across multiple visible GPUs automatically when it doesn't fit one) "
+            "rather than reserving a GPU for the vision model, since the author's "
+            "actual hardware is dual GTX 1080 Tis (22GB combined), not a single "
+            "11GB card as the original 9B pick assumed. Same model family as the "
+            "original pick, just 3x the parameters, so the same non-thinking "
+            "sampling guidance and think=False handling still apply."
         ),
         env_fallback="OLLAMA_CHAT_MODEL",
     ),

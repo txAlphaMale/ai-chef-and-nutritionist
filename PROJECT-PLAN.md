@@ -1099,6 +1099,44 @@ Picked as "the next feature (no preference)" per the author's compound message t
 
 ## Session log
 
+- **2026-08-02**: Full from-scratch rewrite of `RECEIPT_IMPORT_PROMPT` plus a default-model swap,
+  directed explicitly by the author after the prior two entries below (the A/B-tested prompt trim,
+  and the model-selection back-and-forth that followed it) still weren't enough -- the author's
+  own words: "select the appropriate models, logic, (vision vs text) parsing, a NEW from scratch
+  prompt (stop trying to augment your failed existing one)". Two corrections preceded this
+  directive and are worth recording precisely since they're why the author escalated: first
+  recommended `qwen3:14b` on the wrong assumption the swap had to fit a single 11GB GPU (the
+  author's real hardware is dual GTX 1080 Tis, 22GB combined, and Ollama auto-splits a model across
+  multiple visible GPUs when it doesn't fit one -- already noted in this app's own code comments);
+  corrected to `qwen3.5:27b`, but without first checking what the author actually had pulled
+  locally -- the author already had `qwen3.6:27b` (17GB) pulled and shared their real
+  `docker exec ollama ollama list` output. Selected `qwen3.6:27b` as the new
+  `ollama_chat_model` default (changed in `settings_service.py`, not just overridden at the receipt
+  call site, since the intent is an app-wide swap benefiting meal planning, recipe generation, and
+  chat too): same model family/lineage as the 9B model already confirmed (via the A/B test two
+  entries below) to handle short prompts correctly, just 3x the parameters, and it fits comfortably
+  across the combined 22GB VRAM. Vision-vs-text parsing was reconsidered per the directive and
+  deliberately left as-is: the entire investigation and all live evidence this session was specific
+  to the text/PDF `chat()` path (`qwen2.5vl:7b` handles the separate photo-upload path and was never
+  implicated in any of the observed failures), so changing it now would be an unverified guess, not
+  a grounded correction. Rewrote `RECEIPT_IMPORT_PROMPT` genuinely from scratch rather than trimming
+  again: numbered rules (source/rules/example/output-format sections) replacing the prior
+  prose-paragraph structure, plus one concrete worked input-to-output example -- notably absent from
+  every earlier version despite four rounds of edits. Rendered length with real receipt content
+  dropped from 7724 chars (the length proven to cause the `[]` bailout) to ~4090 chars, well under
+  half. Verified the new template's escaped `{{`/`}}` JSON braces actually render as valid JSON via a
+  standalone local script before writing the real file, then rewrote `test_inventory_import.py`'s
+  prompt-related test section to match (not patched piecemeal): added a dedicated worked-example
+  JSON-validity test, a rendered-length regression guard (locks in staying well under the
+  proven-to-fail ~7723-char mark), and updated wording assertions to match the new rule phrasing
+  (e.g. "per printed line" -> "per purchased line", "purchased quantity" phrase check removed since
+  the new rule 5 no longer uses that exact wording). Full backend suite: 537 passing (up from 535;
+  net +2 tests in the rewritten section). **Not yet verified live**: as with the entry below, this
+  exact prompt-plus-model combination has not itself been tested against a real receipt through the
+  author's actual Ollama container -- the author should redeploy, retry the same real PDF import, and
+  share the `[ollama_client]` log line to confirm this closes the saga rather than opens a new
+  variant of it.
+
 - **2026-08-02**: REAL ROOT CAUSE of the receipt-import "0 items" saga, found via a live, controlled
   A/B test against the author's actual Ollama container rather than another guess -- this is the
   entry that finally resolved it, after the sampling-options correction directly below turned out

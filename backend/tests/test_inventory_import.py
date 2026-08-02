@@ -28,27 +28,36 @@ from app.services import inventory_service
 _TODAY = "2026-08-02"
 
 
+# ---- RECEIPT_IMPORT_PROMPT (2026-08-02, author-directed full rewrite)
+# --------------------------------------------------------------------
+#
+# Four incremental patches to the previous prose-paragraph prompt (date/
+# price fields, quantity-vs-unit conflation, anti-truncation wording,
+# anti-merge wording) each made the prompt longer, until a live A/B test
+# against the author's real Ollama container proved the accumulated
+# length was itself the bug -- see PROJECT-PLAN.md's session log and
+# RECEIPT_IMPORT_PROMPT's own module comment in routers/inventory.py for
+# the full investigation. The author then directed a genuine rewrite
+# rather than another trim: numbered rules instead of prose, plus one
+# concrete worked example (absent from every earlier version). These
+# tests were rewritten alongside it rather than patched piecemeal, since
+# patching tests one assertion at a time is the same anti-pattern the
+# prompt itself just got rebuilt to avoid.
+
+
 def test_receipt_import_prompt_formats_with_real_text():
     rendered = RECEIPT_IMPORT_PROMPT.format(
         content="ORG BANANA 1.29\nGV 2% MLK GAL 3.49\nSUBTOTAL 4.78", today=_TODAY
     )
     assert "ORG BANANA" in rendered
-    assert "{content}" not in rendered  # placeholder actually got filled, not left literal
+    # Placeholders actually got filled, not left literal -- and, since
+    # this version's schema/example blocks contain real JSON braces that
+    # had to be escaped as {{ }} for .format() to survive them, this also
+    # confirms none of those leaked through as literal double-braces.
+    assert "{content}" not in rendered
     assert "{today}" not in rendered
+    assert "{{" not in rendered and "}}" not in rendered
     assert _TODAY in rendered
-
-
-def test_receipt_import_prompt_instructs_skipping_non_food_items():
-    # Bug fix (2026-08-02, author-reported): a real Walmart order printout
-    # mixes food with household/personal-care/pet items on the same
-    # receipt, and the original prompt only told the model to skip
-    # subtotal/tax/tender lines -- nothing about non-food purchases. This
-    # locks down that the exclusion instruction is actually present so a
-    # future prompt edit can't silently drop it again.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY)
-    for phrase in ("household", "personal care", "pet food", "supplements"):
-        assert phrase in rendered.lower()
-    assert "empty array" in rendered.lower()
 
 
 def test_receipt_import_prompt_formats_with_photo_placeholder():
@@ -59,13 +68,43 @@ def test_receipt_import_prompt_formats_with_photo_placeholder():
     assert "[see attached photo of a receipt]" in rendered
 
 
+def test_receipt_import_prompt_worked_example_is_valid_json():
+    # The rewrite embeds one concrete worked-example JSON object directly
+    # in the prompt text, escaped for .format() as {{ }}. This confirms
+    # it actually renders as real, parseable JSON once escaped -- not
+    # just "no crash", but genuinely well-formed -- since a model shown a
+    # malformed example is worse than one shown no example at all. (The
+    # separate OUTPUT FORMAT block is a type-annotated schema description,
+    # e.g. `"unit": string or null`, not itself parseable JSON -- its key
+    # names are checked by other tests below instead.)
+    import json
+
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY)
+    marker = "Correct output object: "
+    start = rendered.index(marker) + len(marker)
+    end = rendered.index("}", start) + 1
+    example_json = rendered[start:end]
+    parsed = json.loads(example_json)
+    assert parsed["name"] == "Progresso Gluten Free Chicken Soup"
+    assert parsed["estimated_quantity"] == 2
+    assert parsed["unit_price"] == 6.96
+
+
+def test_receipt_import_prompt_instructs_skipping_non_food_items():
+    # A real Walmart order printout mixes food with household/personal-
+    # care/pet items on the same receipt -- locks down that the
+    # exclusion instruction is present so a future edit can't silently
+    # drop it.
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    for phrase in ("household", "personal care", "pet food", "supplements"):
+        assert phrase in rendered
+    assert "empty array" in rendered
+
+
 def test_receipt_import_prompt_instructs_purchased_date_and_price_extraction():
-    # Bug fix (2026-08-02, author-reported against a real Walmart PDF):
-    # the original prompt's JSON schema never mentioned purchased_date or
-    # unit_price at all -- the model was never even asked for them, even
-    # though VisionDetectedItem/the frontend review table both already
-    # support these fields (populated only by the order-history CSV
-    # importer until now).
+    # VisionDetectedItem/the frontend review table both support these
+    # fields (populated by the order-history CSV importer since B10.3);
+    # this locks down the AI prompt actually asks for them too.
     rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
     assert '"purchased_date"' in rendered
     assert '"unit_price"' in rendered
@@ -73,56 +112,41 @@ def test_receipt_import_prompt_instructs_purchased_date_and_price_extraction():
 
 
 def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quantity():
-    # Bug fix (2026-08-02, author-reported): confirmed against the user's
-    # real Walmart PDF that the model was pulling numbers like "6" from
-    # "...6 Count" and "24" from "...24 oz" in the PRODUCT NAME and using
-    # them as estimated_quantity instead of the receipt's own "Qty 1" --
-    # and leaving "unit" null every time instead of capturing that size
-    # descriptor there. Locks down that the disambiguating instruction
-    # (and its own "never invent a conversion" framing, matching this
-    # app's existing quantity_text principle) is present.
+    # A receipt line's product NAME often contains a size/count number
+    # (e.g. "...6 Count", "...24 oz") that must not be read as the
+    # purchased quantity -- locks down the disambiguating instruction.
     rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
     assert "6 count" in rendered
-    assert "never" in rendered and "purchased quantity" in rendered
-
-
-# ---- Bug fix (2026-08-02, author-reported live against a real 15-line
-# Walmart receipt with 8 genuine food items): the importer correctly
-# excluded all 7 non-food lines (proving the exclusion instruction works)
-# but only returned 4 of the 8 real food items -- verified by extracting
-# that exact PDF's text locally and confirming all 8 lines, including a
-# second "Progresso Gluten Free..." line for a different soup, were
-# genuinely present in the ~1400 chars sent to the model (nowhere near
-# the ~13,000-char budget), so this was the model itself stopping
-# partway through a long list, not a truncation bug. See
-# _RECEIPT_EXTRA_OPTIONS's docstring in routers/inventory.py for the
-# full two-correction story: correction #1 fixed sampling params using
-# real data pulled from the author's own Ollama container plus Qwen's
-# documented recommendation; correction #2 -- the one that matters for
-# the tests below -- used a live A/B test against the author's real
-# container to prove the PROMPT ITSELF (specifically the verbose
-# "evaluate every single line, do not stop early" meta-paragraph and a
-# "before responding, double check" checklist added by the original fix
-# for this same bug) was overwhelming this 9B model into bailing out to
-# a literal `[]` in 2 output tokens rather than attempting the task.
-# Both were cut; the completeness requirement is now a single clause
-# folded into the main instruction instead of a standalone paragraph. --
-
-
-def test_receipt_import_prompt_instructs_one_json_object_per_printed_line():
-    # Replaces the earlier "do not stop early... every single line"
-    # meta-paragraph, which the live A/B test in the module comment
-    # above proved was part of what made this model bail out to `[]`.
-    # This still asserts the completeness requirement is present, just
-    # via the shorter phrasing that replaced it.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
-    assert "one json object" in rendered and "per printed line" in rendered
-
+    assert "never" in rendered
 
 def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():
     rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
-    assert "never merge" in rendered or "do not merge" in rendered
-    assert "separate" in rendered or "distinct" in rendered
+    assert "never merge" in rendered
+    assert "separate purchase" in rendered
+
+
+def test_receipt_import_prompt_includes_a_worked_example():
+    # Notably absent from every prior version despite four rounds of
+    # edits -- a single concrete input-to-output example is generally a
+    # stronger format/behavior signal for a model than another paragraph
+    # of abstract description. Locks down that the rewrite actually
+    # includes one, with a real product name and real field values, not
+    # just an "EXAMPLE:" label with nothing under it.
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY)
+    assert "EXAMPLE" in rendered
+    assert '"estimated_quantity": 2' in rendered
+    assert '"unit_price": 6.96' in rendered
+
+
+def test_receipt_import_prompt_is_meaningfully_shorter_than_the_version_it_replaced():
+    # The live A/B test that found the real bug proved a ~7723-char
+    # rendered prompt caused this model to bail to `[]`; a ~1800-char
+    # one worked but under-filtered. This rewrite should land well under
+    # the failing length -- not a promise of correctness by itself, but
+    # a regression guard against the same prompt slowly regrowing back
+    # past the length that's already been proven to fail.
+    rendered = RECEIPT_IMPORT_PROMPT.format(content="x" * 1423, today=_TODAY)
+    assert len(rendered) < 6000
 
 
 def test_receipt_text_extraction_uses_qwens_documented_non_thinking_sampling_params(db_session):

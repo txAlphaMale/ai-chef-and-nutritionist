@@ -102,136 +102,116 @@ Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
 # safe there) -- an example containing literal `{`/`}` would need
 # doubling to survive .format(), and the bullet list alone is unambiguous
 # without one.
+# REWRITTEN FROM SCRATCH (2026-08-02, author-directed full reset): four
+# rounds of patching the previous prompt (see git history on this file)
+# chased symptoms one at a time -- date/price fields, quantity-vs-unit
+# conflation, anti-truncation wording, anti-merge wording -- each patch
+# making the prompt longer, until a live A/B test against the author's
+# real Ollama container proved the accumulated LENGTH itself was
+# overwhelming a 9B model into bailing out to a literal `[]` rather than
+# attempting the task (see PROJECT-PLAN.md's session log for that
+# investigation's full detail: `done_reason='stop'`, `eval_count=2` --
+# the model took its own documented "nothing found" escape hatch almost
+# instantly, on a fully correct, untruncated input). Trimming that same
+# prose-paragraph prompt bought partial headroom but was still patching
+# the same design. This version is a genuine redesign, not another
+# trim: numbered rules instead of flowing prose (more scannable, more
+# token-efficient per requirement stated), and -- notably absent from
+# every earlier version despite four rounds of edits -- one concrete
+# worked example showing a real source line mapped to its exact output
+# object, since a single good example is generally a stronger format/
+# behavior signal for a model than another paragraph of abstract
+# description. Rendered against the author's real 15-line, 8-food-item
+# Walmart receipt this comes to ~4090 chars / ~1169 tokens, well under
+# half of what the prompt that caused the bailout used for the exact
+# same content (7723 chars / ~2207 tokens) -- see
+# _RECEIPT_EXTRA_OPTIONS's docstring below for the accompanying model
+# swap. Every functional requirement from the prior version is still
+# here (non-food exclusion categories, abbreviation expansion, quantity-
+# vs-package-size, unit_price semantics, purchased_date semantics) --
+# reworded and reorganized, not dropped.
 RECEIPT_IMPORT_PROMPT = """\
-You are extracting food/grocery items that were purchased, from a photo \
-of a paper receipt, a PDF receipt, or a plain-text list someone typed or \
-pasted. Today's date is {today}. Content to parse:
+Task: extract every human-food/grocery item purchased on this receipt, PDF \
+order, or list, as a JSON array. Today's date: {today}.
 
+SOURCE:
 {content}
 
-List every food/grocery line item that was purchased, one JSON object \
-per printed line -- even if two lines share the same product name, they \
-are separate purchases and are never merged into one entry. Skip \
-subtotal, tax, total, tender/change, coupon/loyalty, and store/cashier/\
-date header lines. Also skip any non-food purchase mixed onto the same \
-receipt: household/cleaning supplies (paper towels, lint rollers, \
-laundry detergent), personal care/hygiene/beauty products (soap, cotton \
-swabs, floss, shampoo, conditioner), over-the-counter medication/\
-vitamins/supplements (probiotics, pain relievers, allergy pills), pet \
-food/litter/supplies, non-food baby items (diapers, wipes), clothing, \
-electronics, toys, and office/school supplies. If genuinely unsure \
-whether something is food, include it and explain the uncertainty in \
-"confidence_note" rather than guessing either way.
+RULES:
+1. One JSON object per purchased line. If the same product name appears on \
+more than one line, each line is still a separate purchase -- never merge \
+them into one object.
+2. Skip these line types entirely: subtotal, tax, total, tender/change, \
+coupon/loyalty, and store/cashier/address header lines.
+3. Skip non-food purchases: household/cleaning supplies, personal care/\
+beauty products, medicine/vitamins/supplements, pet food/litter/supplies, \
+non-food baby items (diapers, wipes), clothing, electronics, toys, office \
+supplies. If genuinely unsure whether something is food, include it and \
+explain why in "confidence_note" rather than guessing either way.
+4. Expand abbreviated point-of-sale names into normal readable names when \
+confident (e.g. "ORG BANANA" -> "Organic bananas"); note real ambiguity in \
+"confidence_note" instead of inventing a brand or variety you aren't sure of.
+5. "estimated_quantity" is how many were purchased (e.g. an explicit \
+"Qty 2"), default 1 if none is shown. NEVER use a size/count descriptor \
+that's part of the product's own name (e.g. "6 Count", "24 oz", "4 Pack") \
+as the quantity -- put that descriptor in "unit" instead (e.g. "8 oz bag").
+6. "unit_price" is the line's own printed price for its whole purchased \
+quantity as printed, or null if none is printed.
+7. "purchased_date" is the single order/transaction date printed once near \
+the top (e.g. "Jul 30, 2026 order"), formatted "YYYY-MM-DD", the SAME value \
+for every item on this receipt. If the printed date has no year, use the \
+most recent past occurrence of that month/day relative to today. Use null \
+only if no date is printed anywhere.
 
-Expand abbreviated point-of-sale names into normal readable names when \
-you're reasonably confident (e.g. "ORG BANANA" -> "Organic bananas"); \
-note real ambiguity in "confidence_note" instead of inventing a specific \
-brand or variety you aren't sure of.
+EXAMPLE:
+Source line: "Progresso Gluten Free Chicken Soup, 14 oz. Qty 2 $6.96" (order \
+dated "Jul 30, 2026 order")
+Correct output object: {{"name": "Progresso Gluten Free Chicken Soup", \
+"estimated_quantity": 2, "unit": "14 oz can", "category": "pantry", \
+"estimated_expiration_days": 365, "purchased_date": "2026-07-30", \
+"unit_price": 6.96, "confidence_note": null}}
 
-"estimated_quantity" is the purchased quantity -- how many were bought \
-(usually an explicit "Qty" next to the price; default to 1 if none is \
-shown) -- never a size/count descriptor baked into the product's own \
-name (e.g. "6 Count", "24 oz", "4 Pack"). Put that descriptor in "unit" \
-instead (e.g. "8 oz bag", "14 oz can", "4-pack of 8 fl oz bottles") so \
-it's captured, not discarded, without ever overwriting the purchased \
-quantity -- a "6 Count" hot-dog package is 1 purchased item, not 6, \
-exactly like a "500 g" bag is 1 item, not 500. "count" is a reasonable \
-default unit when nothing more specific is available.
-
-"unit_price" is the line's own printed price for its whole purchased \
-quantity as printed (e.g. "Qty 2 ... $6.96" means "unit_price": 6.96, \
-covering both), not a re-derived per-single-unit price -- null if no \
-price is printed for that line.
-
-"purchased_date" is the single order/transaction date printed once near \
-the top (e.g. "Jul 30, 2026 order", "Order Date:") -- formatted \
-"YYYY-MM-DD", the SAME value for every item on this receipt. If the \
-printed date has no year, use the most recent occurrence of that \
-month/day on or before today, not a future date. Use null only if no \
-date is printed anywhere -- never guess one from nothing.
-
-Respond with ONLY a JSON array (no other text, no markdown fences) -- an \
-empty array `[]` only if this source genuinely contains zero food/\
-grocery items. Each element of the array is an object with these keys:
-- "name": string, the food item's name
-- "estimated_quantity": number or null -- see the purchased-quantity-vs-\
-package-size guidance above
-- "unit": string or null (e.g. "count", "lbs", "oz", "gallon", "8 oz \
-bag") -- see the guidance above
-- "category": one of "pantry", "fridge", "freezer", "produce", "spice", \
-"other"
-- "estimated_expiration_days": integer number of days from today this \
-item is typically still good for, or null if you can't estimate -- this \
-is always a category-based estimate, never something printed on the \
-source
-- "purchased_date": string "YYYY-MM-DD" or null -- see the date guidance \
-above
-- "unit_price": number or null -- see the price guidance above
-- "confidence_note": a short string noting any uncertainty (e.g. an \
-ambiguous abbreviation, or "included despite being borderline food"), or \
-null
+OUTPUT FORMAT: Respond with ONLY a JSON array -- no other text, no markdown \
+fences. An empty array `[]` only if this source genuinely contains zero \
+food/grocery items. Each element is an object with exactly these keys:
+{{"name": string, "estimated_quantity": number or null, "unit": string or \
+null, "category": one of "pantry"/"fridge"/"freezer"/"produce"/"spice"/\
+"other", "estimated_expiration_days": integer or null, "purchased_date": \
+"YYYY-MM-DD" or null, "unit_price": number or null, "confidence_note": \
+string or null}}
 """
 
-# Bug fix (2026-08-02, author-reported): a real 15-line Walmart receipt
-# with 8 genuine food items only came back with 4. Root cause was NOT a
-# truncation/budget bug (verified by extracting that exact PDF's text
-# locally and confirming all 8 items were genuinely present in what was
-# sent to the model) -- it was the model dropping items partway through
-# a long, repetitive list.
+# Model swap (2026-08-02, author-directed): the author pointed out this
+# whole investigation had narrowed to "make qwen3.5:9b work" instead of
+# asking whether it was the right model for the job, and separately
+# corrected an assumption that any replacement had to fit an 11GB single
+# GPU -- the author's hardware is TWO GTX 1080 Tis (22GB combined), and
+# Ollama splits a model across multiple visible GPUs automatically when
+# it doesn't fit on one. The author's actual locally-pulled model list
+# (`docker exec ollama ollama list`) includes `qwen3.6:27b` (17GB) --
+# same lab/family as the model already confirmed (via this whole
+# session's investigation) to correctly follow this prompt's structure
+# and correctly honor `think=False` when the prompt is short enough not
+# to trigger a bailout, just 3x the parameters, and already pulled (no
+# download needed). Comfortably fits the real 22GB budget with room for
+# KV cache, unlike a same-single-GPU-constrained option would have.
+# `ollama_chat_model`'s default is changed to this below (settings_
+# service.py) rather than only overridden here, since the author's
+# intent is an app-wide model swap, not a receipt-import-only patch --
+# meal planning, recipe generation, and chat all benefit from the same
+# larger-capacity model for the identical reason (more complex prompts
+# than a 9B model reliably executes).
 #
-# CORRECTION #1 (2026-08-02, same day): the first attempt at a fix set
-# only `temperature=0.1`, on the unverified assumption that a lower
-# temperature makes a local model more likely to mechanically finish a
-# long enumeration. That assumption was never checked against this
-# model's own documentation before shipping. The author then pulled real
-# data straight from their own Ollama container (`ollama show
-# qwen3.5:9b`), which showed this model's baked-in default parameters
-# are `temperature=1, presence_penalty=1.5, top_p=0.95, top_k=20` -- and
-# Qwen's own official documentation (Hugging Face model card,
-# Qwen/Qwen3.5-9B, checked live, and cross-checked against a discussion
-# thread comparing two sections of that same README against each other)
-# recommends, for non-thinking general tasks specifically,
-# `temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5,
-# repetition_penalty=1.0`. `presence_penalty=1.5` is NOT an unusual/
-# aggressive value some community Modelfile added -- it's Qwen's own
-# documented recommendation. The bug was overriding ONLY `temperature`
-# down to 0.1 while leaving `presence_penalty` at its baked-in 1.5, a
-# combination Qwen never tested or recommends. Fixed by setting all four
-# values explicitly to Qwen's own tested general-task recommendation.
-#
-# CORRECTION #2 (2026-08-02, same day, after correction #1 deployed):
-# the author retried with corrected sampling and got a clean, non-
-# truncated, exception-free response of literally `[]` -- confirmed via
-# real `docker compose logs` output showing `done_reason='stop'`
-# (not "length" -- generation was NOT cut off) and `eval_count=2` (only
-# two output tokens: the model didn't attempt the task, it took the
-# prompt's own "if truly nothing is food, respond with `[]`" escape
-# hatch almost immediately). A controlled live A/B against the author's
-# real Ollama container -- same receipt text, same corrected sampling
-# options, only the prompt differing -- proved this decisively: the
-# FULL prompt at the time (7723 chars, six paragraphs of rules including
-# a "MANY lines... do not stop early... do not summarize" meta-paragraph
-# and a "before responding, double check" pre-response checklist added
-# by the earlier "4 of 8 items" fix above) reproduced `[]` in 2 output
-# tokens; a stripped-down ~1800-char prompt with the SAME text and
-# options immediately began extracting real items (`eval_count=107`).
-# The prompt itself, not sampling or parsing, was overwhelming this 9B
-# model into bailing out via its own documented escape hatch rather
-# than attempting the task. BUT the minimal test prompt also let a
-# "Purina Friskies ... Wet Cat Food" line through despite being told to
-# skip "pet" items -- proving brevity isn't free, it costs instruction-
-# following accuracy on the exclusion rules specifically. Rewritten
-# above to cut the verbose meta-commentary (the "MANY lines" paragraph
-# and the pre-response checklist, both added by the earlier fix and
-# both absent from the minimal prompt that worked) while keeping the
-# detailed non-food exclusion list and field-level guidance intact
-# (since THOSE need the detail per the cat-food miss). Roughly half the
-# character count of the version this replaces. Not yet verified live
-# against a real long multi-item receipt at this exact length -- only
-# the two tested extremes (7723 chars failing, ~1800 chars succeeding
-# but under-filtering) have real data; this is a reasoned middle point,
-# not a third empirically-confirmed data point, and is worth the author
-# retesting once deployed.
+# `_RECEIPT_EXTRA_OPTIONS` keeps Qwen's own documented non-thinking/
+# general-task sampling recommendation (`temperature=0.7, top_p=0.8,
+# top_k=20, presence_penalty=1.5` -- Hugging Face model card,
+# Qwen/Qwen3.5-9B, verified live and cross-checked against a discussion
+# thread comparing two sections of that same README against each
+# other). This is a same-family EXTRAPOLATION to qwen3.6, not a value
+# independently verified against qwen3.6's own documentation -- the
+# diagnostic logging already wired into ollama_client.py (done_reason,
+# eval_count, thinking_chars) will make it immediately visible in
+# `docker compose logs` if qwen3.6 needs different sampling than 3.5 did.
 _RECEIPT_EXTRA_OPTIONS = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
 
 
