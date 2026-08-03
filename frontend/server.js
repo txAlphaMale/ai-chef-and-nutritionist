@@ -108,6 +108,30 @@ proxy.on('error', (err, req, res) => {
 const serveConfig = {
   public: DIST_DIR,
   rewrites: [{ source: '**', destination: '/index.html' }],
+  // Author-reported 2026-08-03, added defensively while investigating a
+  // "the fix still doesn't show up after redeploying" report: neither
+  // `serve-handler` (this) nor the old `serve` CLI it replaced set any
+  // `Cache-Control` header by default -- only `Last-Modified`, no
+  // `Expires`/`Cache-Control` at all -- which leaves a browser free to
+  // apply its OWN heuristic freshness lifetime to `index.html`/`sw.js`/
+  // the manifest and serve a stale copy after a rebuild without ever
+  // re-asking this server. Vite's hashed `/assets/*` filenames already
+  // make long-lived caching safe for THOSE (a content change is a new
+  // URL), so this only forces revalidation for the small set of
+  // never-hashed entry files that a stale copy of would be actively
+  // misleading (an old `index.html` pointing at JS that no longer
+  // exists, or a `sw.js` that never picks up its own updated fetch
+  // handler).
+  headers: [
+    {
+      source: 'assets/**',
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+    },
+    {
+      source: '{index.html,sw.js,manifest.webmanifest}',
+      headers: [{ key: 'Cache-Control', value: 'no-cache' }],
+    },
+  ],
 };
 
 function requestHandler(req, res) {
