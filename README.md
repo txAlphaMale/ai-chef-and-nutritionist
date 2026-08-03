@@ -71,7 +71,7 @@ optional first-run convenience values.
    ```
    docker compose up --build
    ```
-4. Frontend: http://localhost:5173 (this also proxies the backend health check -- http://localhost:5173/health)
+4. Open http://localhost:5173 (health check: http://localhost:5173/health)
 5. Anything you skipped in step 2 (Ollama URL/models, Tavily key,
    household size, system prompts) can be set from the app's Settings
    page at any time -- changes take effect on the next request, no
@@ -96,49 +96,64 @@ See the comments at the top of `docker-compose.ollama.yml` for NVIDIA
 Container Toolkit requirements and multi-GPU notes (including how to
 dedicate a specific card if you have more than one).
 
-### The frontend is the only thing a browser ever talks to
+### One container, one address
 
-The frontend and backend run as separate containers, but a browser never
-calls the backend directly: `frontend/server.js` reverse-proxies `/api/*`
-and `/health` to the backend over Docker's own internal network. This
-means any device on your LAN -- not just the machine running Docker --
-only ever needs to reach and (if you set up HTTPS) trust ONE address,
-the frontend's. (This used to not be the case, and caused exactly the
-symptoms you'd expect on a second device: a "backend unreachable" status
-and browser features like the camera silently failing depending on
-which of the two origins a given device had actually trusted -- fixed
-2026-08-03.)
+Chef runs as a single container that serves both its API and its web UI.
+Any device on your LAN needs to reach exactly one address and -- if you
+set up HTTPS -- trust exactly one certificate.
 
-The backend's own ports (`8095`/`8446` by default) are still published
-by `docker-compose.yml` for optional direct API access or scripting, but
-nothing in normal app use requires them to be reachable from outside the
-backend's own container -- feel free to remove those port mappings
-entirely if you don't need direct access.
+It was not always this way. The UI used to run in a second container with
+a reverse proxy in front of the API, which meant two origins and two
+certificates per device, and a lot of machinery that could fail
+independently. Serving the built files from the API that already exists
+does the same job with none of it. See `backend/app/static_files.py` if
+you are curious about the reasoning; the short version is that a
+single-household app whose two halves always ship together does not
+benefit from being split across two runtimes.
 
-If any default port (`5173`/`8095`, or their HTTPS counterparts)
-conflicts with something already running on your machine, change
-`BACKEND_PORT`/`FRONTEND_PORT` (or the `_HTTPS_PORT` variants) in `.env`
-and run `docker compose up` again -- no `--build` needed. The frontend
-container reads the current values at startup (see
-`frontend/docker-entrypoint.sh`) rather than having them baked into the
-built bundle, so this just works on a restart.
+If either default port (`5173`, or `5174` for HTTPS) conflicts with
+something already running on your machine, change `APP_PORT` /
+`APP_HTTPS_PORT` in `.env` and run `docker compose up` again -- no
+`--build` needed. The container reads the current values at startup
+rather than baking them into the built bundle.
+
+### HTTPS
+
+Plain HTTP is fine on a trusted LAN, but two features do not work without
+a secure context, because browsers refuse them: the barcode scanner
+(camera) and Dining Out (geolocation). Generate or import a certificate
+under **Settings > Security > Certificate** and the app starts serving
+HTTPS on `APP_HTTPS_PORT`; `APP_PORT` then redirects to it, so an old
+bookmark keeps working. See the in-app WIKI's "HTTPS / secure context"
+entry, including how to get iOS to trust a self-signed certificate.
 
 ## Development without Docker
 
-Backend:
+Run the two halves separately -- Vite's dev server proxies `/api` to the
+backend, so the browser still sees one origin.
+
+Backend (serves the API only; there is no build for it to serve):
 ```
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8095
+pip install -r requirements.txt -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-Frontend:
+Frontend (hot reload on http://localhost:5173 -- Vite proxies `/api`
+and `/health` to port 8000; override with `DEV_API_PORT`):
 ```
 cd frontend
 npm install
 npm run dev
 ```
+
+Before opening a PR:
+```
+cd backend  && python -m pytest -q && python -m ruff check .
+cd frontend && npm run lint && npm run build
+```
+CI runs all of these plus a full `docker build`.
 
 ## Project structure & roadmap
 

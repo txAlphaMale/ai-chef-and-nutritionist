@@ -2,16 +2,19 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
-  // Picks up BACKEND_PORT from a `.env`/`.env.local` in this directory (if
-  // you keep one for the no-Docker dev workflow) or the shell environment,
-  // so `BACKEND_PORT=9000 npm run dev` proxies to the right place without
-  // editing this file -- same env var name docker-compose/.env.example use,
-  // just for the dev-server proxy target instead of the container mapping.
-  // VITE_BACKEND_URL remains an escape valve for a full URL override (e.g.
-  // a different host/scheme), taking precedence over BACKEND_PORT if set.
+  // DEV ONLY. In production the app serves its own frontend from one
+  // process (backend/app/static_files.py) and there is no proxy at all.
+  // This exists so `npm run dev` keeps hot reload while still letting the
+  // browser see a single origin.
+  //
+  // Deliberately its own variable, NOT the container's APP_PORT: in dev
+  // Vite owns 5173 and the backend has to be somewhere else, so reusing
+  // APP_PORT would make the two collide the moment someone set it.
+  // Override with `DEV_API_PORT=9000 npm run dev`, or VITE_BACKEND_URL
+  // for a full URL (different host or scheme).
   const env = loadEnv(mode, process.cwd(), "");
-  const backendPort = env.BACKEND_PORT || process.env.BACKEND_PORT || "8095";
-  const backendTarget = env.VITE_BACKEND_URL || process.env.VITE_BACKEND_URL || `http://localhost:${backendPort}`;
+  const devApiPort = env.DEV_API_PORT || process.env.DEV_API_PORT || "8000";
+  const backendTarget = env.VITE_BACKEND_URL || process.env.VITE_BACKEND_URL || `http://localhost:${devApiPort}`;
 
   return {
     plugins: [react()],
@@ -21,12 +24,11 @@ export default defineConfig(({ mode }) => {
       //
       // CACHE_VERSION used to be a hand-maintained "v1" that was never
       // once bumped, so the shell cache was never invalidated and every
-      // build's assets accumulated in it forever. index.html and
-      // config.js are not content-hashed the way Vite's JS/CSS bundles
-      // are, so a stale index.html could keep pointing at an asset hash
-      // that no longer exists -- a redeploy that appears not to take
-      // effect, which is exactly what was reported and previously
-      // treated as a Cache-Control problem.
+      // build's assets accumulated in it forever. index.html is not
+      // content-hashed the way Vite's JS/CSS bundles are, so a stale one
+      // could keep pointing at an asset hash that no longer exists -- a
+      // redeploy that appears not to take effect, previously chased as a
+      // Cache-Control problem.
       //
       // Deriving it from the build removes the human step entirely.
       __BUILD_ID__: JSON.stringify(String(Date.now())),
