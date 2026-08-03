@@ -27,7 +27,26 @@ import { THEME_OPTIONS, applyTheme } from "../themes";
 const PROMPT_LABELS = {
   main_chef: "Main chef system prompt",
   dietary_onboarding: "Dietary onboarding prompt",
+  recipe_import: "Recipe import (text/PDF/photo/URL fallback)",
+  recipe_modify: "Recipe chat: propose an edit",
+  receipt_import: "Receipt/list import",
+  vision_intake: "Pantry/fridge photo intake",
 };
+
+// Backlog B16.1 (author-requested 2026-08-03): the AI import/extraction
+// prompts used to be hardcoded Python constants a household could only
+// change by editing code and rebuilding the container -- see each
+// prompt's own get_*_prompt() getter (recipe_service.py,
+// routers/inventory.py) for the DB-override-with-fallback mechanics.
+// Kept as a separate key set (not folded into PROMPT_LABELS's iteration
+// order) purely so the "System prompts" card below can render two
+// visually separate groups -- persona/onboarding prompts a household
+// edits often, vs. extraction prompts most households will never touch
+// but should be able to when they need to (a different local model, a
+// household-specific abbreviation the receipt prompt doesn't expand,
+// etc.) -- without a second API round trip or a second card fetching the
+// same /api/system/prompts list.
+const IMPORT_PROMPT_KEYS = ["recipe_import", "recipe_modify", "receipt_import", "vision_intake"];
 
 // Backlog B12.1 -- these four settings are written automatically by
 // google_calendar_service.py's OAuth flow, never hand-typed, so they're
@@ -594,19 +613,31 @@ export default function SettingsPage() {
         // happens if the user actually types a new value.
         if (s.is_secret) {
           next[s.key] = "";
-        } else if (s.key === "google_calendar_redirect_uri" && !s.value && backendOrigin) {
-          // Author-requested (2026-08-01): don't make the household dig
-          // through .env for BACKEND_PORT -- backendOrigin already knows
-          // it (window.__CHEF_CONFIG__.backendPort, see api.js). Corrected
-          // the same day: suggesting the browser's raw LAN IP address
-          // directly doesn't work -- Google rejects it (see
-          // suggestedRedirectUri's comment above) -- so this now suggests
-          // http://localhost:<port> whenever the browser's own address is
-          // a bare IP, and only suggests the browser's address directly
-          // when it's already a real domain name (which Google accepts
-          // as-is). Only pre-fills an EMPTY, never-saved field -- never
-          // overwrites a value the household already set.
-          next[s.key] = suggestedRedirectUri(backendOrigin);
+        } else if (s.key === "google_calendar_redirect_uri" && !s.value && window.location.origin) {
+          // Author-requested (2026-08-01): don't make the household work
+          // out the right address by hand. Corrected the same day:
+          // suggesting the browser's raw LAN IP address directly doesn't
+          // work -- Google rejects it (see suggestedRedirectUri's comment
+          // above) -- so this now suggests http://localhost:<port>
+          // whenever the browser's own address is a bare IP, and only
+          // suggests the browser's address directly when it's already a
+          // real domain name (which Google accepts as-is). Only
+          // pre-fills an EMPTY, never-saved field -- never overwrites a
+          // value the household already set.
+          //
+          // Author-reported 2026-08-03: this used to key off
+          // `backendOrigin` (the backend container's OWN port) because
+          // Google used to redirect straight back to the backend
+          // directly. Now that frontend/server.js proxies /api/* to the
+          // backend, Google needs to redirect back to the FRONTEND's own
+          // origin instead (the proxy forwards the callback through) --
+          // hence `window.location.origin` here, not backendOrigin
+          // (which is now always empty, see api.js). Anyone who
+          // connected Google Calendar before this change will need to
+          // update both this setting and their Google Cloud Console
+          // OAuth client's authorized redirect URI -- see the WIKI's
+          // Google Calendar entry for the exact migration step.
+          next[s.key] = suggestedRedirectUri(window.location.origin);
         } else {
           // Non-secret fields are prefilled with their current value for editing.
           next[s.key] = s.value;
@@ -661,19 +692,17 @@ export default function SettingsPage() {
     refreshTlsStatus();
     // Backlog B15.1 -- prefill the self-signed hostname/CSR common-name
     // fields with the address this browser is already using to reach
-    // Chef (same source as the Google Calendar redirect-URI suggestion
-    // above: backendOrigin, derived from window.location). A household
-    // usually wants the cert to cover exactly the address they already
-    // type into a browser -- only prefills empty fields, never
-    // overwrites something the household typed.
-    if (backendOrigin) {
-      try {
-        const host = new URL(backendOrigin).hostname;
-        setSelfSignedHosts((prev) => prev || host);
-        setCsrCommonName((prev) => prev || host);
-      } catch {
-        // backendOrigin not a parseable URL (e.g. dev mode's "") -- leave fields blank
-      }
+    // Chef (window.location -- the frontend's own address, which is the
+    // one address that actually needs a certificate now that
+    // frontend/server.js proxies to the backend internally; see the
+    // 2026-08-03 note above). A household usually wants the cert to
+    // cover exactly the address they already type into a browser --
+    // only prefills empty fields, never overwrites something the
+    // household typed.
+    if (window.location.hostname) {
+      const host = window.location.hostname;
+      setSelfSignedHosts((prev) => prev || host);
+      setCsrCommonName((prev) => prev || host);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -751,6 +780,54 @@ export default function SettingsPage() {
     }
   }
 
+  // Backlog B16.1 (2026-08-03): pulled out of the "System prompts" card so
+  // the new "Advanced: import & extraction prompts" card (persona/
+  // onboarding prompts vs. recipe/receipt/vision extraction prompts,
+  // split for scannability -- see IMPORT_PROMPT_KEYS above) can render
+  // the identical row shape without duplicating this JSX twice.
+  function renderPromptRow(p) {
+    return (
+      <div className="settings-row" key={p.prompt_key}>
+        <label>
+          {PROMPT_LABELS[p.prompt_key] || p.prompt_key}
+          <textarea
+            rows={8}
+            value={promptEdits[p.prompt_key]?.content ?? ""}
+            onChange={(e) =>
+              setPromptEdits((prev) => ({
+                ...prev,
+                [p.prompt_key]: { ...prev[p.prompt_key], content: e.target.value },
+              }))
+            }
+          />
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={promptEdits[p.prompt_key]?.is_active ?? true}
+            onChange={(e) =>
+              setPromptEdits((prev) => ({
+                ...prev,
+                [p.prompt_key]: { ...prev[p.prompt_key], is_active: e.target.checked },
+              }))
+            }
+          />
+          Active
+        </label>
+        <div className="form-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => savePrompt(p.prompt_key)}
+            disabled={promptSaving[p.prompt_key]}
+          >
+            {promptSaving[p.prompt_key] ? "Saving..." : "Save"}
+          </button>
+          {promptSaved[p.prompt_key] && <span className="hint">Saved.</span>}
+        </div>
+      </div>
+    );
+  }
+
   // Extracted so the AI/Integrations/Preferences tabs can all render the
   // same generic settings-row shape without duplicating this block three
   // times (backlog B14's whole point was less repetition, not more).
@@ -783,34 +860,36 @@ export default function SettingsPage() {
             />
           )}
         </label>
-        {spec.key === "google_calendar_redirect_uri" && backendOrigin && (
+        {spec.key === "google_calendar_redirect_uri" && window.location.origin && (
           <div className="settings-redirect-uri-suggestions">
             <button
               type="button"
               className="btn-link"
-              onClick={() => setSettingEdits((prev) => ({ ...prev, [spec.key]: suggestedRedirectUri(backendOrigin) }))}
+              onClick={() =>
+                setSettingEdits((prev) => ({ ...prev, [spec.key]: suggestedRedirectUri(window.location.origin) }))
+              }
             >
-              Use localhost{isRawIpHost(backendOrigin) ? " (recommended -- see below)" : ""}
+              Use localhost{isRawIpHost(window.location.origin) ? " (recommended -- see below)" : ""}
             </button>
             {" · "}
             <button
               type="button"
               className="btn-link"
-              disabled={isRawIpHost(backendOrigin)}
+              disabled={isRawIpHost(window.location.origin)}
               title={
-                isRawIpHost(backendOrigin)
+                isRawIpHost(window.location.origin)
                   ? "This browser is reaching Chef by a raw IP address, which Google's OAuth redirect URI validation rejects. Use localhost instead, or see the WIKI for a domain-based alternative."
                   : undefined
               }
               onClick={() =>
                 setSettingEdits((prev) => ({
                   ...prev,
-                  [spec.key]: `${backendOrigin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
+                  [spec.key]: `${window.location.origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`,
                 }))
               }
             >
-              Use this browser's address ({backendOrigin})
-              {isRawIpHost(backendOrigin) ? " -- won't work, it's a raw IP" : ""}
+              Use this browser's address ({window.location.origin})
+              {isRawIpHost(window.location.origin) ? " -- won't work, it's a raw IP" : ""}
             </button>
           </div>
         )}
@@ -948,47 +1027,26 @@ export default function SettingsPage() {
             {loading ? (
               <p>Loading...</p>
             ) : (
-              prompts.map((p) => (
-                <div className="settings-row" key={p.prompt_key}>
-                  <label>
-                    {PROMPT_LABELS[p.prompt_key] || p.prompt_key}
-                    <textarea
-                      rows={8}
-                      value={promptEdits[p.prompt_key]?.content ?? ""}
-                      onChange={(e) =>
-                        setPromptEdits((prev) => ({
-                          ...prev,
-                          [p.prompt_key]: { ...prev[p.prompt_key], content: e.target.value },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={promptEdits[p.prompt_key]?.is_active ?? true}
-                      onChange={(e) =>
-                        setPromptEdits((prev) => ({
-                          ...prev,
-                          [p.prompt_key]: { ...prev[p.prompt_key], is_active: e.target.checked },
-                        }))
-                      }
-                    />
-                    Active
-                  </label>
-                  <div className="form-actions">
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => savePrompt(p.prompt_key)}
-                      disabled={promptSaving[p.prompt_key]}
-                    >
-                      {promptSaving[p.prompt_key] ? "Saving..." : "Save"}
-                    </button>
-                    {promptSaved[p.prompt_key] && <span className="hint">Saved.</span>}
-                  </div>
-                </div>
-              ))
+              prompts.filter((p) => !IMPORT_PROMPT_KEYS.includes(p.prompt_key)).map(renderPromptRow)
             )}
+          </div>
+          <div className="card">
+            <h3>Advanced: import &amp; extraction prompts</h3>
+            <p className="hint">
+              Instructions the AI follows when it turns a receipt, a recipe (text/PDF/photo/URL fallback), or a
+              pantry photo into structured data. Most households never need to touch these -- they exist for cases
+              like a different local model needing different phrasing, or a household-specific abbreviation the
+              built-in receipt prompt doesn't already expand. Uncheck &quot;Active&quot; to revert to Chef&apos;s
+              built-in default without losing your draft edit.
+            </p>
+            <details>
+              <summary>Show import &amp; extraction prompts</summary>
+              {loading ? (
+                <p>Loading...</p>
+              ) : (
+                prompts.filter((p) => IMPORT_PROMPT_KEYS.includes(p.prompt_key)).map(renderPromptRow)
+              )}
+            </details>
           </div>
         </>
       )}
@@ -1012,6 +1070,35 @@ export default function SettingsPage() {
               household from Google Calendar's own sharing settings. First-time setup needs your own free Google
               Cloud OAuth client -- see the full walkthrough in the <a href="#/wiki?entry=google-calendar-setup">WIKI</a>.
             </p>
+
+            {(() => {
+              // Author-reported 2026-08-03: the redirect URI used to
+              // point at the BACKEND's own origin/port; it now needs to
+              // point at the frontend's (see the notes above this card's
+              // logic). Anyone who connected before this change has a
+              // stale saved value pointing at the wrong origin -- flag it
+              // rather than let it fail silently the next time a token
+              // refresh needs that redirect URI, or the household tries
+              // Force resync/Disconnect-and-reconnect and hits a Google
+              // "redirect_uri_mismatch" error with no obvious cause.
+              const savedUri = settings.find((s) => s.key === "google_calendar_redirect_uri")?.value;
+              if (!savedUri || !gcalStatus?.configured) return null;
+              try {
+                if (new URL(savedUri).origin === window.location.origin) return null;
+              } catch {
+                return null;
+              }
+              return (
+                <p className="error-text">
+                  Your saved redirect URI ({savedUri}) points at a different address than this page ({" "}
+                  {window.location.origin}). As of 2026-08-03, Google must redirect back to the frontend's own
+                  address (Chef now proxies the API call through), not the backend's -- update the redirect URI
+                  above (use the suggestion buttons below the field) AND update the authorized redirect URI on
+                  this OAuth client in Google Cloud Console to match, then reconnect. See the WIKI's Google
+                  Calendar entry for the exact steps.
+                </p>
+              );
+            })()}
 
             {gcalBanner && <p className={`gcal-banner ${gcalBanner.type}`}>{gcalBanner.message}</p>}
             {gcalError && <p className="error-text">{gcalError}</p>}

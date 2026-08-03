@@ -74,9 +74,20 @@ app.add_middleware(
     # request Origin, which is what the new session-cookie auth gate
     # (see auth_service.py/routers/auth.py) needs to actually receive
     # its cookie back cross-origin in the production deployment (backend
-    # and frontend on different ports, no reverse proxy yet -- see
-    # api.js). Tighten to a concrete origin list once a reverse proxy
-    # unifies the two origins (a documented existing simplification).
+    # and frontend on different ports -- see api.js).
+    #
+    # Author-reported 2026-08-03: the browser no longer talks to this
+    # origin directly at all in normal use -- frontend/server.js reverse-
+    # proxies /api/* and /health to here over the internal Docker
+    # network, so the frontend's own origin is what the browser actually
+    # sees, and this CORS config only still matters for someone hitting
+    # the backend's own port directly (advanced/scripting use, or a
+    # deployment that hasn't rebuilt the frontend image yet). Left
+    # permissive rather than tightened to a concrete origin list, since
+    # narrowing it now would break exactly that direct-access case for no
+    # benefit -- nothing routed through the proxy is a "cross-origin
+    # browser request" in the first place, so CORS headers are moot for
+    # it either way.
     allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],

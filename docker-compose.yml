@@ -16,6 +16,16 @@ services:
     env_file:
       - .env
     ports:
+      # Author-reported 2026-08-03: as of frontend/server.js, a browser
+      # never needs to reach these directly anymore -- the frontend
+      # container reverse-proxies /api/* and /health to this service over
+      # Docker's own internal network (see BACKEND_INTERNAL_HOST in
+      # .env.example). These host-port mappings are kept only for
+      # OPTIONAL direct access -- hitting the API with curl/a script, or
+      # debugging -- and can be commented out entirely for a deployment
+      # that wants the backend unreachable from the LAN outside its own
+      # container. Not required for normal app use on any device.
+      #
       # Both sides of each mapping deliberately use the SAME env var --
       # fixed 2026-08-02 after an author-reported live bug: B15.1's new
       # run_server.py binds the container's OWN internal uvicorn listener
@@ -40,7 +50,10 @@ services:
       # Certificate (see app/services/tls_service.py). Until then the
       # backend serves plain HTTP on BACKEND_PORT above, same as always;
       # once a cert exists, BACKEND_PORT switches to a redirect-only
-      # listener and this becomes the real one.
+      # listener and this becomes the real one. Note this is now purely
+      # optional too (see above) -- the frontend proxy always talks to
+      # this container over plain HTTP on the internal Docker network,
+      # regardless of whether HTTPS is active here.
       - "${BACKEND_HTTPS_PORT:-8446}:${BACKEND_HTTPS_PORT:-8446}"
     volumes:
       - chef-data:/app/data

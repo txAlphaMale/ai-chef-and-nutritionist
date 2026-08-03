@@ -1,20 +1,28 @@
 #!/bin/sh
 # Runs on every container start. Two jobs:
 #
-# 1. Writes a small runtime-config file the already-built static bundle
-#    reads at page load (window.__CHEF_CONFIG__.backendPort), so
-#    BACKEND_PORT (from .env, via docker-compose's env_file) can be
-#    changed and picked up on a plain container restart -- no frontend
-#    rebuild, no hand-editing src/api.js. See src/api.js's
-#    `backendOrigin` for the reader side.
+# 1. Author-reported 2026-08-03: launches server.js (a static file
+#    server that ALSO reverse-proxies /api/* and /health to the backend
+#    container over the internal Docker network -- see that file's own
+#    docstring) instead of the old plain `serve`. BACKEND_TARGET is
+#    built here from BACKEND_INTERNAL_HOST (the backend's Docker Compose
+#    service name -- "backend" by default, see docker-compose.yml) and
+#    BACKEND_PORT, always as plain HTTP -- the browser never talks to
+#    the backend directly anymore, so there's nothing for it to trust,
+#    and the private Docker bridge network between the two containers
+#    doesn't need TLS. This replaces the old window.__CHEF_CONFIG__/
+#    config.js mechanism entirely (it only ever existed so the BROWSER
+#    could learn the backend's port to call it directly -- see the
+#    retired backendOrigin logic in src/api.js -- which no longer
+#    happens at all).
 #
-# 2. Backlog B15.1 (2026-08-01): decides plain-HTTP vs. HTTPS for `serve`
-#    itself by checking for a certificate on the chef-tls volume (shared
-#    read-only from the backend container -- see
+# 2. Backlog B15.1 (2026-08-01): decides plain-HTTP vs. HTTPS for
+#    server.js itself by checking for a certificate on the chef-tls
+#    volume (shared read-only from the backend container -- see
 #    backend/app/services/tls_service.py's module docstring for the full
 #    two-container architecture writeup) and keeps watching that same
-#    file for changes, restarting `serve` with updated flags whenever it
-#    does. This has to live here, not just in the backend, because a
+#    file for changes, restarting server.js with updated flags whenever
+#    it does. This has to live here, not just in the backend, because a
 #    browser's camera/geolocation Secure Context check is about the
 #    origin the PAGE ITSELF loaded from -- the frontend needs to serve
 #    HTTPS too, not only the API it calls.
@@ -31,6 +39,11 @@ set -e
 
 BACKEND_PORT="${BACKEND_PORT:-8095}"
 BACKEND_HTTPS_PORT="${BACKEND_HTTPS_PORT:-8446}"
+# The backend's Docker Compose service name -- resolves over the private
+# inter-container network Compose sets up automatically. Only needs to
+# change if you rename the `backend:` service in docker-compose.yml.
+BACKEND_INTERNAL_HOST="${BACKEND_INTERNAL_HOST:-backend}"
+BACKEND_TARGET="http://${BACKEND_INTERNAL_HOST}:${BACKEND_PORT}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 FRONTEND_HTTPS_PORT="${FRONTEND_HTTPS_PORT:-5174}"
 CERT_FILE="/app/tls/cert.pem"
@@ -56,30 +69,18 @@ cert_state() {
   fi
 }
 
-write_config() {
-  if cert_active; then
-    active_backend_port="$BACKEND_HTTPS_PORT"
-  else
-    active_backend_port="$BACKEND_PORT"
-  fi
-  echo "[chef-frontend] writing runtime config (backendPort=${active_backend_port})..."
-  cat > ./dist/config.js <<EOF
-window.__CHEF_CONFIG__ = { backendPort: "${active_backend_port}" };
-EOF
-}
-
 start_server() {
-  write_config
   if cert_active; then
-    echo "[chef-frontend] starting HTTPS on port ${FRONTEND_HTTPS_PORT} (cert: ${CERT_FILE})..."
-    serve -s dist -l "tcp://0.0.0.0:${FRONTEND_HTTPS_PORT}" --ssl-cert "$CERT_FILE" --ssl-key "$KEY_FILE" &
+    echo "[chef-frontend] starting HTTPS on port ${FRONTEND_HTTPS_PORT} (cert: ${CERT_FILE}), proxying /api and /health to ${BACKEND_TARGET}..."
+    LISTEN_PORT="$FRONTEND_HTTPS_PORT" DIST_DIR="./dist" BACKEND_TARGET="$BACKEND_TARGET" \
+      TLS_CERT_FILE="$CERT_FILE" TLS_KEY_FILE="$KEY_FILE" node server.js &
     SERVER_PID=$!
     echo "[chef-frontend] also starting a plain-HTTP redirect on port ${FRONTEND_PORT} -> https://<host>:${FRONTEND_HTTPS_PORT}..."
     REDIRECT_LISTEN_PORT="$FRONTEND_PORT" REDIRECT_TARGET_PORT="$FRONTEND_HTTPS_PORT" node redirect-server.js &
     REDIRECT_PID=$!
   else
-    echo "[chef-frontend] starting plain HTTP on port ${FRONTEND_PORT} (no certificate yet -- set one up under Settings > Security > Certificate)..."
-    serve -s dist -l "tcp://0.0.0.0:${FRONTEND_PORT}" &
+    echo "[chef-frontend] starting plain HTTP on port ${FRONTEND_PORT} (no certificate yet -- set one up under Settings > Security > Certificate), proxying /api and /health to ${BACKEND_TARGET}..."
+    LISTEN_PORT="$FRONTEND_PORT" DIST_DIR="./dist" BACKEND_TARGET="$BACKEND_TARGET" node server.js &
     SERVER_PID=$!
     REDIRECT_PID=""
   fi
@@ -104,8 +105,8 @@ start_server
 last_state=$(cert_state)
 
 # Backlog B15.1 -- polls the shared cert file (written by the backend
-# container) and restarts `serve` with updated HTTP/HTTPS flags whenever
-# it changes (a fresh self-signed cert generated, an imported cert
+# container) and restarts server.js with updated HTTP/HTTPS flags
+# whenever it changes (a fresh self-signed cert generated, an imported cert
 # replacing it, or the cert cleared entirely reverting to plain HTTP).
 # Mirrors the backend's own tls_service.restart_to_apply() in spirit
 # (notice a changed cert, restart to pick it up) but as an independent

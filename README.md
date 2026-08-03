@@ -71,7 +71,7 @@ optional first-run convenience values.
    ```
    docker compose up --build
    ```
-4. Frontend: http://localhost:5173  Backend health check: http://localhost:8095/health
+4. Frontend: http://localhost:5173 (this also proxies the backend health check -- http://localhost:5173/health)
 5. Anything you skipped in step 2 (Ollama URL/models, Tavily key,
    household size, system prompts) can be set from the app's Settings
    page at any time -- changes take effect on the next request, no
@@ -96,23 +96,31 @@ See the comments at the top of `docker-compose.ollama.yml` for NVIDIA
 Container Toolkit requirements and multi-GPU notes (including how to
 dedicate a specific card if you have more than one).
 
-### Known limitation: no reverse proxy in front of the two services
+### The frontend is the only thing a browser ever talks to
 
-The frontend and backend run as separate containers on separate ports
-(`5173` and `8095` by default) with no reverse proxy between them; the
-production frontend build talks to the backend directly, and the
-backend's CORS is wide open to make that work. This is fine for the
-common single-host, trusted-LAN case this app targets, but it isn't set
-up for exposing the app over HTTPS/a public domain as-is. A shared
-nginx/Caddy sidecar in front of both services is a reasonable
-improvement if you need that -- not included here to keep the default
-setup simple.
+The frontend and backend run as separate containers, but a browser never
+calls the backend directly: `frontend/server.js` reverse-proxies `/api/*`
+and `/health` to the backend over Docker's own internal network. This
+means any device on your LAN -- not just the machine running Docker --
+only ever needs to reach and (if you set up HTTPS) trust ONE address,
+the frontend's. (This used to not be the case, and caused exactly the
+symptoms you'd expect on a second device: a "backend unreachable" status
+and browser features like the camera silently failing depending on
+which of the two origins a given device had actually trusted -- fixed
+2026-08-03.)
 
-If either default port (`5173`/`8095`) conflicts with something already
-running on your machine, change `BACKEND_PORT`/`FRONTEND_PORT` in `.env`
+The backend's own ports (`8095`/`8446` by default) are still published
+by `docker-compose.yml` for optional direct API access or scripting, but
+nothing in normal app use requires them to be reachable from outside the
+backend's own container -- feel free to remove those port mappings
+entirely if you don't need direct access.
+
+If any default port (`5173`/`8095`, or their HTTPS counterparts)
+conflicts with something already running on your machine, change
+`BACKEND_PORT`/`FRONTEND_PORT` (or the `_HTTPS_PORT` variants) in `.env`
 and run `docker compose up` again -- no `--build` needed. The frontend
-container reads the current `BACKEND_PORT` at startup (see
-`frontend/docker-entrypoint.sh`) rather than having it baked into the
+container reads the current values at startup (see
+`frontend/docker-entrypoint.sh`) rather than having them baked into the
 built bundle, so this just works on a restart.
 
 ## Development without Docker

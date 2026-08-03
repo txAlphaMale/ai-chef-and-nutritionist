@@ -7,10 +7,20 @@ RUN npm run build
 
 FROM node:22-slim
 WORKDIR /app
-RUN npm install -g serve
+# Author-reported 2026-08-03: replaced the plain `serve` static server
+# with a small custom one (server.js) that ALSO reverse-proxies /api/*
+# and /health to the backend container -- so a browser anywhere on the
+# LAN only ever needs to reach and trust this one origin, never the
+# backend's directly. See server.js's own module docstring for the full
+# rationale. Global install, same as `serve` was -- neither of these
+# (nor `serve` before them) belongs in package.json, since none of this
+# app's actual npm dependencies are needed after the Vite build produces
+# static output; only this runtime shell needs them.
+RUN npm install -g http-proxy serve-handler
 COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh .
 COPY redirect-server.js .
+COPY server.js .
 RUN chmod +x docker-entrypoint.sh
 
 # Backlog B15.1 (2026-08-01) -- shared with the backend container via

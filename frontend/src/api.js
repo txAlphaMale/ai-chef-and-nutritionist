@@ -1,43 +1,42 @@
 // Thin fetch wrapper -- every request goes through here so error
 // handling and the JSON dance stay consistent across pages.
 //
-// In dev (`npm run dev`), relative /api/* paths work via the vite proxy
-// in vite.config.js. In the production Docker build, frontend and
-// backend are separate containers on separate ports with no reverse
-// proxy in front of them yet (a documented simplification -- see
-// PROJECT-PLAN.md "Known simplification: frontend/backend origins" --
-// a shared reverse proxy is a reasonable Phase 9 polish item), so we
-// fall back to hitting the backend directly at BACKEND_PORT on the
-// same host. The backend's CORS is wide open (allow_origins=["*"])
-// specifically to make this work.
+// Author-reported 2026-08-03: this used to hit the backend container
+// directly on its own port (BACKEND_PORT, learned at page load from
+// window.__CHEF_CONFIG__/config.js) whenever this wasn't a `npm run dev`
+// session -- a documented simplification ("Known simplification:
+// frontend/backend origins" in PROJECT-PLAN.md) that worked fine from
+// the machine running Docker, but asked every OTHER device on the LAN to
+// independently reach a second origin and (once B15.1 added HTTPS) trust
+// a second certificate. Any one of those failing looked like "Backend
+// status: unreachable" on the Home page, or a barcode scanner that
+// silently never engaged, with no obvious link back to the real cause.
 //
-// BACKEND_PORT itself is read at page load from window.__CHEF_CONFIG__,
-// written by docker-entrypoint.sh from the container's BACKEND_PORT env
-// var (sourced from .env via docker-compose's env_file) -- so changing
-// BACKEND_PORT in .env and restarting the container (`docker compose up`,
-// no `--build` needed) is enough; no rebuild, no editing this file. The
-// literal 8095 below is only a fallback for when that script hasn't run
-// (e.g. a raw `npm run dev`, which never reaches this branch anyway --
-// see the `import.meta.env.DEV` check below).
-const BACKEND_PORT = window.__CHEF_CONFIG__?.backendPort || 8095;
-
-export const backendOrigin = import.meta.env.DEV
-  ? ""
-  : `${window.location.protocol}//${window.location.hostname}:${BACKEND_PORT}`;
+// Fixed at the architecture level, not per-symptom: frontend/server.js
+// now reverse-proxies /api/* and /health to the backend itself, over the
+// private Docker network -- the BROWSER never talks to the backend at
+// all anymore, only this frontend process does. That makes every
+// request genuinely same-origin from the browser's point of view, in
+// dev (via vite.config.js's proxy) and in the production Docker build
+// (via server.js) alike -- so backendOrigin is now always empty, kept
+// only so every existing `${backendOrigin}/api/...`-style call site
+// elsewhere in this app (recipe images, calendar/JSON-LD/backup/
+// certificate downloads, etc.) still resolves correctly as a plain
+// relative, same-origin URL without needing to be touched individually.
+export const backendOrigin = "";
 
 const BASE = `${backendOrigin}/api`;
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
-    // Backlog B10.2 (2026-08-01) -- the new session-cookie auth gate
-    // needs the browser to actually send/receive its cookie, which
-    // fetch omits by default for the production cross-origin case
-    // (frontend/backend on different ports, no reverse proxy yet).
-    // Required alongside the backend's CORS allow_origin_regex fix in
-    // main.py -- a literal allow_origins=["*"] would silently break
-    // this even with credentials: "include" set here, since browsers
-    // refuse a credentialed request against a wildcard Allow-Origin.
+    // Backlog B10.2 (2026-08-01) -- the session-cookie auth gate needs
+    // the browser to send/receive its cookie. Now that every request is
+    // genuinely same-origin (2026-08-03, see backendOrigin above), a
+    // same-origin fetch would send the cookie by default anyway -- this
+    // is kept as an explicit, harmless superset rather than removed, so
+    // nothing changes here if a future deployment ever reintroduces a
+    // cross-origin path.
     credentials: "include",
     ...options,
   });

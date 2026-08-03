@@ -38,8 +38,13 @@ self.addEventListener("fetch", (event) => {
   // Never cache API calls -- inventory/recipes/meal-plan/chat/etc. all
   // need live data every time; a stale cached response here would be
   // actively misleading (e.g. showing yesterday's inventory as current),
-  // not just a minor staleness nicety.
-  if (url.pathname.startsWith("/api/")) return;
+  // not just a minor staleness nicety. /health lives outside /api (see
+  // backend/app/main.py) but needs the same exclusion -- author-reported
+  // 2026-08-03: now that frontend/server.js proxies it same-origin, this
+  // service worker would otherwise start caching it too (a stale cached
+  // "backend ok" is exactly the kind of misleading result this app's
+  // Home page status check exists to catch, not hide).
+  if (url.pathname.startsWith("/api/") || url.pathname === "/health") return;
 
   event.respondWith(
     fetch(request)
