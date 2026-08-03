@@ -124,7 +124,18 @@ def test_subtract_inventory_same_unit_unchanged_behavior():
     # Backlog B5.4 -- category now rides along, sourced from the matched
     # inventory row's own category (see test_grocery_category.py for
     # dedicated coverage of that behavior).
-    assert result == [{"ingredient_name": "rice", "quantity": 2, "unit": "cup", "category": "pantry"}]
+    # Audit P1-5 -- matched_item_name/match_confidence now ride along too,
+    # so the user can see what a reduced line was reconciled against.
+    assert result == [
+        {
+            "ingredient_name": "rice",
+            "quantity": 2,
+            "unit": "cup",
+            "category": "pantry",
+            "matched_item_name": "rice",
+            "match_confidence": "exact",
+        }
+    ]
 
 
 def test_subtract_inventory_no_match_uses_full_quantity():
@@ -144,17 +155,18 @@ def test_deduct_by_name_converts_quantity_into_item_unit(db_session):
     db_session.commit()
 
     # Recipe calls for 8 oz of butter -- item is logged in lb.
-    updated = inventory_service.deduct_by_name(db_session, "butter", 8, "oz")
-    assert updated is not None
-    assert updated.quantity == pytest_approx(1 - 8 / 16, tol=0.01)
+    outcome = inventory_service.deduct_by_name(db_session, "butter", 8, "oz")
+    assert outcome.status == inventory_service.DEDUCT_APPLIED
+    assert outcome.item.quantity == pytest_approx(1 - 8 / 16, tol=0.01)
 
 
 def test_deduct_by_name_same_unit_unchanged_behavior(db_session):
     item = InventoryItem(name="rice", quantity=5, unit="cup", category="pantry")
     db_session.add(item)
     db_session.commit()
-    updated = inventory_service.deduct_by_name(db_session, "rice", 2, "cup")
-    assert updated.quantity == 3
+    outcome = inventory_service.deduct_by_name(db_session, "rice", 2, "cup")
+    assert outcome.status == inventory_service.DEDUCT_APPLIED
+    assert outcome.item.quantity == 3
 
 
 def test_deduct_by_name_treats_a_missing_unit_as_already_in_the_item_unit(db_session):
@@ -164,8 +176,9 @@ def test_deduct_by_name_treats_a_missing_unit_as_already_in_the_item_unit(db_ses
     item = InventoryItem(name="onion", quantity=5, unit="whole", category="pantry")
     db_session.add(item)
     db_session.commit()
-    updated = inventory_service.deduct_by_name(db_session, "onion", 2, None)
-    assert updated.quantity == 3
+    outcome = inventory_service.deduct_by_name(db_session, "onion", 2, None)
+    assert outcome.status == inventory_service.DEDUCT_APPLIED
+    assert outcome.item.quantity == 3
 
 
 def test_deduct_by_name_refuses_to_deduct_across_unconvertible_units(db_session):
@@ -180,17 +193,20 @@ def test_deduct_by_name_refuses_to_deduct_across_unconvertible_units(db_session)
     item = InventoryItem(name="pepper", quantity=5, unit="whole", category="pantry")
     db_session.add(item)
     db_session.commit()
-    updated = inventory_service.deduct_by_name(db_session, "pepper", 2, "cup")
-    assert updated.quantity == 5  # unchanged -- not 3
-    assert updated.last_used_date is not None  # but we know it was used
+    outcome = inventory_service.deduct_by_name(db_session, "pepper", 2, "cup")
+    assert outcome.status == inventory_service.DEDUCT_UNIT_MISMATCH
+    assert outcome.item.quantity == 5  # unchanged -- not 3
+    assert outcome.item.last_used_date is not None  # but we know it was used
+    assert "not convertible" in outcome.message
 
 
 def test_deduct_by_name_no_quantity_still_decrements_by_one(db_session):
     item = InventoryItem(name="lemon", quantity=3, unit="whole", category="pantry")
     db_session.add(item)
     db_session.commit()
-    updated = inventory_service.deduct_by_name(db_session, "lemon")
-    assert updated.quantity == 2
+    outcome = inventory_service.deduct_by_name(db_session, "lemon")
+    assert outcome.status == inventory_service.DEDUCT_APPLIED
+    assert outcome.item.quantity == 2
 
 
 def pytest_approx(value, tol=0.001):

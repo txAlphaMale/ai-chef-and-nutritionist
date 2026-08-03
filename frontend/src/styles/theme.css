@@ -2098,3 +2098,177 @@ tr.urgency-low td {
 .dining-contact:empty {
   display: none;
 }
+
+/* --- Ingredient match disambiguation (audit P1-5, 2026-08-03) ---
+   The resolver refuses to guess between near matches rather than
+   silently deducting from the wrong inventory row, so these styles carry
+   two things the old substring matcher never had anything to show: which
+   items were candidates and how sure the app was, and which items were
+   deliberately EXCLUDED and why. Uses the same --color-* / --spacing-*
+   tokens as everything else so all nine themes pick it up with no
+   per-theme work. */
+
+.match-confidence {
+  border-color: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+}
+
+.match-confidence-exact,
+.match-confidence-high {
+  color: var(--color-secondary);
+  border-color: color-mix(in srgb, var(--color-secondary) 50%, transparent);
+  background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+}
+
+.match-confidence-medium {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.match-confidence-low {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+}
+
+.match-picker {
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-3);
+  margin-top: var(--spacing-2);
+  background: color-mix(in srgb, var(--color-accent) 5%, transparent);
+}
+
+.match-picker-question {
+  margin: 0 0 var(--spacing-2);
+  font-weight: 600;
+}
+
+.match-picker-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.match-picker-option:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+.match-picker-option input {
+  /* 24px touch-target floor, same as the B7.4 accessibility pass set for
+     the dining filter toggle. */
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.match-picker-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.match-picker-option-name {
+  font-weight: 600;
+}
+
+.match-picker-option-meta,
+.match-picker-option-reason {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.match-picker-option-reason {
+  font-style: italic;
+}
+
+.match-picker-blocked {
+  margin-top: var(--spacing-2);
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.match-picker-blocked summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+}
+
+.match-picker-blocked ul {
+  margin: var(--spacing-1) 0 0;
+  padding-left: var(--spacing-3);
+}
+
+.match-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-3);
+}
+
+/* Reconciliation provenance on a grocery line -- why it reads the way it
+   does. Both of these used to be computed and then discarded before
+   reaching a persisted row, so no user had ever seen either one. */
+.grocery-match-note {
+  display: block;
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+}
+
+.grocery-needs-review {
+  display: block;
+  font-size: 0.85em;
+  color: var(--color-danger);
+  margin-top: var(--spacing-1);
+}
+
+/* Settings: the saved-alias manager. */
+.alias-list {
+  list-style: none;
+  margin: var(--spacing-2) 0 0;
+  padding: 0;
+}
+
+.alias-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.alias-arrow {
+  color: var(--color-text-muted);
+  margin: 0 var(--spacing-1);
+}
+
+.alias-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  align-items: flex-end;
+  margin-top: var(--spacing-3);
+}
+
+/* Per-ingredient outcomes reported after confirming a meal was cooked --
+   what the deduction could NOT do, rather than skipping it silently. */
+.deduction-notes {
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-left: 3px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  font-size: 0.9em;
+}
+
+.deduction-notes ul {
+  margin: var(--spacing-1) 0 0;
+  padding-left: var(--spacing-3);
+}

@@ -128,3 +128,28 @@ class GroceryListItem(Base, TimestampMixin):
     category: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_purchased: Mapped[bool] = mapped_column(Boolean, default=False)
     source: Mapped[str] = mapped_column(String(20), default="auto")  # auto|manual
+
+    # --- Reconciliation provenance (2026-08-03) ------------------------
+    #
+    # Why this line reads the way it does. `subtract_inventory` has
+    # produced all three of these for a while; none of them were
+    # persisted, so the explanation was computed and then thrown away one
+    # function call later and the user never saw any of it.
+    #
+    # `needs_review` is audit P1-4's output: the recipe's unit and the
+    # matched row's unit are not convertible, so the line kept its FULL
+    # quantity rather than being reduced by a number that would have been
+    # wrong. Without this column the user just sees a line for something
+    # they know they have, with no reason given.
+    #
+    # `matched_item_name` / `match_confidence` are audit P1-5's: which
+    # inventory row this line was reconciled against, and how sure the
+    # resolver was. Reported even on a confident match -- the user is
+    # about to shop from this list, and "we took 1 lb off because you
+    # already have X" is only checkable if X is named.
+    #
+    # All nullable and all ignored by every calculation: this is
+    # explanation, never input.
+    needs_review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    matched_item_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    match_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)

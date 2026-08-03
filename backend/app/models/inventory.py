@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -107,6 +107,61 @@ class InventoryItem(Base, TimestampMixin):
     # import_order_history | barcode -- how the item entered inventory
     source: Mapped[str] = mapped_column(String(20), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class IngredientAlias(Base, TimestampMixin):
+    """Audit P1-5: one remembered answer to "which inventory item did you
+    mean by this name".
+
+    The matcher in `app.services.ingredient_resolution_service` is
+    deliberately conservative -- it refuses to guess between "chicken" and
+    "chicken breast" rather than silently picking one, because picking
+    wrong writes a bad number into `inventory_items.quantity` with nothing
+    on screen to notice. That conservatism is only liveable if the user is
+    asked at most ONCE per name. This table is where that answer lives.
+
+    `alias_normalized` is the matcher's own normalised form of what the
+    user typed (see `normalize_name`), not the raw text -- so "Chopped
+    Tomatoes", "chopped tomato" and "CHOPPED TOMATOES" all hit the same
+    alias without three separate rows. `alias_text` keeps the raw form for
+    display in the Settings alias list, because "you taught me
+    tomatos -> Roma tomatoes" is more meaningful to a human than the
+    folded token string.
+
+    Two targets, and the distinction matters:
+
+    - `canonical_name` (required) is the DURABLE target. Aliases resolve
+      to a NAME and the name is then matched normally, which means the
+      alias keeps working after the matched row is used up, deleted and
+      re-bought -- which is the normal life of a grocery item and would
+      otherwise rot every alias within a shopping cycle.
+    - `inventory_item_id` (optional) pins the answer to one specific row,
+      for the case where a household genuinely keeps two rows whose names
+      normalise identically. `ondelete="SET NULL"` rather than CASCADE:
+      when that row goes away the alias should fall back to resolving by
+      `canonical_name`, not vanish. (Note this FK is only enforced because
+      audit P2-1 turned `PRAGMA foreign_keys` on -- before that fix every
+      FK in this schema was decorative.)
+
+    `source` distinguishes a household's own correction ("user") from
+    anything the app itself ever writes, so a future cleanup or export can
+    tell them apart. Nothing seeds this table today: shipping a starter
+    alias list would mean asserting food equivalences this project has not
+    verified, which is exactly the guessing the matcher exists to avoid.
+    """
+
+    __tablename__ = "ingredient_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alias_normalized: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    alias_text: Mapped[str] = mapped_column(String(200))
+    canonical_name: Mapped[str] = mapped_column(String(200))
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True
+    )
+    # "user" -- the household confirmed this from a disambiguation prompt
+    source: Mapped[str] = mapped_column(String(20), default="user")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class OrderImportProfile(Base):

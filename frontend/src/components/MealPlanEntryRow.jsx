@@ -27,6 +27,10 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
   // matches plus an explicit "confirm anyway" override instead of just
   // an error message.
   const [conflict, setConflict] = useState(null);
+  // Audit P1-5 -- per-ingredient outcomes from the deduction that runs on
+  // confirm. Only the non-applied ones come back; an empty list means
+  // every ingredient was deducted cleanly.
+  const [deductionNotes, setDeductionNotes] = useState([]);
 
   // Backlog B5.1 -- candidates for "mark as leftovers of": any OTHER
   // entry in this plan that has a recipe assigned and isn't itself
@@ -58,10 +62,17 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
     setError(null);
     if (!acknowledgeConflict) setConflict(null);
     try {
-      await api.post(`/meal-plans/${planId}/entries/${entry.id}/confirm`, {
+      const result = await api.post(`/meal-plans/${planId}/entries/${entry.id}/confirm`, {
         acknowledge_restriction_conflict: !!acknowledgeConflict,
       });
       setConflict(null);
+      // Audit P1-5 -- confirming a meal deducts every ingredient, and
+      // that has always been best-effort. It used to be SILENTLY
+      // best-effort: an ingredient the matcher could not resolve was
+      // skipped with no trace, so a household would just see inventory
+      // quietly failing to go down. Now the misses come back with the
+      // response and get shown.
+      setDeductionNotes(result?.inventory_deductions || []);
       onChanged();
     } catch (e) {
       if (e.status === 409 && e.detail && typeof e.detail === "object") {
@@ -198,6 +209,25 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
         )}
       </div>
       {error && <p className="error-text">{error}</p>}
+      {deductionNotes.length > 0 && (
+        <div className="deduction-notes">
+          <strong>Inventory was only partly updated.</strong> These ingredients were not deducted:
+          <ul>
+            {deductionNotes.map((note, i) => (
+              <li key={`${note.ingredient_name}:${i}`}>
+                <strong>{note.ingredient_name}</strong> — {note.message}
+                {note.candidate_names?.length > 0 && (
+                  <> Closest inventory items: {note.candidate_names.join(", ")}.</>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="hint">
+            Fix these from the Inventory page, or tell the chat which item each one means — it will
+            remember for next time.
+          </p>
+        </div>
+      )}
       {conflict && (
         <div className="restriction-conflict-dialog">
           <RestrictionWarnings matches={conflict.matches} crossContactMatches={conflict.cross_contact_matches} />

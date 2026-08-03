@@ -15,13 +15,14 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
-from app.models import GroceryListItem, HouseholdMember, MealPlan, MealPlanEntry, Recipe
+from app.models import GroceryListItem, HouseholdMember, InventoryItem, MealPlan, MealPlanEntry, Recipe
 from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.meal_plan import (
     DietQualityScoreResponse,
     GroceryListItemCreate,
     GroceryListItemRead,
     GroceryListItemUpdate,
+    InventoryDeductionNote,
     MealPlanCreate,
     MealPlanEntryConfirmRequest,
     MealPlanEntryRead,
@@ -238,6 +239,13 @@ def _persist_grocery_list(db: Session, plan: MealPlan) -> None:
                 # computed dict (subtract_inventory sets it), just never
                 # carried through to the persisted row.
                 category=item.get("category"),
+                # Audit P1-4/P1-5: subtract_inventory has produced all
+                # three of these for a while and none were ever carried
+                # onto the persisted row, so the reasoning was computed
+                # and discarded one call later and no user ever saw it.
+                needs_review=item.get("needs_review"),
+                matched_item_name=item.get("matched_item_name"),
+                match_confidence=item.get("match_confidence"),
                 source="auto",
             )
         )
@@ -493,6 +501,7 @@ def confirm_meal_plan_entry(
     if entry.is_skipped:
         raise HTTPException(status_code=400, detail="Cannot confirm a skipped entry")
 
+    deduction_notes: list[InventoryDeductionNote] = []
     if entry.recipe_id is not None and entry.leftover_of_entry_id is None:
         recipe = db.get(Recipe, entry.recipe_id)
         if recipe is not None:
@@ -514,13 +523,42 @@ def confirm_meal_plan_entry(
                 for i in recipe.ingredients
             ]
             scaled = recipe_service.scale_ingredients(base_ingredients, recipe.default_servings, entry.servings)
+            # Loaded once for the whole recipe rather than per ingredient:
+            # word-boundary matching scores against every row, so without
+            # this a ten-ingredient recipe would read the full inventory
+            # table ten times.
+            inventory_rows = db.query(InventoryItem).all()
             for ing in scaled:
-                inventory_service.deduct_by_name(db, ing["ingredient_name"], ing.get("quantity"), ing.get("unit"))
+                outcome = inventory_service.deduct_by_name(
+                    db, ing["ingredient_name"], ing.get("quantity"), ing.get("unit"), items=inventory_rows
+                )
+                # Audit P1-5: report every ingredient the deduction could
+                # not confidently apply, instead of skipping it silently.
+                # Confirming a meal is still best-effort -- one
+                # unresolvable ingredient must not fail the whole
+                # confirmation -- but "best-effort" now means "tells you
+                # what it could not do", which is what makes the
+                # matcher's refusal to guess actionable rather than just
+                # invisible.
+                if outcome.status != inventory_service.DEDUCT_APPLIED:
+                    deduction_notes.append(
+                        InventoryDeductionNote(
+                            ingredient_name=ing["ingredient_name"],
+                            status=outcome.status,
+                            matched_item_name=outcome.item.name if outcome.item else None,
+                            message=outcome.message,
+                            candidate_names=[
+                                c.name for c in (outcome.resolution.candidates if outcome.resolution else [])
+                            ][:5],
+                        )
+                    )
 
     entry.is_confirmed = True
     db.commit()
     db.refresh(entry)
-    return _to_entry_read(entry)
+    result = _to_entry_read(entry)
+    result.inventory_deductions = deduction_notes
+    return result
 
 
 @router.post("/{plan_id}/entries/{entry_id}/skip", response_model=MealPlanEntryRead)

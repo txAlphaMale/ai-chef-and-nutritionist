@@ -207,7 +207,8 @@ def test_grocery_list_cost_end_to_end_via_compute_grocery_list_context(db_sessio
     plan = db_session.query(MealPlan).first()
     grocery_list = meal_plan_service.compute_grocery_list(db_session, plan)
     assert len(grocery_list) == 1  # 0.9 lb still needed, confirms the setup itself is right
-    items = [GroceryListItem(**{k: v for k, v in item.items() if k != "category"}) for item in grocery_list]
+    _COLUMNS = {"ingredient_name", "quantity", "unit"}
+    items = [GroceryListItem(**{k: v for k, v in item.items() if k in _COLUMNS}) for item in grocery_list]
     result = cost_service.compute_grocery_list_cost(db_session, items)
     assert result["provenance"] == "computed"
     assert result["total_cost"] == 27.0  # 0.9 lb remaining * $30/lb

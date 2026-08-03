@@ -42,6 +42,10 @@ from app.schemas.inventory import (
     BarcodeLookupResponse,
     ColumnMapping,
     ExpiringDigestResponse,
+    IngredientAliasCreate,
+    IngredientAliasRead,
+    IngredientMatchCandidate,
+    IngredientResolutionResponse,
     InventoryDeductRequest,
     InventoryImportConfirmRequest,
     InventoryImportResponse,
@@ -64,6 +68,7 @@ from app.schemas.jobs import JobEnqueuedResponse
 from app.services import (
     food_data_service,
     foodkeeper_service,
+    ingredient_resolution_service,
     inventory_service,
     job_queue,
     meal_plan_service,
@@ -800,28 +805,193 @@ async def order_import(
     )
 
 
+# --- Audit P1-5: ingredient resolution ---------------------------------
+#
+# Ingredient identity is this app's join key and it is free text. Before
+# 2026-08-03 every name-to-row lookup was `ILIKE %name%` taking the first
+# row back, which matched "egg" to "eggplant" and left which of two
+# identically-named rows won undefined. The whole matcher now lives in
+# ingredient_resolution_service; these endpoints are the surface that lets
+# the user see what it decided and correct it once.
+
+
+def _candidate_read(candidate) -> IngredientMatchCandidate:
+    item = candidate.payload
+    return IngredientMatchCandidate(
+        item_id=getattr(item, "id", None),
+        name=candidate.name,
+        score=candidate.score,
+        confidence=candidate.confidence,
+        reason=candidate.reason,
+        quantity=getattr(item, "quantity", None),
+        unit=getattr(item, "unit", None),
+        category=getattr(item, "category", None),
+        expiration_date=getattr(item, "expiration_date", None),
+        blocked_by=candidate.blocked_by,
+    )
+
+
+def _resolution_read(resolution, threshold: float, message: str | None = None) -> IngredientResolutionResponse:
+    match = None
+    if resolution.item is not None:
+        match = IngredientMatchCandidate(
+            item_id=resolution.item.id,
+            name=resolution.item.name,
+            score=resolution.score,
+            confidence=resolution.confidence,
+            reason=resolution.reason,
+            quantity=resolution.item.quantity,
+            unit=resolution.item.unit,
+            category=resolution.item.category,
+            expiration_date=resolution.item.expiration_date,
+        )
+    return IngredientResolutionResponse(
+        query=resolution.query,
+        normalized=resolution.normalized,
+        matched=resolution.matched,
+        match=match,
+        via_alias=resolution.via_alias,
+        threshold=threshold,
+        candidates=[_candidate_read(c) for c in resolution.candidates],
+        blocked_candidates=[_candidate_read(c) for c in resolution.blocked],
+        message=message,
+    )
+
+
+@router.get("/resolve", response_model=IngredientResolutionResponse)
+def resolve_ingredient_name(name: str, db: Session = Depends(get_db)):
+    """What does this free-text ingredient name resolve to, and how sure
+    is the app? Read-only -- nothing is written, nothing is deducted.
+
+    Exists so the frontend can show a match and its confidence BEFORE the
+    user commits to an action, and so a household can investigate a
+    surprising grocery-list or cost result without having to reason about
+    the matcher from the outside."""
+    resolution = inventory_service.resolve_for_write(db, name)
+    return _resolution_read(resolution, ingredient_resolution_service.THRESHOLD_DESTRUCTIVE)
+
+
+@router.get("/aliases", response_model=list[IngredientAliasRead])
+def list_ingredient_aliases(db: Session = Depends(get_db)):
+    return ingredient_resolution_service.list_aliases(db)
+
+
+@router.post("/aliases", response_model=IngredientAliasRead, status_code=201)
+def create_ingredient_alias(payload: IngredientAliasCreate, db: Session = Depends(get_db)):
+    """Teach the resolver that one name means one ingredient. Upserts on
+    the normalised alias, so re-teaching a name updates the existing entry
+    rather than accumulating near-duplicate rows."""
+    if payload.inventory_item_id is not None and db.get(InventoryItem, payload.inventory_item_id) is None:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    try:
+        return ingredient_resolution_service.remember_alias(
+            db,
+            alias_text=payload.alias_text,
+            canonical_name=payload.canonical_name,
+            inventory_item_id=payload.inventory_item_id,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/aliases/{alias_id}", status_code=204)
+def delete_ingredient_alias(alias_id: int, db: Session = Depends(get_db)):
+    if not ingredient_resolution_service.forget_alias(db, alias_id):
+        raise HTTPException(status_code=404, detail="Alias not found")
+
+
+def _explicit_item(payload, db: Session) -> InventoryItem | None:
+    """Resolves an explicit `item_id` on a write request and, when asked,
+    remembers it as an alias. This is the path a disambiguation answer
+    takes: the user has already told us which row they meant, so the
+    matcher is bypassed entirely rather than re-run and second-guessed."""
+    if payload.item_id is None:
+        return None
+    item = db.get(InventoryItem, payload.item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    if payload.remember_alias:
+        try:
+            ingredient_resolution_service.remember_alias(
+                db,
+                alias_text=payload.ingredient_name,
+                canonical_name=item.name,
+                inventory_item_id=item.id,
+                note="Saved from a disambiguation prompt",
+            )
+        except ValueError:
+            # The name already resolves to this item without help --
+            # nothing to remember, and not a reason to fail the write the
+            # user actually asked for.
+            pass
+    return item
+
+
 @router.post("/deduct", response_model=InventoryItemRead)
 def deduct_inventory(payload: InventoryDeductRequest, db: Session = Depends(get_db)):
     """Name-based deduction -- the confirm step for a chat-proposed
     inventory_deduct action (Phase 7), or anywhere else a natural-
-    language ingredient name needs to resolve to a row. 404 if nothing
-    matches closely enough (see inventory_service.find_by_name)."""
-    item = inventory_service.deduct_by_name(db, payload.ingredient_name, payload.quantity, payload.unit)
-    if item is None:
-        raise HTTPException(status_code=404, detail=f'No inventory item matching "{payload.ingredient_name}"')
-    return item
+    language ingredient name needs to resolve to a row.
+
+    Three outcomes, deliberately distinct (audit P1-5):
+    - 200: deducted, or found-but-not-deducted on an unconvertible unit
+      (P1-4 -- the item is returned either way, `last_used_date` stamped).
+    - 409: the name resembles something in inventory but not confidently
+      enough to write to it. NOTHING is modified. The body is an
+      IngredientResolutionResponse with ranked candidates; re-send with
+      `item_id` (and `remember_alias: true`) to apply the user's choice.
+    - 404: nothing in inventory resembles this name at all."""
+    item = _explicit_item(payload, db)
+    if item is not None:
+        outcome = inventory_service.deduct_item(db, item, payload.quantity, payload.unit)
+        return outcome.item
+
+    outcome = inventory_service.deduct_by_name(db, payload.ingredient_name, payload.quantity, payload.unit)
+    if outcome.status == inventory_service.DEDUCT_AMBIGUOUS:
+        raise HTTPException(
+            status_code=409,
+            detail=_resolution_read(
+                outcome.resolution,
+                ingredient_resolution_service.THRESHOLD_DESTRUCTIVE,
+                outcome.message,
+            ).model_dump(mode="json"),
+        )
+    if outcome.status == inventory_service.DEDUCT_NO_MATCH:
+        raise HTTPException(status_code=404, detail=outcome.message)
+    return outcome.item
 
 
 @router.post("/update-by-name", response_model=InventoryItemRead)
 def update_inventory_by_name(payload: InventoryUpdateByNameRequest, db: Session = Depends(get_db)):
     """Name-based partial update -- the confirm step for a chat-proposed
     inventory_update action (Phase 7), e.g. "mark the lentils as
-    priority" or "we're out of milk" (set quantity to 0)."""
-    updates = payload.model_dump(exclude={"ingredient_name"}, exclude_unset=True)
-    item = inventory_service.update_by_name(db, payload.ingredient_name, **updates)
-    if item is None:
+    priority" or "we're out of milk" (set quantity to 0).
+
+    Same three-outcome contract as /deduct above, and for the same reason:
+    "we're out of milk" zeroing the wrong row is the same class of silent
+    corruption as deducting from it."""
+    updates = payload.model_dump(
+        exclude={"ingredient_name", "item_id", "remember_alias"}, exclude_unset=True
+    )
+    item = _explicit_item(payload, db)
+    if item is not None:
+        return inventory_service.update_item(db, item, **updates)
+
+    resolution = inventory_service.resolve_for_write(db, payload.ingredient_name)
+    if resolution.item is None:
+        if resolution.needs_confirmation:
+            raise HTTPException(
+                status_code=409,
+                detail=_resolution_read(
+                    resolution,
+                    ingredient_resolution_service.THRESHOLD_DESTRUCTIVE,
+                    f"Not confident enough to update an inventory item for "
+                    f"{payload.ingredient_name!r}. Confirm which item you meant.",
+                ).model_dump(mode="json"),
+            )
         raise HTTPException(status_code=404, detail=f'No inventory item matching "{payload.ingredient_name}"')
-    return item
+    return inventory_service.update_item(db, resolution.item, **updates)
 
 
 @router.get("/{item_id}", response_model=InventoryItemRead)

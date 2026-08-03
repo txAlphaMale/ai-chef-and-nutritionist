@@ -4,12 +4,13 @@ a deduction primitive for when a meal gets confirmed as made (wired up
 by Phase 5/7, which own the meal-plan/chat flows that call it)."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem
-from app.services import package_parsing, unit_conversion_service
+from app.services import ingredient_resolution_service, package_parsing, unit_conversion_service
 from app.services.ai_json_extraction import extract_json_array
 
 # --- Urgency scoring -------------------------------------------------
@@ -236,43 +237,136 @@ def _safe_float(value) -> float | None:
 # "we made the stir fry tonight" / "we're out of milk" / "flag the
 # lentils as priority"), and anywhere else a natural-language ingredient
 # name needs to resolve to an inventory row without the caller knowing
-# its id. Matching is inherently fuzzy -- exact-then-substring,
-# case-insensitive as a first pass; a smarter matcher (aliases, unit
-# conversion) is a documented future improvement, not solved here.
+# its id.
+#
+# Audit P1-5 (2026-08-03): this used to be an exact case-insensitive
+# compare followed by `ILIKE %name%`, taking whichever row the database
+# returned first. That matched "egg" to "eggplant" and "chicken" to
+# "chicken broth", and with no unique constraint on `inventory_items.name`
+# the choice between two rows of the same thing was undefined. All of it
+# now goes through ingredient_resolution_service -- see that module's
+# docstring for the matching design and the per-call-site confidence
+# policy.
+#
+# The important behavioural change for anything that WRITES: a match
+# below `THRESHOLD_DESTRUCTIVE` no longer silently becomes "the best guess
+# we had". It becomes a question, carrying the ranked alternatives, and
+# the answer is remembered as an alias so the same question is never asked
+# twice. Refusing to deduct is recoverable; deducting from the wrong row
+# is a wrong number in the database with nothing on screen to notice.
+
+# Outcome vocabulary for deduct_by_name. Distinct values rather than a
+# bare None because the three failure modes want three different UI
+# responses: "which one did you mean?", "nothing like that is tracked",
+# and "we know you used it but not how much of the row it consumed".
+DEDUCT_APPLIED = "applied"
+DEDUCT_AMBIGUOUS = "ambiguous"
+DEDUCT_NO_MATCH = "no_match"
+DEDUCT_UNIT_MISMATCH = "unit_mismatch"
+
+
+@dataclass
+class DeductionOutcome:
+    status: str
+    item: InventoryItem | None = None
+    message: str | None = None
+    resolution: object | None = None
+
+    @property
+    def needs_confirmation(self) -> bool:
+        return self.status == DEDUCT_AMBIGUOUS
+
+
+def resolve_for_write(db: Session, name: str, items=None):
+    """Resolution at the confidence bar required to modify a row. Returns
+    the full `Resolution`, including the ranked candidates, so a caller
+    that gets no match can ask a specific question rather than reporting a
+    bare 404.
+
+    `items` lets a caller resolving several names in a row (confirming a
+    meal deducts every ingredient of a recipe) load inventory once and
+    reuse it, instead of paying for a full table read per ingredient.
+    Scoring is against the whole inventory either way -- word-boundary
+    matching cannot be pushed into a SQL predicate the way `ILIKE` could,
+    which is the one real cost of getting the matching right."""
+    return ingredient_resolution_service.resolve(
+        db, name, minimum_score=ingredient_resolution_service.THRESHOLD_DESTRUCTIVE, items=items
+    )
 
 
 def find_by_name(db: Session, name: str) -> InventoryItem | None:
-    name_lower = name.strip().lower()
-    if not name_lower:
-        return None
-    item = db.query(InventoryItem).filter(InventoryItem.name.ilike(name_lower)).first()
-    if item is None:
-        item = db.query(InventoryItem).filter(InventoryItem.name.ilike(f"%{name_lower}%")).first()
-    return item
+    """Convenience wrapper kept for callers that only want the row and
+    have nothing useful to do with an ambiguity. Prefer
+    `resolve_for_write` anywhere the user is present to answer."""
+    return resolve_for_write(db, name).item
 
 
 def deduct_by_name(
-    db: Session, ingredient_name: str, quantity: float | None = None, unit: str | None = None
-) -> InventoryItem | None:
-    """Best-effort: finds the closest-matching inventory item by name and
-    decrements its quantity (floored at 0), marking it as just used.
-    Returns the affected item, or None if nothing matched. Does not
-    delete zeroed-out items -- an empty-but-known item is still useful
-    context (e.g. "we're out of X") rather than disappearing silently.
+    db: Session,
+    ingredient_name: str,
+    quantity: float | None = None,
+    unit: str | None = None,
+    items=None,
+) -> DeductionOutcome:
+    """Resolves an ingredient name to an inventory row and decrements its
+    quantity (floored at 0), marking it as just used. Does not delete
+    zeroed-out items -- an empty-but-known item is still useful context
+    ("we're out of X") rather than disappearing silently.
+
+    Returns a `DeductionOutcome`, not a bare item. The three non-applied
+    statuses are genuinely different situations:
+
+    - `DEDUCT_AMBIGUOUS`: something resembling this is in inventory, but
+      not confidently enough to write to it. Nothing is modified. The
+      resolution's ranked candidates are attached so the caller can ask.
+    - `DEDUCT_NO_MATCH`: nothing in inventory resembles this name at all.
+    - `DEDUCT_UNIT_MISMATCH`: the row was found, but the recipe's unit and
+      the row's unit are not convertible, so the quantity is left alone
+      and only `last_used_date` is stamped (audit P1-4).
 
     `unit` is the unit `quantity` is expressed in -- e.g. a recipe calling
     for "2 cup flour" while the inventory row is logged in pounds. When
     both units are known and differ, the quantity is converted into the
-    item's unit before subtracting.
-
-    When conversion isn't possible (a count unit, an unknown unit, or a
-    volume-to-mass gap with no density), the quantity is left UNCHANGED
-    and only `last_used_date` is stamped. Subtracting the raw numbers
-    anyway -- the previous behaviour -- silently corrupted the count."""
-    item = find_by_name(db, ingredient_name)
+    item's unit before subtracting."""
+    resolution = resolve_for_write(db, ingredient_name, items=items)
+    item = resolution.item
     if item is None:
-        return None
+        if resolution.needs_confirmation:
+            best = resolution.candidates[0]
+            return DeductionOutcome(
+                status=DEDUCT_AMBIGUOUS,
+                message=(
+                    f"Not confident enough to deduct from an inventory item for "
+                    f"{ingredient_name!r}. Closest is {best.name!r} ({best.confidence} confidence). "
+                    f"Confirm which item you meant and it will be remembered."
+                ),
+                resolution=resolution,
+            )
+        blocked_note = ""
+        if resolution.blocked:
+            blocked_note = (
+                f" ({resolution.blocked[0].name!r} was excluded: {resolution.blocked[0].blocked_by})"
+            )
+        return DeductionOutcome(
+            status=DEDUCT_NO_MATCH,
+            message=f"Nothing in inventory matches {ingredient_name!r}{blocked_note}",
+            resolution=resolution,
+        )
 
+    return deduct_item(db, item, quantity, unit, resolution=resolution)
+
+
+def deduct_item(
+    db: Session,
+    item: InventoryItem,
+    quantity: float | None = None,
+    unit: str | None = None,
+    resolution: object | None = None,
+) -> DeductionOutcome:
+    """The deduction itself, against an already-chosen row. Split out from
+    `deduct_by_name` so a user who answers a disambiguation prompt can
+    have their explicit choice applied directly, with no second trip
+    through the matcher that already declined to pick."""
     if quantity is not None:
         amount = quantity
         units_differ = (
@@ -306,7 +400,16 @@ def deduct_by_name(
                     f"marked used but quantity left unchanged",
                     flush=True,
                 )
-                return item
+                return DeductionOutcome(
+                    status=DEDUCT_UNIT_MISMATCH,
+                    item=item,
+                    message=(
+                        f"Marked {item.name!r} as used, but its quantity was left unchanged: "
+                        f"the recipe asks for {unit} and the item is tracked in {item.unit}, "
+                        f"which are not convertible without knowing its density."
+                    ),
+                    resolution=resolution,
+                )
             amount = converted.quantity
         item.quantity = max(0.0, item.quantity - amount)
     else:
@@ -314,7 +417,7 @@ def deduct_by_name(
     item.last_used_date = date.today()
     db.commit()
     db.refresh(item)
-    return item
+    return DeductionOutcome(status=DEDUCT_APPLIED, item=item, resolution=resolution)
 
 
 UPDATABLE_FIELDS_BY_NAME = {
@@ -333,11 +436,22 @@ UPDATABLE_FIELDS_BY_NAME = {
 
 def update_by_name(db: Session, name: str, **updates) -> InventoryItem | None:
     """Applies a partial update (any of UPDATABLE_FIELDS_BY_NAME) to the
-    closest-matching inventory item by name. Unknown keys are ignored
-    rather than raising, since callers (chat action execution) pass
-    through whatever the user/model specified, which may be a subset.
-    Returns the updated item, or None if nothing matched."""
-    item = find_by_name(db, name)
+    inventory item this name resolves to. Unknown keys are ignored rather
+    than raising, since callers (chat action execution) pass through
+    whatever the user/model specified, which may be a subset.
+
+    Held to the same confidence bar as deduction (audit P1-5): this
+    writes to a row, and "we're out of milk" setting the almond milk to
+    zero is the same class of silent corruption. Returns None when the
+    name does not resolve confidently -- the router turns that into a
+    disambiguation response rather than a bare 404."""
+    return update_item(db, resolve_for_write(db, name).item, **updates)
+
+
+def update_item(db: Session, item: InventoryItem | None, **updates) -> InventoryItem | None:
+    """The update itself, against an already-chosen row -- the
+    counterpart to `deduct_item`, for applying a user's explicit
+    disambiguation answer without re-running the matcher."""
     if item is None:
         return None
     for field, value in updates.items():

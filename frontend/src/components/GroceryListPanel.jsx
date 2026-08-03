@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { ConfidenceTag } from "./IngredientMatchPicker";
 
 // Backlog B5.4 -- same six-value taxonomy InventoryItem already uses,
 // in a sensible shop-the-store order (produce/fridge/freezer first,
@@ -158,6 +159,21 @@ export default function GroceryListPanel({ planId, refreshKey }) {
                       {item.ingredient_name}
                       {item.quantity != null && ` — ${item.quantity}${item.unit ? " " + item.unit : ""}`}
                       {item.source === "manual" && <span className="tag">manual</span>}
+                      {/* Audit P1-5 -- what this line was reconciled
+                          against, so a reduced quantity is checkable
+                          rather than something the list just asserts. */}
+                      {item.matched_item_name && (
+                        <span className="grocery-match-note">
+                          reduced by what you have as “{item.matched_item_name}”
+                          <ConfidenceTag confidence={item.match_confidence} />
+                        </span>
+                      )}
+                      {/* Audit P1-4 -- why a line you thought you had
+                          stock for is still here at full quantity. This
+                          text has been computed since that fix and
+                          discarded before reaching the database, so it
+                          has never actually been shown until now. */}
+                      {item.needs_review && <span className="grocery-needs-review">⚠ {item.needs_review}</span>}
                     </span>
                   </label>
                   <button className="btn-link btn-link-danger" onClick={() => removeItem(item)}>

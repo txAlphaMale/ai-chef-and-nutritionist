@@ -26,11 +26,35 @@ def test_exact_match_case_insensitive():
     assert meal_plan_service.is_pantry_staple("Salt", ["salt", "pepper"]) is True
 
 
-def test_substring_match_either_direction():
-    # ingredient name is a superset of the staple entry
+def test_a_generic_staple_covers_a_more_specific_ingredient():
+    """A household writes staples generically and means them to cover the
+    specific spellings recipes use."""
     assert meal_plan_service.is_pantry_staple("kosher salt", ["salt"]) is True
-    # staple entry is a superset of the ingredient name
-    assert meal_plan_service.is_pantry_staple("oil", ["olive oil"]) is True
+    assert meal_plan_service.is_pantry_staple("black pepper", ["pepper"]) is True
+
+
+def test_a_specific_staple_does_not_cover_a_generic_ingredient():
+    """Rewritten 2026-08-03 for audit P1-5. This asserted the opposite --
+    that a staple of "olive oil" suppressed a grocery line for plain
+    "oil" -- because matching was substring-in-either-direction.
+
+    The new behaviour is deliberate, not incidental. A staple hit removes
+    the line from the grocery list ENTIRELY, with nothing on screen to
+    notice, so the failure mode is arriving at the stove without an
+    ingredient. "Olive oil is always on hand" is not a claim that any oil
+    a recipe asks for is on hand -- the recipe may well mean canola. The
+    line stays, and buying oil you did not strictly need is the
+    recoverable half of the trade."""
+    assert meal_plan_service.is_pantry_staple("oil", ["olive oil"]) is False
+
+
+def test_a_derived_product_is_not_covered_by_a_staple_for_its_source():
+    """The failure this whole layer exists for: substring matching had a
+    staple of "oil" suppressing a grocery line for "oil-packed tuna", and
+    a staple of "chicken" suppressing "chicken broth"."""
+    assert meal_plan_service.is_pantry_staple("oil-packed tuna", ["oil"]) is False
+    assert meal_plan_service.is_pantry_staple("chicken broth", ["chicken"]) is False
+    assert meal_plan_service.is_pantry_staple("eggplant", ["egg"]) is False
 
 
 def test_non_matching_ingredient_returns_false():

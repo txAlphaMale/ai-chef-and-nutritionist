@@ -175,9 +175,10 @@ def test_deduction_refuses_across_unconvertible_units(db_session):
     item = InventoryItem(name="flour", quantity=5, unit="lb", category="pantry")
     db_session.add(item)
     db_session.commit()
-    updated = inventory_service.deduct_by_name(db_session, "flour", 2, "cup")
-    assert updated.quantity == 5
-    assert updated.last_used_date is not None
+    outcome = inventory_service.deduct_by_name(db_session, "flour", 2, "cup")
+    assert outcome.status == inventory_service.DEDUCT_UNIT_MISMATCH
+    assert outcome.item.quantity == 5
+    assert outcome.item.last_used_date is not None
 
 
 # --- P1-8: an image-only PDF fails honestly ------------------------------

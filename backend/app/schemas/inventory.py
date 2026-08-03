@@ -334,6 +334,14 @@ class InventoryDeductRequest(BaseModel):
     # and differ. Optional and backward compatible: omitting it keeps the
     # previous same-unit-assumed behavior.
     unit: str | None = None
+    # Audit P1-5. The user's answer to a disambiguation prompt: apply the
+    # deduction to THIS row and skip name matching entirely. Set by the
+    # frontend after the 409 below offered a candidate list.
+    item_id: int | None = None
+    # Persist that answer as an alias, so the same name resolves straight
+    # to the same item next time and the question is asked exactly once.
+    # Only meaningful together with `item_id`.
+    remember_alias: bool = False
 
 
 class InventoryUpdateByNameRequest(BaseModel):
@@ -348,3 +356,76 @@ class InventoryUpdateByNameRequest(BaseModel):
     category: str | None = None
     is_priority: bool | None = None
     priority_note: str | None = None
+    # Same disambiguation escape hatch as InventoryDeductRequest above.
+    item_id: int | None = None
+    remember_alias: bool = False
+
+
+# --- Audit P1-5: ingredient resolution ---------------------------------
+
+
+class IngredientMatchCandidate(BaseModel):
+    """One scored inventory row from the resolver, with the reasoning
+    attached. `reason` is meant to be shown to the user verbatim -- the
+    whole point of this layer is that a match is explainable, so a
+    candidate list that only shows names would throw away the useful
+    half."""
+
+    item_id: int | None = None
+    name: str
+    score: float
+    confidence: str  # exact | high | medium | low
+    reason: str
+    quantity: float | None = None
+    unit: str | None = None
+    category: str | None = None
+    expiration_date: date | None = None
+    # Set only on entries in `blocked_candidates`: why this row was ruled
+    # out despite sharing words with the query.
+    blocked_by: str | None = None
+
+
+class IngredientResolutionResponse(BaseModel):
+    """What `GET /api/inventory/resolve` returns, and the body of the 409
+    the write endpoints raise when they will not guess.
+
+    `matched` false with a non-empty `candidates` is the "which did you
+    mean?" state; `matched` false with an empty `candidates` is "nothing
+    like this is tracked". `blocked_candidates` exists so a user who
+    expected a match can see that e.g. "chicken broth" was deliberately
+    excluded rather than overlooked -- an unexplained non-match invites
+    the same bug report twice."""
+
+    query: str
+    normalized: str
+    matched: bool
+    match: IngredientMatchCandidate | None = None
+    via_alias: bool = False
+    threshold: float
+    candidates: list[IngredientMatchCandidate] = Field(default_factory=list)
+    blocked_candidates: list[IngredientMatchCandidate] = Field(default_factory=list)
+    message: str | None = None
+
+
+class IngredientAliasCreate(BaseModel):
+    """Teach the resolver that one name means one ingredient. Written
+    either from the Settings alias manager or automatically when a user
+    answers a disambiguation prompt with `remember_alias`."""
+
+    alias_text: str
+    canonical_name: str
+    inventory_item_id: int | None = None
+    note: str | None = None
+
+
+class IngredientAliasRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alias_text: str
+    alias_normalized: str
+    canonical_name: str
+    inventory_item_id: int | None = None
+    source: str
+    note: str | None = None
+    created_at: datetime

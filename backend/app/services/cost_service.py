@@ -36,18 +36,27 @@ or an intake source with no real "purchase" concept) -- same value this
 module always used, so pre-existing behavior is preserved for exactly
 the rows that have no better signal available, never a hard failure.
 
-Matching itself reuses the exact same case-insensitive
-exact-then-substring convention as `inventory_service.find_by_name`,
-restricted to rows that actually carry a `unit_price` -- so a name match
-that's more expensive/matters more for accuracy doesn't silently win
-over a cheaper matched row just because it happened first.
+Matching (rewritten 2026-08-03, audit P1-5) goes through
+`ingredient_resolution_service` like every other name-to-inventory lookup
+in the app, restricted to rows that actually carry a `unit_price`. It used
+to be the same `ILIKE %name%` substring scan as everywhere else, which
+here meant a recipe's "chicken" could be priced from a carton of "chicken
+broth" -- a wrong dollar figure with a plausible-looking matched-item name
+next to it.
+
+This is an ADVISORY call site (`THRESHOLD_ADVISORY`), a deliberately lower
+bar than inventory deduction uses: a cost estimate is read by a human
+before anything acts on it, and the matched item's name is reported
+alongside every figure, so a medium-confidence match is information the
+user can evaluate rather than a silent write. `matched_confidence` is
+returned on every line so the UI can mark the uncertain ones.
 """
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
 from app.models import GroceryListItem, InventoryItem, Recipe
-from app.services import unit_conversion_service
+from app.services import ingredient_resolution_service, unit_conversion_service
 
 # Recipe.nutrition_provenance's three-way split, reused here for the same
 # "computed / some-but-not-all-resolved / none-resolved" reporting shape
@@ -57,24 +66,45 @@ PROVENANCE_PARTIAL = "partial"
 PROVENANCE_NO_DATA = "no_data"
 
 
-def _find_priced_inventory_match(db: Session, ingredient_name: str) -> InventoryItem | None:
-    """Same exact-then-substring, case-insensitive name matching as
-    inventory_service.find_by_name, but restricted to rows that actually
-    have a unit_price recorded, and preferring the most recently
-    purchased priced match when more than one exists (a row with no
-    purchased_date sorts last -- an unknown purchase date is a weaker
-    signal than a known recent one, not a reason to prefer it)."""
-    name_lower = (ingredient_name or "").strip().lower()
-    if not name_lower:
-        return None
+def _price_recency_tiebreak(item: InventoryItem) -> tuple:
+    """Ordering among priced rows that score IDENTICALLY on name.
 
-    base = db.query(InventoryItem).filter(InventoryItem.unit_price.isnot(None))
-    order = (InventoryItem.purchased_date.is_(None), InventoryItem.purchased_date.desc(), InventoryItem.id.desc())
+    Deliberately NOT `ingredient_resolution_service.inventory_tiebreak`,
+    which prefers the soonest-expiring row because it is answering "which
+    carton should we use up". This function answers a different question
+    -- "what did this ingredient last cost" -- and a recent real price is
+    the better signal for that, so the most recently purchased priced row
+    wins. A row with no purchase date sorts last: an unknown date is
+    weaker evidence than a known recent one, not a reason to prefer it.
+    Never averages prices across rows and never invents one."""
+    from datetime import date as _date
 
-    exact = base.filter(InventoryItem.name.ilike(name_lower)).order_by(*order).first()
-    if exact is not None:
-        return exact
-    return base.filter(InventoryItem.name.ilike(f"%{name_lower}%")).order_by(*order).first()
+    return (
+        0 if item.purchased_date is not None else 1,
+        -(item.purchased_date or _date.min).toordinal(),
+        -(item.id or 0),
+    )
+
+
+def _find_priced_inventory_match(db: Session, ingredient_name: str) -> tuple[InventoryItem | None, str, str]:
+    """Resolves a name against priced inventory rows only. Returns
+    `(item, confidence, reason)` -- the confidence travels with the match
+    so every cost line can say how sure it is, rather than presenting a
+    weak match with the same authority as an exact one."""
+    if not (ingredient_name or "").strip():
+        return None, ingredient_resolution_service.CONFIDENCE_NONE, ""
+
+    priced_rows = db.query(InventoryItem).filter(InventoryItem.unit_price.isnot(None)).all()
+    match, _ranked = ingredient_resolution_service.best_match(
+        ingredient_name,
+        [(row.name, row) for row in priced_rows],
+        minimum_score=ingredient_resolution_service.THRESHOLD_ADVISORY,
+        transformation_words=ingredient_resolution_service.load_transformation_words(db),
+        tiebreak_key=_price_recency_tiebreak,
+    )
+    if match is None:
+        return None, ingredient_resolution_service.CONFIDENCE_NONE, ""
+    return match.payload, match.confidence, match.reason
 
 
 def compute_ingredient_line_cost(
@@ -96,12 +126,15 @@ def compute_ingredient_line_cost(
         "unit_cost": None,
         "line_cost": None,
         "matched_item_name": None,
+        "matched_confidence": ingredient_resolution_service.CONFIDENCE_NONE,
+        "match_reason": None,
         "note": None,
     }
 
-    match = _find_priced_inventory_match(db, ingredient_name)
+    match, confidence, match_reason = _find_priced_inventory_match(db, ingredient_name)
     if match is None:
         return {**base, "note": "no priced inventory purchase on record for this ingredient"}
+    base = {**base, "matched_confidence": confidence, "match_reason": match_reason}
     denominator = match.purchased_quantity or match.quantity
     if not denominator:
         return {**base, "note": f"matched {match.name!r} but its own quantity is zero/unknown"}

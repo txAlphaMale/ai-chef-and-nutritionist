@@ -141,6 +141,29 @@ class MealPlanEntryRecipeSummary(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class InventoryDeductionNote(BaseModel):
+    """One ingredient's outcome from confirming a meal as cooked.
+
+    Audit P1-5. Confirming a meal deducts every ingredient from
+    inventory, and that used to be silently best-effort: an ingredient
+    that matched nothing was skipped with no trace, and one that matched
+    the WRONG row was deducted with no trace either. Now that the matcher
+    refuses low-confidence matches rather than guessing, the refusals
+    have to be visible or the household would just see their inventory
+    quietly failing to go down.
+
+    `status` mirrors inventory_service's DEDUCT_* vocabulary: applied,
+    ambiguous (candidates found, nothing written), no_match, or
+    unit_mismatch (row found and marked used, quantity left alone
+    because the units are not convertible -- audit P1-4)."""
+
+    ingredient_name: str
+    status: str
+    matched_item_name: str | None = None
+    message: str | None = None
+    candidate_names: list[str] = Field(default_factory=list)
+
+
 class MealPlanEntryRead(MealPlanEntryBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -152,6 +175,10 @@ class MealPlanEntryRead(MealPlanEntryBase):
     is_skipped: bool
     created_at: datetime
     updated_at: datetime
+    # Populated only by the confirm endpoint; every other read of an
+    # entry leaves it empty. Not persisted -- it describes what one
+    # confirmation did, not a property of the entry.
+    inventory_deductions: list[InventoryDeductionNote] = Field(default_factory=list)
 
 
 class MealPlanBase(BaseModel):
@@ -288,3 +315,8 @@ class GroceryListItemRead(GroceryListItemBase):
     meal_plan_id: int | None = None
     is_purchased: bool
     source: str  # auto|manual
+    # Why this line reads the way it does -- see GroceryListItem's model
+    # docstring. Explanation only; nothing computes from these.
+    needs_review: str | None = None
+    matched_item_name: str | None = None
+    match_confidence: str | None = None

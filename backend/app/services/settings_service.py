@@ -20,6 +20,15 @@ from sqlalchemy.orm import Session
 
 from app.models import AppSetting
 from app.services import secrets_crypto
+from app.services.ingredient_resolution_service import DEFAULT_TRANSFORMATION_WORDS
+
+# The curated default for the `ingredient_transformation_words` spec
+# below, rendered as the comma-separated text the Settings UI edits.
+# Sourced from the matcher's own constant rather than retyped here, so
+# the shipped default and the code default cannot drift apart.
+# ingredient_resolution_service imports settings_service only lazily
+# (inside load_transformation_words), so this direction is safe.
+_DEFAULT_TRANSFORMATION_WORDS_CSV = ", ".join(DEFAULT_TRANSFORMATION_WORDS)
 
 
 @dataclass(frozen=True)
@@ -366,6 +375,27 @@ SETTING_SPECS: list[SettingSpec] = [
             "\"true\"/\"false\". Whether meal-plan changes push to the connected iCloud "
             "Calendar. Turned on automatically on first successful connect; toggle off any time "
             "to pause pushing without disconnecting."
+        ),
+    ),
+    SettingSpec(
+        key="ingredient_transformation_words",
+        label="Ingredient transformation words",
+        is_secret=False,
+        default=_DEFAULT_TRANSFORMATION_WORDS_CSV,
+        description=(
+            "Comma-separated. Audit finding P1-5. Words that mean \"a product made FROM "
+            "an ingredient\" rather than \"a specific kind of that ingredient\". When one "
+            "of these appears in an inventory item's name but not in the ingredient being "
+            "looked up (or vice versa), the two are treated as different foods and never "
+            "matched -- this is what stops a recipe's \"chicken\" being deducted from a "
+            "carton of \"chicken broth\", or \"almond\" from \"almond milk\". "
+            "Editable because no fixed list can be complete: add a word if you find a pair "
+            "the matcher wrongly treats as the same ingredient, remove one if it is "
+            "blocking a match you actually want. Clearing this box entirely restores the "
+            "shipped default list. Getting it wrong is safe in both directions -- a "
+            "missing word downgrades a match to a suggestion you confirm rather than "
+            "applying it silently, and an extra word makes the app ask which item you "
+            "meant rather than picking the wrong one."
         ),
     ),
 ]

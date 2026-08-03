@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
+import IngredientAliasManager from "../components/IngredientAliasManager";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
 // Tavily key) and system prompts are edited here, one field/prompt at a
@@ -104,7 +105,15 @@ const INTEGRATION_SETTING_KEYS = [
   "icloud_calendar_app_password",
   "recipe_import_folder_path",
 ];
-const PREFERENCE_SETTING_KEYS = ["default_unit_system", "household_timezone"];
+const PREFERENCE_SETTING_KEYS = [
+  "default_unit_system",
+  "household_timezone",
+  // Audit P1-5 -- the curated list of words that mean "made FROM an
+  // ingredient" rather than "a kind of it" (broth, oil, milk, flour...).
+  // Editable here because no fixed list can be complete; see the setting's
+  // own description, rendered under the field.
+  "ingredient_transformation_words",
+];
 const DEFAULT_SETTINGS_TAB = "integrations";
 
 const SETTINGS_TABS = [
@@ -1222,6 +1231,7 @@ export default function SettingsPage() {
             <p className="hint">How recipe quantities display by default, and your household's timezone.</p>
             {loading ? <p>Loading...</p> : settingsByTab.preferences.map(renderSettingRow)}
           </div>
+          <IngredientAliasManager />
           <div className="card">
             <h3>Household size &amp; dietary restrictions</h3>
             <p className="hint">

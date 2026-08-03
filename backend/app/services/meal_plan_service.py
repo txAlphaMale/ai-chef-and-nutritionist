@@ -19,6 +19,7 @@ from app.services import (
     allergen_service,
     dietary_pattern_service,
     health_service,
+    ingredient_resolution_service,
     inventory_service,
     recipe_service,
     unit_conversion_service,
@@ -601,26 +602,56 @@ def aggregate_ingredients(ingredient_lists: list[list[dict]]) -> list[dict]:
     return merged
 
 
-def is_pantry_staple(ingredient_name: str, pantry_staples: list[str] | None) -> bool:
-    """Backlog B5.5 -- case-insensitive exact-or-substring match (either
-    direction, same convention as the inventory name matching a few lines
-    below) against a household's own free-text "always on hand" list.
-    Deliberately NOT a fixed taxonomy or NLP/synonym-aware matcher --
-    this is a household's own arbitrary list, not a safety property, so
-    the lighter-weight matching already used for
-    guess_grocery_category's keyword lists is the appropriate rigor
-    level here too. An empty/None staples list (the default, no
-    household opt-in yet) always returns False."""
-    if not pantry_staples:
-        return False
-    name_lower = (ingredient_name or "").strip().lower()
-    if not name_lower:
+def is_pantry_staple(
+    ingredient_name: str,
+    pantry_staples: list[str] | None,
+    transformation_words: frozenset[str] | None = None,
+) -> bool:
+    """Backlog B5.5 -- does this ingredient match the household's own
+    free-text "always on hand" list?
+
+    Rewritten 2026-08-03 (audit P1-5). This was substring matching in
+    either direction, and the original comment argued that a household's
+    arbitrary list "is not a safety property" so lighter-weight matching
+    was appropriate. Re-reading what a hit actually DOES makes that
+    argument look wrong: a staple match removes the ingredient from the
+    grocery list entirely, before any quantity math runs. The failure
+    mode is not a mis-sorted aisle label, it is not buying dinner, with
+    nothing on screen to notice. A staple of "oil" suppressing a line for
+    "oil-packed tuna" is exactly that, and it is what the old code did.
+
+    So this is held to `THRESHOLD_SUPPRESSING` -- the same bar as a
+    database write -- and goes through the same resolution layer as every
+    other name match in the app. "salt" still covers "kosher salt"
+    (0.83); "oil" no longer covers "oil-packed tuna" (0.40).
+
+    Note the argument order below: the STAPLE is the query and the
+    ingredient is the candidate, not the other way round. That is not
+    incidental. The resolver deliberately discounts a match where the
+    query is more specific than the candidate (asking for "olive oil"
+    and finding a generic "oil" row -- the row might not be the thing
+    asked for), and a staple list is written the other way: households
+    declare generic staples ("salt", "pepper", "flour") intending them to
+    cover the specific spellings recipes use. Querying staple-first puts
+    generic-covers-specific on the full-credit side of that rule, which
+    is what the household meant, while still leaving specific-covers-
+    generic discounted -- a staple of "olive oil" does NOT suppress a
+    line for plain "oil", because the recipe may well mean canola.
+
+    An empty/None staples list (the default, no household opt-in yet)
+    always returns False."""
+    if not pantry_staples or not (ingredient_name or "").strip():
         return False
     for staple in pantry_staples:
-        staple_lower = str(staple or "").strip().lower()
-        if not staple_lower:
+        if not str(staple or "").strip():
             continue
-        if staple_lower == name_lower or staple_lower in name_lower or name_lower in staple_lower:
+        match, _ranked = ingredient_resolution_service.best_match(
+            str(staple),
+            [(ingredient_name, ingredient_name)],
+            minimum_score=ingredient_resolution_service.THRESHOLD_SUPPRESSING,
+            transformation_words=transformation_words,
+        )
+        if match is not None:
             return True
     return False
 
@@ -629,13 +660,31 @@ def subtract_inventory(
     aggregated: list[dict],
     inventory_items: list[InventoryItem],
     pantry_staples: list[str] | None = None,
+    transformation_words: frozenset[str] | None = None,
 ) -> list[dict]:
     """For each aggregated ingredient, subtracts matching on-hand
-    inventory (same exact-then-substring, case-insensitive matching
-    approach as inventory_service.deduct_by_name) and returns only what's
-    still needed to buy. An ingredient with no stated quantity (e.g.
-    "salt to taste") is only listed if nothing matching is already in
-    inventory at all.
+    inventory and returns only what's still needed to buy. An ingredient
+    with no stated quantity (e.g. "salt to taste") is only listed if
+    nothing matching is already in inventory at all.
+
+    Matching rewritten 2026-08-03 (audit P1-5): this was substring
+    matching in EITHER direction against the inventory list, taking the
+    first hit. That is how a grocery line for "egg" got reconciled
+    against an "eggplant" row, and how "chicken" got reconciled against
+    "chicken broth" -- in both cases silently removing or shrinking a
+    line for something the household did not actually have.
+
+    Held to `THRESHOLD_ADVISORY` rather than the stricter bar deduction
+    uses. The asymmetry is deliberate and follows the cost of being
+    wrong: this produces a list a human reads and shops from, and a
+    medium-confidence match that shrinks a line is visible on that list,
+    where a medium-confidence match that decrements a stored quantity is
+    not. Matches below the bar are treated as no match at all, which
+    keeps the line at its full quantity -- buying something already in
+    the pantry is recoverable; not buying dinner is not. The matched
+    item's name and confidence ride along on the line
+    (`matched_item_name` / `match_confidence`) so the UI can show what
+    was reconciled against what.
 
     Unit-aware as of backlog B5.3 (2026-07-31): previously this compared
     `ing["quantity"]` directly against `match.quantity` regardless of
@@ -658,17 +707,20 @@ def subtract_inventory(
     preserves prior behavior exactly for any caller that hasn't been
     updated to pass a household's list."""
     remaining = []
+    inventory_candidates = [(item.name, item) for item in inventory_items]
     for ing in aggregated:
-        if is_pantry_staple(ing["ingredient_name"], pantry_staples):
+        if is_pantry_staple(ing["ingredient_name"], pantry_staples, transformation_words):
             continue
 
-        name_lower = ing["ingredient_name"].lower()
-        match = next((i for i in inventory_items if i.name.lower() == name_lower), None)
-        if match is None:
-            match = next(
-                (i for i in inventory_items if name_lower in i.name.lower() or i.name.lower() in name_lower),
-                None,
-            )
+        best, _ranked = ingredient_resolution_service.best_match(
+            ing["ingredient_name"],
+            inventory_candidates,
+            minimum_score=ingredient_resolution_service.THRESHOLD_ADVISORY,
+            transformation_words=transformation_words,
+            tiebreak_key=ingredient_resolution_service.inventory_tiebreak,
+        )
+        match = best.payload if best is not None else None
+        match_confidence = best.confidence if best is not None else None
 
         # Backlog B5.4 -- a real inventory row's own category is a better
         # signal than a keyword guess (the household already classified
@@ -713,6 +765,14 @@ def subtract_inventory(
             item = dict(ing)
             item["quantity"] = needed
             item["category"] = category
+            if match is not None:
+                # What this line was reconciled against, and how sure the
+                # matcher was. Reported even on a confident match: the
+                # user is about to shop from this list, and "we took 1 lb
+                # off because you already have X" is only checkable if X
+                # is named.
+                item["matched_item_name"] = match.name
+                item["match_confidence"] = match_confidence
             if unreconciled_unit is not None:
                 # Surfaced in the UI so the user can see WHY a line they
                 # thought they had stock for is still on the list.
@@ -751,7 +811,12 @@ def compute_grocery_list(db: Session, meal_plan: MealPlan) -> list[dict]:
     inventory_items = db.query(InventoryItem).all()
     household = get_household_preferences(db)
     pantry_staples = (household.pantry_staples if household else []) or []
-    return subtract_inventory(aggregated, inventory_items, pantry_staples)
+    return subtract_inventory(
+        aggregated,
+        inventory_items,
+        pantry_staples,
+        ingredient_resolution_service.load_transformation_words(db),
+    )
 
 
 def compute_nutrition_summary(meal_plan: MealPlan) -> dict:

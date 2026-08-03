@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
+import IngredientMatchPicker from "./IngredientMatchPicker";
 
 const SESSION_STORAGE_KEY = "chef.chat.session_id";
 
@@ -70,12 +71,19 @@ const ACTION_TYPE_LABELS = {
  * the model proposed. A 404 here (most likely a stale/hallucinated
  * entry_id or an inventory name that doesn't match anything) is
  * surfaced to the user rather than silently swallowed. */
-async function executeAction(action) {
+async function executeAction(action, choice = null) {
+  // Audit P1-5: `choice` is the user's answer to a disambiguation prompt
+  // -- {itemId, remember}. Passing item_id makes the backend apply the
+  // change to that exact row instead of re-running the matcher that
+  // already declined to pick, and remember_alias saves the answer so the
+  // question is asked once rather than every time.
+  const disambiguation = choice ? { item_id: choice.itemId, remember_alias: choice.remember } : {};
   switch (action.type) {
     case "inventory_deduct":
       return api.post("/inventory/deduct", {
         ingredient_name: action.ingredient_name,
         quantity: action.quantity,
+        ...disambiguation,
       });
     case "inventory_update":
       return api.post("/inventory/update-by-name", {
@@ -85,6 +93,7 @@ async function executeAction(action) {
         category: action.category,
         is_priority: action.is_priority,
         priority_note: action.priority_note,
+        ...disambiguation,
       });
     case "inventory_add":
       return api.post("/inventory", {
@@ -141,7 +150,7 @@ function handleActionButtonClick(action, actionKey, onConfirm) {
   onConfirm(actionKey, action);
 }
 
-function ActionCard({ action, actionKey, status, result, onConfirm }) {
+function ActionCard({ action, actionKey, status, result, resolution, onConfirm }) {
   const isDone = status === "done";
   const isError = typeof status === "string" && status.startsWith("error:");
   const isRecipeAction = action.type === "recipe_update_proposal";
@@ -150,7 +159,20 @@ function ActionCard({ action, actionKey, status, result, onConfirm }) {
     <div className="chat-action-card">
       <div className="chat-action-label">{label}</div>
       <div className="chat-action-description">{action.description}</div>
-      {isError && <div className="error-text">{status.slice("error:".length)}</div>}
+      {/* Audit P1-5: a 409 means the ingredient name was too ambiguous to
+          write against, and NOTHING was changed. That is a question to
+          answer inline, not an error to report -- so it renders as a
+          picker here instead of falling through to the red error line
+          below, which would tell the user something went wrong when in
+          fact the app just declined to guess. */}
+      {resolution && !isDone && (
+        <IngredientMatchPicker
+          resolution={resolution}
+          busy={status === "pending"}
+          onPick={(itemId, remember) => onConfirm(actionKey, action, { itemId, remember })}
+        />
+      )}
+      {isError && !resolution && <div className="error-text">{status.slice("error:".length)}</div>}
       {isDone && isRecipeAction && result?.id && (
         <div>
           <Link to={`/recipes/${result.id}`}>
@@ -160,10 +182,10 @@ function ActionCard({ action, actionKey, status, result, onConfirm }) {
       )}
       <button
         className="btn btn-sm btn-secondary"
-        disabled={isDone || status === "pending"}
+        disabled={isDone || status === "pending" || !!resolution}
         onClick={() => handleActionButtonClick(action, actionKey, onConfirm)}
       >
-        {isDone ? "Done" : status === "pending" ? "Applying..." : "Confirm"}
+        {isDone ? "Done" : status === "pending" ? "Applying..." : resolution ? "Waiting for your pick" : "Confirm"}
       </button>
     </div>
   );
@@ -196,6 +218,8 @@ export default function ChatWidget() {
   const busy = sendJob.busy;
   const [actionStatus, setActionStatus] = useState({}); // actionKey -> "pending"|"done"|"error:<msg>"
   const [actionResults, setActionResults] = useState({}); // actionKey -> executeAction's resolved value
+  // actionKey -> IngredientResolutionResponse from a 409 (audit P1-5)
+  const [actionResolutions, setActionResolutions] = useState({});
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef(null);
 
@@ -267,13 +291,23 @@ export default function ChatWidget() {
     }
   }
 
-  async function handleConfirmAction(actionKey, action) {
+  async function handleConfirmAction(actionKey, action, choice = null) {
     setActionStatus((prev) => ({ ...prev, [actionKey]: "pending" }));
     try {
-      const result = await executeAction(action);
+      const result = await executeAction(action, choice);
       setActionResults((prev) => ({ ...prev, [actionKey]: result }));
+      setActionResolutions((prev) => ({ ...prev, [actionKey]: null }));
       setActionStatus((prev) => ({ ...prev, [actionKey]: "done" }));
     } catch (e) {
+      // Audit P1-5: a 409 carries an IngredientResolutionResponse -- the
+      // name was too ambiguous to write against and nothing was changed.
+      // Hold onto it so the card can ask which item was meant, rather
+      // than surfacing "409 ..." as a dead end the user cannot act on.
+      if (e.status === 409 && e.detail?.candidates) {
+        setActionResolutions((prev) => ({ ...prev, [actionKey]: e.detail }));
+        setActionStatus((prev) => ({ ...prev, [actionKey]: "needs-choice" }));
+        return;
+      }
       setActionStatus((prev) => ({ ...prev, [actionKey]: `error:${e.message}` }));
     }
   }
@@ -313,6 +347,7 @@ export default function ChatWidget() {
                           actionKey={actionKey}
                           status={actionStatus[actionKey]}
                           result={actionResults[actionKey]}
+                          resolution={actionResolutions[actionKey]}
                           onConfirm={handleConfirmAction}
                         />
                       );
