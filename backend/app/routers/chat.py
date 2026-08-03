@@ -88,7 +88,7 @@ def list_messages(session_id: str = "default", limit: int = 200, db: Session = D
 
 @router.post("/messages", response_model=JobEnqueuedResponse, status_code=202)
 def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
-    """Backlog B11.1 (2026-08-01): the user's message is still persisted
+    """Backlog B11.1: the user's message is still persisted
     SYNCHRONOUSLY here, right away, so it appears in the history
     immediately rather than waiting on a reply -- only generating the
     assistant's reply moves into a background job. This endpoint was
@@ -97,7 +97,7 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
     browser tab's request open for the full generation, lost all state
     on navigation, and didn't share this app's one GPU budget with any
     other AI feature -- so it now goes through the same shared queue,
-    per the 2026-08-01 "everything, unified" scope decision (see
+    per the "everything, unified" scope decision (see
     PROJECT-PLAN.md).
 
     `dedup_key=session_id`: a second send while THIS session's reply is
@@ -132,7 +132,7 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             )
             base_prompt = ollama_client.get_active_prompt(job_db, "main_chef") or ""
             # The user's own message doubles as the knowledge-retrieval
-            # query (2026-07-31) -- see chat_service.build_chat_context's
+            # query -- see chat_service.build_chat_context's
             # docstring.
             context = chat_service.build_chat_context(job_db, query=message_text)
             system_prompt = chat_service.build_chat_system_prompt(base_prompt, context)

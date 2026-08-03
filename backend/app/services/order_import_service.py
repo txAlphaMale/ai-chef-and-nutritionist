@@ -1,4 +1,4 @@
-"""Backlog B10.3 (author-requested group, 2026-08-01): generic order-
+"""Backlog B10.3: generic order-
 history CSV/XLSX importer -- the recommended build from this session's
 Walmart-integration research, which found no public consumer purchase-
 history API and no stable, documented export schema (every real-world
@@ -198,7 +198,7 @@ def apply_mapping(
 
         raw_unit = (row.get(mapping.unit_column) or None) if mapping.unit_column else None
 
-        # Package/measurement split (2026-08-02) -- a spreadsheet's own
+        # Package/measurement split -- a spreadsheet's own
         # "unit" column is exactly as likely to contain a compound size
         # string ("8 oz", "500g") as a receipt line is, so it gets the
         # same best-effort split. `quantity` from the mapped quantity

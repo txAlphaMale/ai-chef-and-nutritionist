@@ -67,7 +67,7 @@ def update_prompt(prompt_key: str, payload: PromptUpdate, db: Session = Depends(
 
 @router.get("/status")
 def status(db: Session = Depends(get_db)):
-    """Backlog B14 (author-requested 2026-08-01): the Connection status
+    """Backlog B14: the Connection status
     card originally only covered the two things Phase 2 shipped
     (Ollama/Tavily). As Chef gained real integrations (Google Calendar,
     B12.1) there was nowhere on this card to see whether one was

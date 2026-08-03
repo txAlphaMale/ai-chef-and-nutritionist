@@ -10,9 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class InventoryItemBase(BaseModel):
     name: str
     category: str = "pantry"  # pantry|fridge|freezer|produce|spice|other
-    # Quantity model redesign (2026-08-02, author-requested) -- see
-    # app/models/inventory.py's InventoryItem docstring for the full
-    # rationale. `quantity` is CURRENT ON-HAND, in `unit`; `unit` should
+    # See app/models/inventory.py's InventoryItem docstring for the full
+    # model. `quantity` is CURRENT ON-HAND, in `unit`; `unit` should
     # be a real convertible measurement unit (oz/lb/g/kg/ml/l/cup/tbsp/
     # tsp/count), not a compound "8 oz bag"-style string. `unit` is kept
     # a free string (not a hard enum) at the API layer, same soft-
@@ -40,11 +39,10 @@ class InventoryItemBase(BaseModel):
     last_used_date: date | None = None
     is_priority: bool = False
     priority_note: str | None = None
-    # Backlog B10.3 -- price actually paid for this quantity, as
-    # purchased. Nullable: many intake sources (a manual add, a bare
-    # pantry photo) genuinely have no price signal. Populated by the
-    # order-history importer, and, since 2026-08-02, the receipt/list AI
-    # import too when a per-line price is printed on the source.
+    # Price actually paid for this quantity, as purchased. Nullable:
+    # many intake sources (a manual add, a bare pantry photo) have no
+    # price signal. Populated by the order-history importer and by the
+    # receipt/list AI import when the source prints a per-line price.
     unit_price: float | None = None
     notes: str | None = None
 
@@ -131,7 +129,7 @@ class RecallStatusResponse(BaseModel):
 
 
 class ShelfLifeSuggestionResponse(BaseModel):
-    """Backlog B4.3 (2026-08-01): result of GET /api/inventory/
+    """Backlog B4.3: result of GET /api/inventory/
     shelf-life-suggestion?name=X&category=Y&purchased_date=Z against the
     shipped USDA FoodKeeper catalog (foodkeeper_service). `found=False`
     means no confident FoodKeeper match (an unusual/branded item name, or
@@ -152,7 +150,7 @@ class ShelfLifeSuggestionResponse(BaseModel):
 
 
 class BarcodeLookupResponse(BaseModel):
-    """Backlog B4.1 (2026-08-01): result of GET /api/inventory/barcode-
+    """Backlog B4.1: result of GET /api/inventory/barcode-
     lookup?barcode=X against Open Food Facts (food_data_service.
     get_off_product). `found=False` means the barcode isn't in OFF's
     database (common for local/store-brand/less common products -- OFF
@@ -173,15 +171,10 @@ class BarcodeLookupResponse(BaseModel):
     # "12 x 355 ml") -- kept verbatim for reference/display alongside the
     # structured fields below.
     #
-    # Revised 2026-08-02 (superseding this field's prior "never parsed"
-    # docstring): this string IS now parsed, via
-    # app/services/package_parsing.py -- what changed is not the "never
-    # invent a conversion" discipline (still true: no unit-family
-    # crossing, no density guessing happens here), but this app's own
-    # data model. `quantity`/`unit` used to mean "1 of this package";
-    # they now mean "how much, in a real measurement unit, is on hand"
-    # (see InventoryItem's own docstring) -- so extracting "500" and "g"
-    # out of "500 g" is a plain number+unit read, not a conversion, and
+    # This string IS parsed, via app/services/package_parsing.py. That
+    # does not cross unit families or guess densities -- extracting
+    # "500" and "g" out of "500 g" is a plain number+unit read, not a
+    # conversion, and
     # is exactly what the new model wants. `estimated_quantity`/`unit`
     # below reflect that parse when it succeeds (falling back to the
     # prior 1/"count" default when OFF's text doesn't contain a
@@ -205,25 +198,22 @@ class VisionDetectedItem(BaseModel):
     name: str
     estimated_quantity: float | None = None
     unit: str | None = None
-    # Package/measurement split (2026-08-02) -- populated whenever
-    # inventory_service.parse_vision_response (or order_import_service.
-    # apply_mapping) could split the source's unit text via
-    # package_parsing.parse_package_text; null whenever it couldn't, in
-    # which case `unit`/`estimated_quantity` behave exactly as before
-    # this field existed (freeform unit text, quantity = how many
-    # purchased). See InventoryItem's own docstring for the full model.
+    # Populated whenever inventory_service.parse_vision_response (or
+    # order_import_service.apply_mapping) could split the source's unit
+    # text via package_parsing.parse_package_text; null when it could
+    # not, in which case `unit`/`estimated_quantity` hold freeform unit
+    # text and a purchased count. See InventoryItem's docstring.
     package_quantity: float | None = None
     package_count: float | None = None
     package_descriptor: str | None = None
     category: str = "other"
     expiration_date: date | None = None
     confidence_note: str | None = None
-    # Backlog B10.3 -- optional so this shape keeps working unchanged for
-    # intake sources with no price/date signal at all (a bare pantry
-    # photo has neither). Populated by the order-history importer, and,
-    # since 2026-08-02, by the receipt/list AI import too whenever the
-    # source actually prints a price and/or a purchase date -- see
-    # RECEIPT_IMPORT_PROMPT and inventory_service.parse_vision_response.
+    # Optional, so this shape still works for intake sources with no
+    # price or date signal at all (a bare pantry photo has neither).
+    # Populated by the order-history importer and by the receipt/list AI
+    # import when the source prints them -- see RECEIPT_IMPORT_PROMPT
+    # and inventory_service.parse_vision_response.
     unit_price: float | None = None
     purchased_date: date | None = None
 
@@ -238,13 +228,11 @@ class VisionIntakeConfirmRequest(BaseModel):
 
 
 class InventoryImportResponse(BaseModel):
-    """New intake source, added 2026-08-01 at the author's request:
-    parses a receipt (photo or PDF) or a plain-text/file list of
-    purchased items into the SAME preview shape vision-intake already
-    established (`VisionDetectedItem`) -- deliberately reused rather
-    than duplicated, since "one detected item, before the user reviews
-    and confirms it" means the same thing regardless of which source
-    produced it. Distinct from `/vision-intake` (a photo of what's
+    """Parses a receipt (photo or PDF) or a plain-text/file list of
+    purchased items into the SAME preview shape vision-intake uses
+    (`VisionDetectedItem`) -- reused rather than duplicated, since "one
+    detected item, before the user reviews and confirms it" means the
+    same thing regardless of which source produced it. Distinct from `/vision-intake` (a photo of what's
     CURRENTLY sitting in the pantry/fridge, not a purchase record) --
     both remain, serving genuinely different moments (a one-off pantry
     snapshot vs. recording what was just bought)."""
@@ -274,14 +262,12 @@ class ColumnMapping(BaseModel):
 
 
 class OrderImportPreviewResponse(BaseModel):
-    """Backlog B10.3 (2026-08-01): result of parsing an uploaded order-
-    history CSV/XLSX with a given (or auto-suggested) column mapping.
-    `detected_items` is deliberately the SAME `VisionDetectedItem` shape
-    the receipt/list AI import and pantry-photo vision intake already
-    use -- the backlog explicitly calls for landing this in the same
-    review-then-confirm screen, not a separate UI, and there's no reason
-    for the preview shape to differ just because no AI call was involved
-    this time."""
+    """Backlog B10.3: result of parsing an uploaded order-history CSV/XLSX
+    with a given (or auto-suggested) column mapping. `detected_items` is
+    the SAME `VisionDetectedItem` shape the receipt/list AI import and
+    pantry-photo vision intake use, so all three share one review screen
+    -- the preview shape has no reason to differ just because no AI call
+    was involved."""
 
     headers: list[str]
     suggested_mapping: ColumnMapping

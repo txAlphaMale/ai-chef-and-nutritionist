@@ -888,7 +888,7 @@ def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes
 
 # --- Shared per-file import parsing ------------------------------------
 #
-# Backlog B13.1 (author-requested 2026-08-01): pulled out of routers/
+# Backlog B13.1: pulled out of routers/
 # recipes.py's import_recipe (where this branching logic used to live
 # inline, only reachable via a single browser file upload) so the new
 # folder-scan batch importer (recipe_folder_import_service.py) can parse

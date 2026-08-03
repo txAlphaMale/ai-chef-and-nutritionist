@@ -501,7 +501,7 @@ def _merge_same_name_group(ingredients: list[dict]) -> list[dict]:
     return buckets
 
 
-# Backlog B5.4 (2026-08-01) -- grocery-list aisle/category grouping.
+# Backlog B5.4 -- grocery-list aisle/category grouping.
 # GroceryListItem.category has existed since Phase 5 explicitly "for a
 # future group-by-aisle view" but nothing ever populated it for
 # auto-generated lines (only a manually-added item could carry one, and
@@ -780,9 +780,9 @@ def subtract_inventory(
     (`matched_item_name` / `match_confidence`) so the UI can show what
     was reconciled against what.
 
-    Unit-aware as of backlog B5.3 (2026-07-31): previously this compared
-    `ing["quantity"]` directly against `match.quantity` regardless of
-    unit -- a real bug where e.g. a grocery line needing "2 lb chicken"
+    Unit-aware (backlog B5.3). Comparing `ing["quantity"]` directly
+    against `match.quantity` regardless of unit is wrong: a grocery line
+    needing "2 lb chicken"
     against an inventory row logged as "500 g" would compare 2 vs. 500
     as raw numbers. Now the on-hand quantity is converted into the
     grocery line's unit first when the two differ and a conversion is
@@ -791,7 +791,7 @@ def subtract_inventory(
     rather than refusing to reconcile the line at all -- a known,
     unchanged imprecision for that remaining case.
 
-    Backlog B5.5 (2026-08-01): a household-declared pantry staple is
+    Backlog B5.5: a household-declared pantry staple is
     excluded from the list ENTIRELY -- before the inventory-match/
     quantity math below even runs, not just when it happens to have no
     stated quantity. "Always on hand" is a stronger claim than "there's

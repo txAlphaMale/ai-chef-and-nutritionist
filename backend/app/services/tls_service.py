@@ -1,4 +1,4 @@
-"""Backlog B15.1 (author-reported 2026-08-01): in-app HTTPS certificate
+"""Backlog B15.1: in-app HTTPS certificate
 management, so Chef can serve itself over a secure context. Ported from
 the sibling Fiduciary project's `portfolio-api/tls.py` (read directly,
 not assumed, before writing this) at the author's explicit direction --
@@ -246,7 +246,7 @@ def status() -> dict:
 
 
 # ---------------------------------------------------------------------
-# iOS/iPadOS trusted-profile export (author-reported 2026-08-03)
+# iOS/iPadOS trusted-profile export
 # ---------------------------------------------------------------------
 def build_mobileconfig() -> bytes:
     """Packages the currently active certificate as an Apple Configuration

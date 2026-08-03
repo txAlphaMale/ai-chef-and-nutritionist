@@ -1,33 +1,27 @@
 """Pantry/fridge/freezer/produce/spice inventory: CRUD, urgency-ranked
-suggestions for the meal planner, AI vision photo intake (what's
-CURRENTLY in the pantry/fridge), and AI receipt/list import (2026-08-01,
-author-requested -- what was just PURCHASED, from a receipt photo/PDF or
-a plain-text/file list). The two intake sources are deliberately kept
-separate rather than merged into one endpoint: they answer different
-questions ("what do I have" vs. "what did I just buy") and need
-different prompts (a pantry photo just names visible items; a receipt
-has to skip subtotal/tax/tender lines and expand POS abbreviations) --
-but both land in the SAME preview-then-confirm shape
-(VisionDetectedItem/InventoryItemCreate) since "one detected item before
-the user reviews and confirms it" means the same thing regardless of
-source.
+suggestions for the meal planner, and three intake paths.
 
-Route ordering matters here -- FastAPI matches path operations in
-declaration order, so the static paths (/priority-suggestions,
-/vision-intake, /vision-intake/confirm, /import, /import/confirm,
-/order-import, /order-import/profiles, /deduct, /update-by-name) are
-declared before the dynamic /{item_id} routes to avoid being swallowed
-by them.
+The intake paths are kept separate rather than merged into one endpoint
+because they answer different questions and need different handling:
 
-A third intake source lives here too (backlog B10.3, 2026-08-01): a
-generic order-history CSV/XLSX importer (/order-import,
-/order-import/profiles). Unlike the receipt/list import above, this one
-is pure deterministic parsing with no AI call -- see
-order_import_service.py's module docstring for why no AI is needed and
-why no pre-built "Walmart" column profile ships. It still lands in the
-same VisionDetectedItem preview shape and reuses /import/confirm's
-bulk-create, per the backlog's explicit "same review screen, not a
-separate UI" guidance.
+- AI vision photo intake -- what is CURRENTLY in the pantry/fridge.
+- AI receipt/list import -- what was just PURCHASED, from a receipt
+  photo/PDF or a plain-text/file list. Its prompt has to skip
+  subtotal/tax/tender lines and expand POS abbreviations, which a pantry
+  photo prompt has no reason to do.
+- Order-history CSV/XLSX import (B10.3) -- pure deterministic parsing,
+  no AI call. See order_import_service.py for why no AI is needed and
+  why no pre-built "Walmart" column profile ships.
+
+All three land in the same preview-then-confirm shape
+(VisionDetectedItem/InventoryItemCreate) and share /import/confirm's
+bulk-create, so there is one review screen rather than three.
+
+Route ordering matters -- FastAPI matches path operations in declaration
+order, so the static paths (/priority-suggestions, /vision-intake,
+/vision-intake/confirm, /import, /import/confirm, /order-import,
+/order-import/profiles, /deduct, /update-by-name) are declared before
+the dynamic /{item_id} routes to avoid being swallowed by them.
 """
 
 from __future__ import annotations
@@ -185,23 +179,6 @@ def get_vision_prompt(db: Session) -> str:
     return ollama_client.get_active_prompt(db, "vision_intake") or VISION_PROMPT
 
 
-# Model swap (2026-08-02, author-directed): the author pointed out this
-# whole investigation had narrowed to "make qwen3.5:9b work" instead of
-# asking whether it was the right model for the job, and separately
-# corrected an assumption that any replacement had to fit an 11GB single
-# GPU -- the author's hardware is TWO GTX 1080 Tis (22GB combined), and
-# Ollama splits a model across multiple visible GPUs automatically when
-# it doesn't fit on one. The author's actual locally-pulled model list
-# (`docker exec ollama ollama list`) includes `qwen3.6:27b` (17GB) --
-# same lab/family as the model already confirmed (via this whole
-# session's investigation) to correctly follow this prompt's structure
-# and correctly honor `think=False` when the prompt is short enough not
-# to trigger a bailout, just 3x the parameters, and already pulled (no
-# download needed). Comfortably fits the real 22GB budget with room for
-# KV cache, unlike a same-single-GPU-constrained option would have.
-# `ollama_chat_model`'s default is changed to this below (settings_
-# service.py) rather than only overridden here, since the author's
-# intent is an app-wide model swap, not a receipt-import-only patch --
 # Constrained-decoding schema for every inventory-extraction path: pantry
 # photo, receipt photo, receipt PDF, and a pasted item list. All four
 # produce the same shape, so they share one schema -- only the prompt
@@ -263,7 +240,7 @@ def expiring_digest(within_days: int = 7, db: Session = Depends(get_db)):
 
 @router.get("/barcode-lookup", response_model=BarcodeLookupResponse)
 def barcode_lookup(barcode: str):
-    """Backlog B4.1 (author-requested 2026-08-01): looks up a scanned
+    """Backlog B4.1: looks up a scanned
     barcode against Open Food Facts and returns a prefilled item preview.
     Deliberately a plain sync `def`, not a job_queue job -- a single OFF
     HTTP lookup is one fast round trip (REQUEST_TIMEOUT_SECONDS=8 in
@@ -289,9 +266,8 @@ def barcode_lookup(barcode: str):
     image_url = product.get("image_front_url") or product.get("image_url") or None
     category = meal_plan_service.guess_grocery_category(name) if name else None
 
-    # Package/measurement split (2026-08-02) -- see BarcodeLookupResponse's
-    # own docstring for why this now parses quantity_text instead of
-    # leaving it display-only.
+    # See BarcodeLookupResponse's docstring for why quantity_text is
+    # parsed rather than left display-only.
     estimated_quantity = 1.0
     unit = "count"
     package_quantity = None
@@ -326,7 +302,7 @@ def barcode_lookup(barcode: str):
 
 @router.get("/shelf-life-suggestion", response_model=ShelfLifeSuggestionResponse)
 def shelf_life_suggestion(name: str, category: str = "pantry", purchased_date: str | None = None):
-    """Backlog B4.3 (2026-08-01): auto-suggests an expiration date from
+    """Backlog B4.3: auto-suggests an expiration date from
     the shipped USDA FoodKeeper catalog (foodkeeper_service) so the
     household doesn't have to know or look up a shelf life themselves --
     the frontend calls this as the item name is typed on the inventory
@@ -422,7 +398,7 @@ def dismiss_recall_alert(alert_id: int, db: Session = Depends(get_db)):
 
 @router.post("/vision-intake", response_model=JobEnqueuedResponse, status_code=202)
 async def vision_intake(file: UploadFile):
-    """Backlog B11.1 (2026-08-01): analyzes an uploaded photo with the
+    """Analyzes an uploaded photo with the
     configured Ollama vision model and returns a PREVIEW of detected
     items -- nothing is written to inventory here. The user reviews/
     edits the preview client-side, then POSTs the confirmed list to
@@ -490,18 +466,15 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     function here rather than imported from recipes.py since the two
     routers shouldn't depend on each other for something this small.
 
-    Bug fix (2026-08-02, author-reported follow-up): this used to hard-
-    cap content at a flat `content[:8000]` regardless of the actual
-    configured context window -- now scales via
-    ollama_client.content_char_budget (see its docstring). A receipt can
-    legitimately have dozens of line items, each needing real JSON
-    response space (name/quantity/unit/category/dates/price/confidence
-    per item), so this uses a generous response reserve.
+    Content is capped by ollama_client.content_char_budget (see its
+    docstring), which scales with the configured context window rather
+    than a flat character count. A receipt can legitimately have dozens
+    of line items, each needing real JSON response space, so this uses a
+    generous response reserve.
 
-    Plain sync (no longer `async def`, backlog B11.1, 2026-08-01) -- every
-    caller now runs this from inside a job body on the background worker
-    thread, never from a request handler awaiting it directly, so there's
-    nothing left to await here."""
+    Plain sync, not `async def` -- every caller runs this from inside a
+    job body on the background worker thread, never from a request
+    handler awaiting it, so there is nothing to await."""
     prompt_template = get_receipt_import_prompt(db)
     budget = ollama_client.content_char_budget(
         db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=INVENTORY_RESPONSE_TOKENS
@@ -542,19 +515,14 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
             flush=True,
         )
         if raw_output and not detected:
-            # The exact author-reported case that the existing logging
-            # above could NOT explain on its own (2026-08-02): a
-            # non-empty model response that nonetheless parses to zero
-            # items -- which looks identical in the UI to "this receipt
-            # genuinely had no food on it". ollama_client's own response
-            # log already shows the first 300 chars of content; what it
-            # can't show is the END of the response, and the END is what
-            # distinguishes the two failure shapes that matter here: a
-            # response cut off mid-array by the context/num_predict limit
-            # (no closing "]", done_reason "length") versus a complete
-            # response whose JSON is simply surrounded by prose. Logged
-            # ONLY on the zero-items path, so a normal successful import
-            # adds no extra noise.
+            # A non-empty response that parses to zero items looks
+            # identical in the UI to "this receipt genuinely had no food
+            # on it". ollama_client logs the first 300 chars; the END is
+            # what separates the two shapes that matter -- cut off
+            # mid-array by the context/num_predict limit (no closing
+            # "]", done_reason "length") versus complete JSON wrapped in
+            # prose. Logged only on the zero-items path, so a normal
+            # import adds no noise.
             head = raw_output[:500].replace("\n", " ")
             tail = raw_output[-300:].replace("\n", " ")
             print(
@@ -574,14 +542,14 @@ async def import_inventory(
     file: UploadFile | None = None,
     text: str | None = Form(None),
 ):
-    """Backlog B4.2 (author-requested 2026-08-01): accepts a receipt
+    """Backlog B4.2: accepts a receipt
     PHOTO, a receipt PDF, an uploaded plain-text file, OR pasted `text`
     -- exactly one -- and returns a PREVIEW of detected items, same
     preview-then-confirm discipline as every other AI-assisted intake in
     this app. Nothing is written to inventory here; the user reviews/
     edits client-side and POSTs the confirmed list to /import/confirm.
 
-    Backlog B11.1 (2026-08-01): enqueues a background job for the
+    Enqueues a background job for the
     Ollama-calling part instead of blocking on it -- see job_queue.py's
     module docstring and vision_intake's docstring above for why. Fast,
     Ollama-independent validation (missing input, an image-only PDF with
@@ -601,12 +569,11 @@ async def import_inventory(
             source_type = "photo"
 
             def extractor(db: Session) -> str:
-                # Prompt resolution moved inside the job-body closure
-                # (2026-08-03, backlog B16.1) -- this handler has no `db`
-                # session of its own (B11.1's pattern: the DB session only
-                # opens inside the job body, on the worker thread), and
-                # get_receipt_import_prompt needs one to check for a
-                # household override.
+                # Prompt resolution happens inside the job-body
+                # closure: this handler has no `db` session of its own
+                # (the session opens inside the job body, on the worker
+                # thread), and get_receipt_import_prompt needs one to
+                # check for a household override.
                 prompt = (
                     get_receipt_import_prompt(db)
                     .replace("{content}", "[see attached photo of a receipt]")
@@ -785,12 +752,11 @@ async def order_import(
 
 # --- Audit P1-5: ingredient resolution ---------------------------------
 #
-# Ingredient identity is this app's join key and it is free text. Before
-# 2026-08-03 every name-to-row lookup was `ILIKE %name%` taking the first
-# row back, which matched "egg" to "eggplant" and left which of two
-# identically-named rows won undefined. The whole matcher now lives in
-# ingredient_resolution_service; these endpoints are the surface that lets
-# the user see what it decided and correct it once.
+# Ingredient identity is this app's join key and it is free text, so it
+# is never matched by raw substring: that scores "egg" against "eggplant"
+# and leaves ties between identically-named rows undefined. The matcher
+# lives in ingredient_resolution_service; these endpoints are the surface
+# that lets the user see what it decided and correct it once.
 
 
 def _candidate_read(candidate) -> IngredientMatchCandidate:
@@ -979,14 +945,10 @@ def get_inventory_item(item_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=InventoryItemRead, status_code=201)
 def create_inventory_item(payload: InventoryItemCreate, db: Session = Depends(get_db)):
     data = payload.model_dump()
-    # Quantity model redesign (2026-08-02): `purchased_quantity` is the
-    # immutable "on hand at purchase time" snapshot cost_service divides
-    # by -- see InventoryItem's own docstring. At creation time, on-hand
-    # IS whatever was just purchased, so default it to the row's own
-    # initial `quantity` whenever the caller didn't explicitly supply a
-    # different value (every existing caller -- the manual add form, the
-    # barcode/vision/receipt/order-import confirm flows -- can keep
-    # sending a plain InventoryItemCreate with no changes needed).
+    # `purchased_quantity` is the immutable "on hand at purchase time"
+    # snapshot cost_service divides by -- see InventoryItem's docstring.
+    # At creation, on-hand IS what was just purchased, so default it to
+    # the row's initial `quantity` unless the caller said otherwise.
     if data.get("purchased_quantity") is None:
         data["purchased_quantity"] = data.get("quantity")
     item = InventoryItem(**data)

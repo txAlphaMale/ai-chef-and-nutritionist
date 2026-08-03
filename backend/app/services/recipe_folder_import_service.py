@@ -1,4 +1,4 @@
-"""Backlog B13.1 (author-requested 2026-08-01): batch recipe import from
+"""Backlog B13.1: batch recipe import from
 a folder mounted into the container. The author has an existing OneDrive
 folder pre-populated with recipes and wants those pulled into Chef
 without re-uploading each file one at a time through the browser.

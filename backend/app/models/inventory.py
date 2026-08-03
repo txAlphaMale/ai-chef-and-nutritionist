@@ -84,7 +84,7 @@ class InventoryItem(Base, TimestampMixin):
     is_priority: Mapped[bool] = mapped_column(Boolean, default=False)
     priority_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Backlog B10.3 (2026-08-01) -- price actually paid for this quantity,
+    # Backlog B10.3 -- price actually paid for this quantity,
     # as purchased (not a per-recipe/per-serving cost, that's B6.1's job
     # once it exists). Nullable: most intake sources (manual entry, the
     # pantry-photo vision snapshot, the AI receipt/list import) still have
@@ -154,7 +154,7 @@ class IngredientAlias(Base, TimestampMixin):
 
 
 class OrderImportProfile(Base):
-    """Backlog B10.3 (2026-08-01): a user-saved column-mapping for the
+    """Backlog B10.3: a user-saved column-mapping for the
     generic order-history CSV/XLSX importer, so a household doesn't have
     to re-map "which column is the item name" every time they import a
     fresh export from the same source (e.g. a Walmart order-history

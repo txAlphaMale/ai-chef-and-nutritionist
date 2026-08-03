@@ -82,7 +82,7 @@ def get_priority_suggestions(
 def get_expiring_digest(
     db: Session, within_days: int = 7, today: date | None = None
 ) -> dict[str, list[InventoryItem] | int]:
-    """Backlog B4.4 (via the B10.2 author-requested group, 2026-08-01):
+    """Backlog B4.4 (via the B10.2 author-requested group):
     the REQUIRED-minimum "in-app banner" piece the backlog named --
     "Chef computes urgency server-side already but only surfaces it
     passively when the user opens the Inventory page. Add a digest...
@@ -128,10 +128,9 @@ def get_expiring_digest(
 # string-aware bracket-matching scan for the first parseable [...] block.
 # That scan (reasoning-trace stripping, bracket matching, truncated-array
 # salvage) moved to app/services/ai_json_extraction.py's extract_json_array
-# (2026-08-03) so recipe/health/meal-plan JSON-OBJECT extraction -- which
-# had the exact same greedy-regex bug this one was already fixed for --
-# could share the same defense instead of only this module having it. See
-# that module's docstring for the fuller history/rationale.
+# so recipe/health/meal-plan JSON-OBJECT extraction shares the same
+# defense instead of only this module having it. See that module's
+# docstring.
 
 CATEGORY_VALUES = {"pantry", "fridge", "freezer", "produce", "spice", "other"}
 
@@ -240,7 +239,7 @@ def _safe_float(value) -> float | None:
 # name needs to resolve to an inventory row without the caller knowing
 # its id.
 #
-# Audit P1-5 (2026-08-03): this used to be an exact case-insensitive
+# Audit P1-5: this used to be an exact case-insensitive
 # compare followed by `ILIKE %name%`, taking whichever row the database
 # returned first. That matched "egg" to "eggplant" and "chicken" to
 # "chicken broth", and with no unique constraint on `inventory_items.name`

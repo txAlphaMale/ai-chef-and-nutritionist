@@ -1,4 +1,4 @@
-"""Backlog B10.1 (2026-08-01): the dining-out finder's response shapes."""
+"""Backlog B10.1: the dining-out finder's response shapes."""
 
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ class RestaurantCandidate(BaseModel):
 
 class GeocodeResult(BaseModel):
     """One candidate match for a free-text address/zip lookup (backlog
-    B10.1 follow-up, 2026-08-02) -- see dining_service.geocode's
-    docstring for why this can return more than one result."""
+    B10.1 follow-up) -- see dining_service.geocode's docstring for why
+    this can return more than one result."""
 
     lat: float
     lon: float
@@ -45,8 +45,8 @@ class GeocodeResult(BaseModel):
 
 
 class IPGeolocationResult(BaseModel):
-    """Approximate, network-based location (backlog B10.1 follow-up,
-    2026-08-02) -- see dining_service.geolocate_by_ip's docstring for
+    """Approximate, network-based location (backlog B10.1 follow-up)
+    -- see dining_service.geolocate_by_ip's docstring for
     exactly what this reflects (the BACKEND's own outbound IP, i.e. the
     household's network, not the browsing device) and why that's still a
     genuinely useful third option alongside GPS and manual address entry

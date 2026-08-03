@@ -1,4 +1,4 @@
-"""Backlog B9.4 (via B10.2, 2026-08-01): endpoints for the lightweight
+"""Backlog B9.4 (via B10.2): endpoints for the lightweight
 single-shared-password gate. See auth_service.py's module docstring for
 the scope-down rationale, and app/main.py for the SessionMiddleware +
 auth-gate middleware these endpoints rely on.

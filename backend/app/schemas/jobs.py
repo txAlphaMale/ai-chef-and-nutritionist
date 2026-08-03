@@ -1,4 +1,4 @@
-"""Backlog B11.1 (2026-08-01): response shapes for the background job
+"""Backlog B11.1: response shapes for the background job
 queue (job_queue.py). Every AI-consuming endpoint that used to return its
 result directly now returns a JobEnqueuedResponse immediately; the
 frontend polls GET /api/jobs/{job_id} for a JobRead until status is

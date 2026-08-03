@@ -179,15 +179,13 @@ async def import_recipe(
     knowledge-file deletes are best-effort too) rather than adding
     preview-session cleanup machinery for a low-stakes, low-volume case.
 
-    Backlog B11.1 (2026-08-01): the entire body below -- URL fetch, image
-    fetch, PDF extraction, and the Ollama call -- now runs inside a
-    background job instead of directly in this `async def` handler. This
-    isn't just the Ollama call moving: `recipe_service.extract_url_content`
-    (trafilatura.fetch_url) and `fetch_image_bytes` (a synchronous
-    httpx.Client) are ALSO blocking network I/O that was previously called
-    directly here, which froze the whole app's event loop for their
-    duration exactly like the Ollama calls did -- found while converting
-    this endpoint, not assumed away. Only the cheap "was anything provided
+    The entire body below -- URL fetch, image fetch, PDF extraction, and
+    the Ollama call -- runs inside a background job rather than in this
+    `async def` handler. Not only for the Ollama call:
+    `recipe_service.extract_url_content` (trafilatura.fetch_url) and
+    `fetch_image_bytes` (a synchronous httpx.Client) are blocking network
+    I/O too, and would freeze the event loop for their duration. Only the
+    cheap "was anything provided
     at all" check and the async UploadFile.read() (which needs the
     request's own context) still happen before enqueueing; every other
     error that used to get its own HTTP status code (a bad URL, an
@@ -260,15 +258,11 @@ async def import_recipe(
                 raw_output = _run_text_extraction(db, text)
                 default_source = "import_text"
             else:
-                # Backlog B13.1 (2026-08-01): the JSON/image/PDF/text
-                # branching that used to live directly inline here was
-                # pulled out into recipe_service.parse_recipe_file_content
-                # so the new folder-scan batch importer
-                # (recipe_folder_import_service.py) can parse a file the
-                # exact same way a single browser upload does -- see that
-                # function's docstring for the full rationale (including
-                # the new .html/.htm branch, which this single-upload path
-                # gets too now, for free).
+                # JSON/image/PDF/text/HTML branching lives in
+                # recipe_service.parse_recipe_file_content so the
+                # folder-scan batch importer
+                # (recipe_folder_import_service.py) parses a file exactly
+                # the way a single browser upload does.
                 file_result = recipe_service.parse_recipe_file_content(db, raw_bytes, filename, content_type)
                 raw_output = file_result["raw_output"]
                 default_source = file_result["default_source"]
@@ -308,16 +302,13 @@ def _run_text_extraction(db: Session, content: str) -> str:
     from inside a job body on the background worker thread now, never
     awaited directly from a request handler.
 
-    Bug fix (2026-08-02, author-reported follow-up to the num_ctx fix):
-    used to hard-cap content at a flat `content[:8000]` regardless of the
-    actual configured context window -- see
-    ollama_client.content_char_budget's docstring. This is specifically
-    the path most likely to need real headroom: B9.3's JSON-LD-first
-    import order means this AI-prompt fallback only runs for sources with
-    NO structured recipe data (a photo, a PDF, pasted text, or a URL
-    whose site publishes no schema.org markup) -- exactly the messiest
-    sources, where a scraped blog page's SEO/life-story prose commonly
-    runs well past what a flat 8000-char cap ever allowed through."""
+    Content is capped by ollama_client.content_char_budget, which scales
+    with the configured context window rather than a flat character
+    count. This path needs the headroom most: the JSON-LD-first import
+    order (B9.3) means this AI-prompt fallback only runs for sources with
+    NO structured recipe data -- a photo, a PDF, pasted text, or a URL
+    publishing no schema.org markup -- which are the messiest sources,
+    where a scraped blog page's preamble prose runs long."""
     prompt_template = recipe_service.get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
         db,
@@ -335,7 +326,7 @@ def _run_text_extraction(db: Session, content: str) -> str:
 
 @router.post("/import-folder/scan", response_model=JobEnqueuedResponse, status_code=202)
 def scan_import_folder(db: Session = Depends(get_db)):
-    """Backlog B13.1 (author-requested 2026-08-01): scans the folder at
+    """Backlog B13.1: scans the folder at
     `recipe_import_folder_path` (Settings > Integrations -- a Docker
     volume the household points at their OneDrive-synced folder, or any
     folder) and returns a PREVIEW of every recipe it could parse from the
@@ -482,15 +473,12 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
     recipe's current ingredients/instructions/tips are injected as context
     so suggestions are grounded in the actual recipe, not a generic answer.
 
-    Backlog B11.1 (2026-08-01): enqueues a background job instead of
-    blocking on the Ollama call. This endpoint was already a plain `def`
-    (FastAPI runs it in a threadpool, so it never froze the whole app's
-    event loop the way the `async def` import endpoints did) -- but it
-    still held one browser tab's request open for the full generation
-    and lost all state on navigation, and it still needs to share this
-    app's one GPU budget with every other AI feature, so it moves to the
-    same shared queue for consistency, per the 2026-08-01 "everything,
-    unified" scope decision (see PROJECT-PLAN.md). The 404 check below
+    Enqueues a background job rather than blocking on the Ollama call.
+    A plain `def` here would run in FastAPI's threadpool and so would not
+    freeze the event loop, but it would still hold a browser tab's
+    request open for the whole generation, lose all state on navigation,
+    and compete for this app's one GPU budget outside the queue that
+    exists to serialize exactly that. The 404 check below
     still runs synchronously against the request's own `db` -- cheap,
     fast, no reason to make a bad recipe_id wait in line -- but the job
     body re-fetches the recipe fresh through its OWN session, since a
@@ -515,9 +503,8 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
             system_prompt = ollama_client.get_active_prompt(job_db, "main_chef") or ""
             context = recipe_service.build_recipe_chat_context(read_view.model_dump())
 
-            # RECIPE_MODIFY_INSTRUCTIONS (added 2026-07-31) upgrades this
-            # chat from read-only Q&A to also being able to propose an
-            # edit -- e.g. "make this gluten-free" -- which the frontend
+            # RECIPE_MODIFY_INSTRUCTIONS upgrades this chat from
+            # read-only Q&A to also being able to propose an edit -- e.g. "make this gluten-free" -- which the frontend
             # shows as a reviewable RecipeForm, exactly like a recipe
             # import preview, before anything is saved. See
             # recipe_service.py for the full writeup.

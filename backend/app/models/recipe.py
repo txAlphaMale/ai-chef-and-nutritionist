@@ -84,7 +84,7 @@ class Recipe(Base, TimestampMixin):
     # stories, and other boilerplate that import parsing discards.
     tips: Mapped[list] = mapped_column(JSON, default=list)
 
-    # Recipe variants (added 2026-07-31, "commit an AI-modified recipe"
+    # Recipe variants ("commit an AI-modified recipe"
     # backlog request): a variant is just a normal Recipe row that
     # happens to point back at the recipe it was derived from -- e.g.
     # asking chat to "make this gluten-free" and choosing "save as a new
@@ -121,7 +121,7 @@ class RecipeIngredient(Base):
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     prep_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
-    # Food-database resolution (backlog B1.1, added 2026-07-31) -- see
+    # Food-database resolution (backlog B1.1) -- see
     # app/services/food_data_service.py's module docstring for the full
     # design. Populated once, on demand (not automatically on save), by
     # resolve_and_cache_ingredient(); resolution_source distinguishes

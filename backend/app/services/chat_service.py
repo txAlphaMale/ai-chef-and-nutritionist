@@ -34,12 +34,8 @@ ALLOWED_ACTION_TYPES = {
     "recipe_update_proposal",
 }
 
-# recipe_update_proposal (added 2026-07-31, "commit an AI-modified recipe"
-# request) originally shipped variant-ONLY from this chat surface -- see
-# git history. The author then asked (still 2026-07-31) whether an overwrite
-# path was available here too, the same way the recipe-scoped chat already
-# offers both. Extended to carry a "mode" field ("variant", the default, or
-# "overwrite") so the model proposes whichever the user actually asked for --
+# recipe_update_proposal carries a "mode" field ("variant", the default,
+# or "overwrite") so the model proposes whichever the user asked for --
 # "save this as a new version" vs. "just update the recipe" / "replace it" /
 # "overwrite it". The frontend (ChatWidget.jsx) still requires an explicit
 # confirm click either way (same as every other action type here), but adds

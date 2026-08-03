@@ -260,7 +260,7 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
     (swap a recipe, adjust servings, fill in a slot the model left
     empty) then POSTs the confirmed result to POST /api/meal-plans.
 
-    Backlog B11.1 (2026-08-01): enqueues a background job instead of
+    Backlog B11.1: enqueues a background job instead of
     blocking on the Ollama call. This endpoint was already a plain `def`
     (never froze the whole app's event loop the way the `async def`
     import endpoints did), but it still held one browser tab's request

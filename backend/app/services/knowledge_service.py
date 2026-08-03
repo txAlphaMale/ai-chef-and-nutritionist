@@ -10,7 +10,7 @@ pattern as secrets_crypto.py's key file) under a UUID-based name to
 avoid filename collisions/traversal from user-supplied names; the
 original filename is kept in the DB row for display.
 
---- RAG design (added 2026-07-31, replacing the original Phase 6
+--- RAG design (replacing the original Phase 6
 "concatenate every active file, truncate to a combined budget" approach
 -- see PROJECT-PLAN.md's former "Knowledge/RAG" backlog entry for the
 full writeup this implements) ---

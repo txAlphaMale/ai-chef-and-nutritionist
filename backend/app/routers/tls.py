@@ -1,4 +1,4 @@
-"""Backlog B15.1 (author-reported 2026-08-01): in-app HTTPS certificate
+"""Backlog B15.1: in-app HTTPS certificate
 management -- Settings > Security > Certificate. All mutating endpoints
 trigger tls_service.restart_to_apply() (an in-place self-restart a
 couple seconds later) so a newly generated/imported certificate takes
@@ -29,7 +29,7 @@ def tls_status():
 
 @router.get("/mobileconfig")
 def tls_mobileconfig():
-    """Author-reported 2026-08-03: downloads the active certificate as an
+    """downloads the active certificate as an
     Apple Configuration Profile, so iOS/iPadOS can install it as a
     trusted root instead of relying only on the per-origin browser
     click-through. See tls_service.build_mobileconfig()'s own docstring

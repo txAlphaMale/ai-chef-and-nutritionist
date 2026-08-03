@@ -1,4 +1,4 @@
-"""Backlog B11.1 (2026-08-01): read-only status endpoints for the
+"""Backlog B11.1: read-only status endpoints for the
 background job queue (job_queue.py). No auth-exempt special-casing needed
 here beyond whatever the standing auth_gate middleware already applies
 uniformly to every /api/* route."""

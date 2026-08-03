@@ -1,4 +1,4 @@
-"""Backlog B10.1 (author-requested group, 2026-08-01): the dining-out
+"""Backlog B10.1: the dining-out
 finder. See dining_service.py's module docstring for the full research
 writeup (Overpass tag coverage, its hard limitations, and the safety-
 framing discipline this endpoint follows)."""
@@ -23,7 +23,7 @@ MAX_RESULTS = 50
 
 @router.get("/geocode", response_model=list[GeocodeResult])
 async def geocode_location(query: str):
-    """Backlog B10.1 follow-up (author-requested 2026-08-02): an address
+    """Backlog B10.1 follow-up: an address
     or zip code as a third way to set a search location, alongside manual
     lat/lon and browser geolocation (the latter needing a secure context
     and, even then, able to hang or fail on some devices -- see

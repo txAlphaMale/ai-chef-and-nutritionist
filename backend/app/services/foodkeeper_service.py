@@ -1,4 +1,4 @@
-"""Backlog B4.3 (2026-08-01): USDA FSIS FoodKeeper-backed default shelf
+"""Backlog B4.3: USDA FSIS FoodKeeper-backed default shelf
 life. Directly serves two things the project brief and the author both
 called out explicitly: "keep expiration information as much as reasonably
 possible," and the author's own stated forgotten-pantry-item problem ("we

@@ -53,7 +53,7 @@ class MealPlanEntry(Base, TimestampMixin):
     # Confirming a meal was made triggers ingredient deduction from inventory
     is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_skipped: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Backlog B10.1 (2026-08-01) -- marks a slot as "we're eating out"
+    # Backlog B10.1 -- marks a slot as "we're eating out"
     # rather than an unplanned/empty one. Purely descriptive: a
     # recipe-less entry (recipe_id=None) ALREADY confirms without any
     # inventory deduction attempt and is ALREADY excluded from grocery-
@@ -66,7 +66,7 @@ class MealPlanEntry(Base, TimestampMixin):
     is_eating_out: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Backlog B5.1 (2026-08-01) -- "leftovers welcome" per the project
+    # Backlog B5.1 -- "leftovers welcome" per the project
     # brief, and the stated problem this solves: a Sunday cook that makes
     # enough for Sunday dinner AND Monday lunch previously had no way to
     # represent that without either double-buying/double-deducting for
@@ -93,7 +93,7 @@ class MealPlanEntry(Base, TimestampMixin):
     # data-integrity break.
     leftover_of_entry_id: Mapped[int | None] = mapped_column(ForeignKey("meal_plan_entries.id"), nullable=True)
 
-    # Backlog B12.1 (2026-08-01) -- the Google Calendar event id this
+    # Backlog B12.1 -- the Google Calendar event id this
     # entry currently corresponds to in the household's dedicated "Chef
     # Meal Plan" calendar, or None if it has never been pushed (sync is
     # off, was off when this entry was created, or the push simply
@@ -131,7 +131,7 @@ class GroceryListItem(Base, TimestampMixin):
     is_purchased: Mapped[bool] = mapped_column(Boolean, default=False)
     source: Mapped[str] = mapped_column(String(20), default="auto")  # auto|manual
 
-    # --- Reconciliation provenance (2026-08-03) ------------------------
+    # --- Reconciliation provenance ------------------------
     #
     # Why this line reads the way it does. `subtract_inventory` has
     # produced all three of these for a while; none of them were

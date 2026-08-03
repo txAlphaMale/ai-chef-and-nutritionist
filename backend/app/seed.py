@@ -32,7 +32,7 @@ from app.routers.inventory import RECEIPT_IMPORT_PROMPT, VISION_PROMPT
 from app.services import knowledge_service, settings_service
 from app.services.recipe_service import RECIPE_IMPORT_PROMPT, RECIPE_MODIFY_INSTRUCTIONS
 
-# Backlog B2.1 (2026-08-01): bundled, repo-shipped reference documents so
+# Backlog B2.1: bundled, repo-shipped reference documents so
 # every external user starts with SOME grounding for the "grounded in
 # nutritionist knowledge" requirement, instead of an empty knowledge
 # corpus. Seeded INACTIVE (is_active=False) -- a household must
@@ -223,7 +223,7 @@ def seed() -> None:
                 )
             )
 
-        # Backlog B16.1 (author-requested 2026-08-03): the AI import/
+        # Backlog B16.1: the AI import/
         # extraction prompts -- previously hardcoded Python constants a
         # household could only change by editing code and rebuilding the
         # container -- are now SystemPrompt rows too, seeded with the

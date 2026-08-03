@@ -21,7 +21,7 @@ class HealthMetricEntry(Base, TimestampMixin):
 
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
     bmi: Mapped[float | None] = mapped_column(Float, nullable=True)  # computed at write time
-    # Backlog B8.2 (2026-08-02): the "activity" half of "weight and
+    # Backlog B8.2: the "activity" half of "weight and
     # activity" wearable import. Deliberately just a daily step total,
     # not a fuller activity model (active minutes, workout sessions,
     # heart rate) -- this table's grain is one row per (member,

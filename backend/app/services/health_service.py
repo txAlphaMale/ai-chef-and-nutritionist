@@ -336,7 +336,7 @@ def run_bloodwork_extraction(db: Session, content: str) -> str:
 #    SAME free-text Ollama extraction pipeline BLOODWORK_IMPORT_PROMPT
 #    already established, via a sibling WEARABLE_IMPORT_PROMPT. This is a
 #    deliberate choice, not a fallback of convenience: verified live
-#    (web search, 2026-08-02) that Android Health Connect's own native
+#    that Android Health Connect's own native
 #    "export" is a proprietary backup ZIP meant for Health-Connect-to-
 #    Health-Connect restore, not a documented, stable third-party-
 #    parseable schema -- no official JSON/CSV export format exists to

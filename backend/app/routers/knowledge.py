@@ -46,7 +46,7 @@ def list_knowledge_files(db: Session = Depends(get_db)):
 
 @router.post("", response_model=KnowledgeFileRead, status_code=201)
 async def upload_knowledge_file(file: UploadFile, description: str | None = Form(None), db: Session = Depends(get_db)):
-    """Backlog B11.1 (2026-08-01): the embedding-indexing step
+    """Backlog B11.1: the embedding-indexing step
     (knowledge_service.ensure_indexed -- one blocking Ollama embed() call
     PER CHUNK, potentially dozens to hundreds in a row for a large file)
     now runs as a background job instead of inline. This endpoint was

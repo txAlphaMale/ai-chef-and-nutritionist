@@ -1,4 +1,4 @@
-"""Backlog B9.4 (via the author-requested B10.2 group, 2026-08-01): a
+"""Backlog B9.4 (via the author-requested B10.2 group): a
 lightweight, OPT-IN single-shared-password gate for the whole app.
 
 Scoped down from Fiduciary's own auth.py after checking directly with

@@ -331,7 +331,7 @@ SETTING_SPECS: list[SettingSpec] = [
             "connect; toggle off any time to pause pushing without disconnecting."
         ),
     ),
-    # ---- Backlog B12.2 (2026-08-02): iCloud Calendar push sync, the same
+    # ---- Backlog B12.2: iCloud Calendar push sync, the same
     # one-way-push architecture as B12.1 above but authenticated with an
     # app-specific password instead of OAuth -- see
     # icloud_calendar_service.py's module docstring for the full

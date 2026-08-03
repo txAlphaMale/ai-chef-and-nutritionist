@@ -6,7 +6,7 @@ read-only /api/system/* router. Inventory (Phase 3), recipes (Phase 4),
 meal planning (Phase 5), and health/knowledge tracking (Phase 6)
 followed; the chat router lands in Phase 7 -- see PROJECT-PLAN.md.
 
-Backlog B10.2 (2026-08-01) added an opt-in session-cookie auth gate
+Backlog B10.2 added an opt-in session-cookie auth gate
 (auth_service.py/routers/auth.py) -- SessionMiddleware below issues the
 signed cookie, and the auth_gate middleware enforces it on every
 /api/* route except the two the frontend needs reachable pre-login
