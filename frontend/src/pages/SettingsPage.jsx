@@ -13,17 +13,13 @@ import IngredientAliasManager from "../components/IngredientAliasManager";
 // the Health page (Phase 6) since they're tied to household-preferences
 // CRUD there -- linked from here rather than duplicated.
 //
-// Backlog B14 (author-requested 2026-08-01): this page grew one card at
-// a time across many sessions (Appearance, Backup, Connection status,
-// Security, the generic settings loop, Google Calendar, System prompts)
-// until it became one long scroll the author flagged directly as
-// "crowded." Reorganized into sub-tabs mirroring the sibling Fiduciary
-// project's own settings layout (its panelSubtabs() pattern -- a
-// second-level tab bar within one top-level page, persisted per-panel).
+// Organized into sub-tabs (the Fiduciary project's panelSubtabs
+// pattern: a second-level tab bar within one page, persisted per
+// panel), because this page holds enough cards to be one long scroll
+// otherwise.
 // Connection status is deliberately kept OUTSIDE the tab content and
-// pinned above the tab bar instead -- the author's own explicit ask --
-// since "is anything broken right now" is relevant no matter which
-// settings group you're editing.
+// pinned above the tab bar, since "is anything broken right now" is
+// relevant no matter which settings group you're editing.
 
 const PROMPT_LABELS = {
   main_chef: "Main chef system prompt",
@@ -34,11 +30,10 @@ const PROMPT_LABELS = {
   vision_intake: "Pantry/fridge photo intake",
 };
 
-// Backlog B16.1 (author-requested 2026-08-03): the AI import/extraction
-// prompts used to be hardcoded Python constants a household could only
-// change by editing code and rebuilding the container -- see each
-// prompt's own get_*_prompt() getter (recipe_service.py,
-// routers/inventory.py) for the DB-override-with-fallback mechanics.
+// Backlog B16.1 -- the AI import/extraction prompts are DB-backed and
+// GUI-editable; see each prompt's get_*_prompt() getter
+// (recipe_service.py, routers/inventory.py) for the
+// override-with-fallback mechanics.
 // Kept as a separate key set (not folded into PROMPT_LABELS's iteration
 // order) purely so the "System prompts" card below can render two
 // visually separate groups -- persona/onboarding prompts a household
@@ -62,11 +57,10 @@ const GOOGLE_CALENDAR_MANAGED_KEYS = [
 ];
 
 // The three settings the household actually types in. Saving any of
-// these should refresh the Google Calendar card's connection status
-// (see saveSetting below) -- without this, an author-reported bug: the
-// card's `configured` flag was only ever fetched once on page load, so
-// the Connect button stayed silently disabled even after valid values
-// were saved, with zero visible feedback explaining why.
+// these must refresh the Google Calendar card's connection status (see
+// saveSetting below): its `configured` flag is otherwise fetched once
+// on page load, leaving the Connect button silently disabled even after
+// valid values are saved.
 const GOOGLE_CALENDAR_CONFIG_KEYS = [
   "google_calendar_client_id",
   "google_calendar_client_secret",
@@ -141,7 +135,7 @@ const SETTINGS_TAB_STORAGE_KEY = "chefSettingsTab";
 // -- it isn't a hack, it's Google's own documented carve-out. See the
 // WIKI's Google Calendar setup entry for what this means in practice
 // (the one-time "Connect" click needs to happen from a browser that can
-// reach the backend AS localhost -- i.e. on the server machine itself,
+// reach Chef AS localhost -- i.e. on the server machine itself,
 // or via an SSH/port-forward tunnel -- unless the household would
 // rather set up a public-DNS-to-LAN-IP hostname instead, also covered
 // there).
@@ -205,11 +199,9 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [themeSaving, setThemeSaving] = useState(false);
 
-  // Backlog B9.4 (via the author-requested B10.2 group, 2026-08-01) --
-  // the lightweight, opt-in single-shared-password gate. See
-  // backend/app/services/auth_service.py's module docstring for why
-  // this is deliberately smaller than Fiduciary's own multi-user/MFA
-  // system (confirmed with the author directly, not assumed).
+  // The lightweight, opt-in single-shared-password gate. See
+  // backend/app/services/auth_service.py for why this is deliberately
+  // smaller than Fiduciary's multi-user/MFA system.
   const [authStatus, setAuthStatus] = useState(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState(null);
@@ -218,13 +210,11 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [disableCurrentPassword, setDisableCurrentPassword] = useState("");
 
-  // Backlog B15.1 (author-reported 2026-08-01) -- HTTPS certificate
-  // management. Kept separate from the generic settings loop (like the
-  // Google Calendar card) since this isn't a plain value edit: it's a
-  // multi-step generate/import flow with server-driven status (active?,
-  // method, SANs, expiry) and a self-triggered backend restart. See
-  // backend/app/services/tls_service.py's module docstring for the full
-  // two-container architecture this UI is driving.
+  // HTTPS certificate management. Kept out of the generic settings loop
+  // (like the Google Calendar card) since this is not a plain value
+  // edit: it is a multi-step generate/import flow with server-driven
+  // status (active, method, SANs, expiry) and a self-triggered restart.
+  // See backend/app/services/tls_service.py.
   const [tlsStatus, setTlsStatus] = useState(null);
   const [tlsBusy, setTlsBusy] = useState(false);
   const [tlsError, setTlsError] = useState(null);
@@ -457,13 +447,11 @@ export default function SettingsPage() {
     // Fetches the Google consent-screen URL first (a normal JSON call,
     // so a 400 -- not configured, bad client id -- surfaces via gcalError
     // like every other action on this card) and only THEN navigates the
-    // browser there. Fixed 2026-08-01 after an author-reported bug:
-    // clicking Connect previously did a raw window.location.href straight
-    // at the backend's own redirecting endpoint, so any failure there
-    // showed up as a full-page navigation to an unstyled JSON error blob
-    // easy to mistake for "nothing happened" -- see routers/
-    // google_calendar.py's authorize() docstring for the matching
-    // backend-side half of this fix.
+    // browser there. A raw window.location.href straight at the
+    // redirecting endpoint turns any failure into a full-page
+    // navigation to an unstyled JSON error blob, easy to mistake for
+    // "nothing happened" -- see routers/google_calendar.py's authorize()
+    // docstring for the backend-side half.
     setGcalBusy(true);
     setGcalError(null);
     try {
@@ -622,11 +610,10 @@ export default function SettingsPage() {
         if (s.is_secret) {
           next[s.key] = "";
         } else if (s.key === "google_calendar_redirect_uri" && !s.value && window.location.origin) {
-          // Author-requested (2026-08-01): don't make the household work
-          // out the right address by hand. Corrected the same day:
-          // suggesting the browser's raw LAN IP address directly doesn't
-          // work -- Google rejects it (see suggestedRedirectUri's comment
-          // above) -- so this now suggests http://localhost:<port>
+          // Don't make the household work out the right address by
+          // hand. The browser's raw LAN IP does not work -- Google
+          // rejects it (see suggestedRedirectUri's comment above) -- so
+          // this suggests http://localhost:<port>
           // whenever the browser's own address is a bare IP, and only
           // suggests the browser's address directly when it's already a
           // real domain name (which Google accepts as-is). Only
@@ -719,14 +706,11 @@ export default function SettingsPage() {
       setSettingEdits((prev) => ({ ...prev, [spec.key]: spec.is_secret ? "" : value }));
       setSettingSaved((s) => ({ ...s, [spec.key]: true }));
       setTimeout(() => setSettingSaved((s) => ({ ...s, [spec.key]: false })), 2000);
-      // Fixed 2026-08-01 (author-reported bug): the Google Calendar
-      // card's `gcalStatus` was only ever fetched once on page load, so
-      // saving a valid client id/secret/redirect URI here never updated
-      // its `configured` flag -- the Connect button stayed silently
-      // disabled with no visible explanation. Refresh it the moment any
-      // of the three relevant keys saves successfully. Also refreshes
-      // the pinned Connection Status card (B14) since it now surfaces
-      // the same "configured" flag.
+      // `gcalStatus` is otherwise fetched once on page load, so saving
+      // a valid client id/secret/redirect URI would never update its
+      // `configured` flag and the Connect button would stay silently
+      // disabled. Refresh it, and the pinned Connection Status card,
+      // whenever one of the three relevant keys saves.
       if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key)) {
         refreshGcalStatus();
       }
@@ -779,11 +763,9 @@ export default function SettingsPage() {
     }
   }
 
-  // Backlog B16.1 (2026-08-03): pulled out of the "System prompts" card so
-  // the new "Advanced: import & extraction prompts" card (persona/
-  // onboarding prompts vs. recipe/receipt/vision extraction prompts,
-  // split for scannability -- see IMPORT_PROMPT_KEYS above) can render
-  // the identical row shape without duplicating this JSX twice.
+  // Shared by the "System prompts" and "Advanced: import & extraction
+  // prompts" cards so both render the identical row shape without
+  // duplicating this JSX -- see IMPORT_PROMPT_KEYS above.
   function renderPromptRow(p) {
     return (
       <div className="settings-row" key={p.prompt_key}>
@@ -836,10 +818,9 @@ export default function SettingsPage() {
         <label>
           {spec.label}
           {spec.options ? (
-            // Backlog fix 2026-08-01 -- a setting with a fixed,
-            // enumerated set of valid values (e.g. default_unit_system)
-            // gets a <select>, not a free-text box the user has no way
-            // to know the accepted values for.
+            // A setting with a fixed, enumerated set of valid values
+            // (e.g. default_unit_system) gets a <select>, not a
+            // free-text box whose accepted values are unknowable.
             <select
               value={settingEdits[spec.key] ?? spec.value}
               onChange={(e) => setSettingEdits((prev) => ({ ...prev, [spec.key]: e.target.value }))}
@@ -911,14 +892,12 @@ export default function SettingsPage() {
     <div>
       {error && <p className="error-text">{error}</p>}
 
-      {/* Backlog B14 (author-requested 2026-08-01): pinned above the
-          sub-tab bar, not inside any one tab -- "is anything broken"
-          matters regardless of which settings group is open. Also now
-          reports per-integration configured/connected state (the
-          `integrations` list from GET /api/system/status), not just
-          Ollama/Tavily -- another direct author ask, so a household can
-          tell at a glance whether Google Calendar (or a future
-          integration) has its credentials saved without opening the
+      {/* Pinned above the sub-tab bar, not inside any one tab -- "is
+          anything broken" matters regardless of which settings group is
+          open. Reports per-integration configured/connected state (the
+          `integrations` list from GET /api/system/status) as well as
+          Ollama/Tavily, so a household can tell at a glance whether an
+          integration has its credentials saved without opening the
           Integrations tab. */}
       <div className="card">
         <div className="page-toolbar">
@@ -1071,15 +1050,11 @@ export default function SettingsPage() {
             </p>
 
             {(() => {
-              // Author-reported 2026-08-03: the redirect URI used to
-              // point at the BACKEND's own origin/port; it now needs to
-              // point at the frontend's (see the notes above this card's
-              // logic). Anyone who connected before this change has a
-              // stale saved value pointing at the wrong origin -- flag it
-              // rather than let it fail silently the next time a token
-              // refresh needs that redirect URI, or the household tries
-              // Force resync/Disconnect-and-reconnect and hits a Google
-              // "redirect_uri_mismatch" error with no obvious cause.
+              // A saved redirect URI pointing at a different origin than
+              // this page fails silently -- the next token refresh, or a
+              // Force resync / reconnect, hits a Google
+              // "redirect_uri_mismatch" with no obvious cause. Flag it
+              // instead.
               const savedUri = settings.find((s) => s.key === "google_calendar_redirect_uri")?.value;
               if (!savedUri || !gcalStatus?.configured) return null;
               try {
@@ -1090,11 +1065,10 @@ export default function SettingsPage() {
               return (
                 <p className="error-text">
                   Your saved redirect URI ({savedUri}) points at a different address than this page ({" "}
-                  {window.location.origin}). As of 2026-08-03, Google must redirect back to the frontend's own
-                  address (Chef now proxies the API call through), not the backend's -- update the redirect URI
-                  above (use the suggestion buttons below the field) AND update the authorized redirect URI on
-                  this OAuth client in Google Cloud Console to match, then reconnect. See the WIKI's Google
-                  Calendar entry for the exact steps.
+                  {window.location.origin}). Google must redirect back to the address you actually reach Chef
+                  at -- update the redirect URI above (use the suggestion buttons below the field) AND update the
+                  authorized redirect URI on this OAuth client in Google Cloud Console to match, then reconnect.
+                  See the WIKI's Google Calendar entry for the exact steps.
                 </p>
               );
             })()}
@@ -1314,7 +1288,7 @@ export default function SettingsPage() {
             </button>
           </div>
           <p className="hint">
-            Backlog B15.1 (author-reported 2026-08-01) -- most browsers block the camera (barcode scanner) and
+            Most browsers block the camera (barcode scanner) and
             device location (Dining Out) unless the page is loaded over HTTPS, or from <code>localhost</code>.
             A self-signed certificate is the quickest fix for a LAN-only setup like this one -- it's not signed
             by a public authority, so browsers show a one-time "not trusted" warning to click through (see the

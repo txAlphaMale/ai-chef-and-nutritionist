@@ -51,12 +51,11 @@ export default function DiningPage() {
   const [sendError, setSendError] = useState(null);
   const [sendDone, setSendDone] = useState(null);
 
-  // Backlog B10.1 follow-up (author-requested 2026-08-02) -- a zip code
-  // or address as a third way to set a location, alongside manual lat/
-  // lon and "Use my location". Nominatim (OSM's free geocoder) sometimes
-  // returns several plausible matches for an ambiguous query (a bare zip
-  // spanning multiple towns, a common street name) -- those are shown as
-  // a pick list rather than silently trusting the first result.
+  // A zip code or address as a third way to set a location, alongside
+  // manual lat/lon and "Use my location". Nominatim (OSM's free
+  // geocoder) returns several plausible matches for an ambiguous query
+  // (a bare zip spanning towns, a common street name), so those are
+  // shown as a pick list rather than silently trusting the first.
   const [addressQuery, setAddressQuery] = useState("");
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeError, setGeocodeError] = useState(null);
@@ -90,28 +89,22 @@ export default function DiningPage() {
     }
     setGeoStatus("Locating (GPS)...");
 
-    // Bug fix (2026-08-02, author-reported on a real iPad): getCurrentPosition
-    // was originally called with no options at all, so its default `timeout`
-    // is Infinity -- if the fix never resolved, NEITHER callback ever fired
-    // and the button got stuck on "Locating..." forever with no way out
-    // except reloading the page. Fixed with an explicit timeout/maximumAge
-    // plus a belt-and-suspenders JS-side fallback timer (a small number of
-    // WebKit versions have shipped with geolocation callbacks that don't
-    // reliably fire at all in some states, e.g. Low Power Mode).
+    // Two things here are load-bearing, both about iOS geolocation.
     //
-    // Round 2 fix (2026-08-02, same day, author follow-up): the first fix
-    // *also* hardcoded `enableHighAccuracy: false` on the theory that a
-    // WiFi-only iPad has no GPS chip and forcing high accuracy would just
-    // make the hang-forever risk worse. That reasoning doesn't hold for a
-    // cellular/GPS-capable iPad (or any device with an actual GPS chip) --
-    // `enableHighAccuracy: false` tells iOS Core Location it's fine to
-    // answer from WiFi/cell-tower positioning alone, which is coarser than
-    // a real GPS fix even when GPS hardware is present and able to get one.
-    // Now tries a real GPS-accuracy fix first (bounded by its own timeout,
-    // so the original hang bug can't come back), and only falls back to
-    // network-based positioning if that attempt fails or times out --
-    // works correctly for both GPS-capable and WiFi-only hardware without
-    // having to guess which one the user has.
+    // getCurrentPosition's default `timeout` is Infinity. Called with no
+    // options, a fix that never resolves fires NEITHER callback, and the
+    // button sticks on "Locating..." until the page is reloaded. Hence
+    // the explicit timeout/maximumAge, plus a JS-side fallback timer --
+    // some WebKit versions ship with geolocation callbacks that do not
+    // reliably fire at all in certain states, e.g. Low Power Mode.
+    //
+    // High accuracy is attempted FIRST, then falls back. Hardcoding
+    // `enableHighAccuracy: false` tells iOS Core Location it may answer
+    // from WiFi/cell-tower positioning alone, which is coarser than a
+    // real GPS fix even on hardware that could get one. Trying GPS first
+    // (bounded by its own timeout, so the hang above cannot return) and
+    // falling back on failure works for both GPS-capable and WiFi-only
+    // devices without guessing which the user has.
     let settled = false;
     const fallbackTimer = setTimeout(() => {
       if (settled) return;
@@ -181,11 +174,10 @@ export default function DiningPage() {
     );
   }
 
-  // Backlog B10.1 follow-up (author-requested 2026-08-02, round 2): a
-  // third location option, alongside GPS and manual address/zip entry --
+  // A third location option alongside GPS and manual address/zip entry:
   // approximate, network-based, no permission prompt. See
   // dining_service.py's IPWHOIS_URL comment for exactly what this
-  // reflects (the backend's own outbound IP) and its real caveat.
+  // reflects (the backend's own outbound IP) and its caveat.
   async function useApproximateNetworkLocation() {
     setIpLocating(true);
     setGeoStatus("Looking up an approximate location from your network...");
@@ -204,7 +196,6 @@ export default function DiningPage() {
     }
   }
 
-  // Backlog B10.1 follow-up (author-requested 2026-08-02).
   async function handleGeocode(e) {
     e.preventDefault();
     if (!addressQuery.trim()) return;
@@ -359,14 +350,11 @@ export default function DiningPage() {
               Search radius (km)
               <input
                 type="number"
-                // Bug fix (2026-08-02, author-reported): min="0.1" + step="0.5"
-                // meant the browser's native step validation only accepted
-                // 0.1, 0.6, 1.1, ...4.6, 5.1... -- the default value of 5 was
-                // never actually a valid step from that min, so submitting
-                // with the untouched default (or several other round numbers)
-                // failed native validation with "enter a valid value" despite
-                // a number clearly being present. min="0.5" makes every
-                // half-step round number (0.5, 1, 1.5, ...5...) valid.
+                // min must line up with step: with min="0.1" step="0.5"
+                // the browser only accepts 0.1, 0.6, 1.1 ... so the
+                // default value of 5 is not a valid step and native
+                // validation rejects it. min="0.5" makes every half-step
+                // round number valid.
                 min="0.5"
                 max="20"
                 step="0.5"

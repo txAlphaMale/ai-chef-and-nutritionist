@@ -43,9 +43,9 @@ export default function MealPlanPage() {
   const [guidance, setGuidance] = useState(emptyGuidance());
   // Backlog B5.2 -- prep-day / batch-cooking mode, "" means off.
   const [prepDay, setPrepDay] = useState("");
-  // Backlog B11.1 (2026-08-01) -- POST /meal-plans/generate now enqueues
-  // a background job (see meal_plan.py's generate_meal_plan) instead of
-  // blocking for the full Ollama generation. generateEnqueueError covers
+  // POST /meal-plans/generate enqueues a background job (see
+  // meal_plan.py's generate_meal_plan) rather than blocking for the full
+  // Ollama generation. generateEnqueueError covers
   // a failure to even create the job (e.g. a network hiccup on the
   // initial POST); generateJob.error covers the job itself failing.
   const generateJob = useBackgroundJob("chef.job.meal_plan_generate");

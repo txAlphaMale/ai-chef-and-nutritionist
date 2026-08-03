@@ -13,9 +13,9 @@ export default function RecipesPage() {
   const [stapleOnly, setStapleOnly] = useState(false);
   const [search, setSearch] = useState("");
 
-  // Backlog B11.1 (2026-08-01) -- POST /recipes/import now enqueues a
-  // background job (see recipes.py's import_recipe) instead of blocking
-  // the request for the full URL-fetch/PDF-extract/Ollama duration.
+  // POST /recipes/import enqueues a background job (see recipes.py's
+  // import_recipe) rather than blocking for the full
+  // URL-fetch/PDF-extract/Ollama duration.
   // importJob.busy/.status drive the button/label states below;
   // enqueueError covers the synchronous "you didn't provide anything"
   // 400 that the endpoint still raises before ever creating a job, which
@@ -41,15 +41,12 @@ export default function RecipesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importJob.result]);
 
-  // Backlog B13.1 (author-requested 2026-08-01) -- batch import from a
-  // folder mounted into the container (e.g. the author's OneDrive-synced
-  // recipe collection; see Settings > Integrations > "Recipe import
-  // folder path" for how that mount is configured, and the WIKI for the
-  // docker-compose volume mount itself). One scan can mean dozens of
-  // sequential Ollama calls, so this reuses the same background-job +
-  // review-then-confirm shape as every other AI-batch import in this app
-  // (vision-intake, receipt/list import) -- nothing lands in the recipes
-  // table until the household reviews this table and confirms.
+  // Batch import from a folder mounted into the container (see
+  // Settings > Integrations > "Recipe import folder path", and the WIKI
+  // for the compose volume mount). One scan can mean dozens of
+  // sequential Ollama calls, so it reuses the same background-job plus
+  // review-then-confirm shape as every other AI batch import -- nothing
+  // lands in the recipes table until the household confirms.
   const [showFolderImport, setShowFolderImport] = useState(false);
   const folderScanJob = useBackgroundJob("chef.job.recipe_folder_import");
   const [folderScanEnqueueError, setFolderScanEnqueueError] = useState(null);

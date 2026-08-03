@@ -4,10 +4,10 @@ import BarcodeScanner from "../components/BarcodeScanner";
 import InventoryItemForm from "../components/InventoryItemForm";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 
-// Backlog B4.2 (author-requested 2026-08-01) -- same category enum the
-// backend's InventoryItemBase/RECEIPT_IMPORT_PROMPT use, duplicated here
-// like InventoryItemForm.jsx's own local CATEGORIES rather than exported,
-// since it's small and rarely changes.
+// Same category enum the backend's InventoryItemBase and
+// RECEIPT_IMPORT_PROMPT use, duplicated here like
+// InventoryItemForm.jsx's local CATEGORIES rather than exported, since
+// it is small and rarely changes.
 const IMPORT_CATEGORIES = ["pantry", "fridge", "freezer", "produce", "spice", "other"];
 
 function urgencyClass(score) {
@@ -17,9 +17,9 @@ function urgencyClass(score) {
   return "";
 }
 
-// Quantity model redesign (2026-08-02) -- trims trailing float noise
-// (e.g. 15.999999999999998 from a repeated deduct_by_name subtraction)
-// for display only; the real stored value is untouched.
+// Trims trailing float noise (e.g. 15.999999999999998 from repeated
+// deduct_by_name subtractions) for display only -- the stored value is
+// untouched.
 function formatQuantity(value) {
   if (value == null) return "";
   const rounded = Math.round(value * 100) / 100;
@@ -44,14 +44,10 @@ export default function InventoryPage() {
   const [editingId, setEditingId] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState("");
 
-  // Backlog B3.3 (2026-08-01) -- the RecallBanner (App.jsx, app-wide)
-  // only ever shows itself when there's an active match, mirroring
-  // ExpiringDigestBanner's own "say nothing when there's nothing to
-  // report" behavior. That leaves nowhere to trigger a manual check
-  // when everything's currently clean, or to see when the last check
-  // actually ran -- this small, page-scoped line fills that gap, same
-  // relationship Settings' "Force resync" button has to the Google
-  // Calendar card it doesn't otherwise duplicate.
+  // The app-wide RecallBanner only shows itself when there is an active
+  // match, so there is nowhere to trigger a manual check when everything
+  // is clean, or to see when the last one ran. This page-scoped line
+  // fills that gap.
   const [recallStatus, setRecallStatus] = useState(null);
   const [recallChecking, setRecallChecking] = useState(false);
 
@@ -79,12 +75,10 @@ export default function InventoryPage() {
     refreshRecallStatus();
   }, []);
 
-  // Backlog B4.1 (author-requested 2026-08-01) -- camera barcode intake.
-  // Unlike vision-intake/receipt-import, this never touches Ollama or
-  // job_queue: GET /api/inventory/barcode-lookup is one fast Open Food
-  // Facts HTTP round trip (see routers/inventory.py's docstring for why
-  // that stays a plain, non-job endpoint), so there's nothing to poll
-  // here -- just a normal async call.
+  // Camera barcode intake. Unlike vision-intake and receipt-import this
+  // never touches Ollama or job_queue: GET /api/inventory/barcode-lookup
+  // is one fast Open Food Facts round trip, so there is nothing to poll
+  // -- just a normal async call.
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState(null);
   const [barcodeLookupBusy, setBarcodeLookupBusy] = useState(false);
@@ -109,48 +103,36 @@ export default function InventoryPage() {
     setBarcodeResult(null);
   }
 
-  // Backlog B11.1 (2026-08-01): vision-intake used to block this request
-  // until the vision model finished (tens of seconds to a couple of
-  // minutes on this app's target hardware), freezing the WHOLE app for
-  // that entire window, and lost all trace of itself the moment this
-  // page unmounted (navigating away, or a tab switch long enough to
-  // suspend/reload). It now enqueues a background job and polls --
+  // Vision intake enqueues a background job and polls rather than
+  // blocking: the model can take minutes on this hardware.
   // useBackgroundJob persists the job_id to localStorage, so returning
-  // to this page (even after a full reload) resumes exactly where
-  // things left off instead of showing a blank slate. See
-  // job_queue.py's module docstring for the full "why".
+  // to this page (even after a reload) resumes where it left off. See
+  // job_queue.py for the full rationale.
   const visionJob = useBackgroundJob("chef.job.vision_intake");
 
-  // Backlog B4.2 (author-requested 2026-08-01) -- receipt photo/PDF or a
-  // plain-text/file list of PURCHASED items, distinct from the pantry
-  // snapshot above (see routers/inventory.py's module docstring for the
-  // "what's here" vs "what did I just buy" rationale). Unlike the vision
-  // preview's read-only list, importItems is genuinely EDITABLE row-by-
-  // row before confirming, since a receipt import can produce many lines
-  // and POS-abbreviation guesses that are more likely to need correction
-  // than a single pantry photo's few items.
+  // Receipt photo/PDF or a plain-text/file list of PURCHASED items,
+  // distinct from the pantry snapshot above (see routers/inventory.py).
+  // Unlike the vision preview's read-only list, importItems is EDITABLE
+  // row by row before confirming: a receipt produces many lines and
+  // POS-abbreviation guesses that need correction more often than a
+  // single pantry photo's few items.
   const [showImportForm, setShowImportForm] = useState(false);
   const importJob = useBackgroundJob("chef.job.inventory_import"); // B11.1, same rationale as visionJob above
   const [importSourceType, setImportSourceType] = useState(null); // "photo" | "pdf" | "text" | "order_history"
-  // Bug fix (2026-08-02, author-reported): "Parse text" and the file-upload
-  // button both derive their busy label from the same shared importJob, so
-  // BOTH showed "Parsing..." at once no matter which one was actually
-  // clicked -- looked like two things were parsing when only one was.
-  // Tracks which button actually triggered the in-flight job so only that
-  // one shows "Parsing...."; the other stays disabled (can't start a
-  // second import mid-job either way) but keeps its normal label.
+  // "Parse text" and the file-upload button share one importJob, so
+  // without this both would show "Parsing..." at once regardless of
+  // which was clicked. Tracks which one started the in-flight job so
+  // only it shows the busy label; the other stays disabled but keeps
+  // its normal text.
   const [importTrigger, setImportTrigger] = useState(null); // "text" | "file" | null
   const [importItems, setImportItems] = useState(null); // editable rows, or null when no preview is active
   const [importText, setImportText] = useState("");
-  // Bug fix (2026-08-02, author-reported): confirming an import previously
-  // had no error handling at all -- a failed POST (network error, a
-  // validation error) silently did nothing, which is the most likely
-  // explanation for "I imported a receipt and nothing showed up" with no
-  // visible error anywhere. Also addresses the author's explicit ask for
-  // feedback on how many items were identified/added, and surfaces the
-  // raw model output so a real extraction problem (e.g. the model
-  // returning prose instead of JSON) is visible without needing
-  // browser-console/server-log access.
+  // Confirming an import needs visible error handling: a failed POST
+  // that silently does nothing reads as "I imported a receipt and
+  // nothing showed up". Also reports how many items were identified and
+  // added, and surfaces the raw model output so an extraction problem
+  // (the model returning prose instead of JSON) is visible without
+  // needing the browser console or server logs.
   const [importConfirmError, setImportConfirmError] = useState(null);
   const [importConfirmBusy, setImportConfirmBusy] = useState(false);
   const [importResultMessage, setImportResultMessage] = useState(null);
@@ -174,12 +156,11 @@ export default function InventoryPage() {
         category: d.category || "other",
         quantity: d.estimated_quantity ?? 1,
         unit: d.unit || "",
-        // Package/measurement split (2026-08-02) -- carried through so
-        // the created InventoryItem gets real package_quantity/
-        // package_count/package_descriptor, not just the flattened
-        // on-hand total. Not surfaced as its own review-table column
-        // (already 8 columns wide); still editable afterward via the
-        // item's own Edit form.
+        // Carried through so the created InventoryItem gets real
+        // package_quantity/package_count/package_descriptor, not just
+        // the flattened on-hand total. Not shown as its own review
+        // column (the table is already 8 wide); still editable
+        // afterward via the item's Edit form.
         package_quantity: d.package_quantity ?? null,
         package_count: d.package_count ?? null,
         package_descriptor: d.package_descriptor ?? null,
@@ -193,15 +174,12 @@ export default function InventoryPage() {
      
   }, [importJob.result]);
 
-  // Backlog B10.3 (author-requested group, 2026-08-01) -- generic order-
-  // history CSV/XLSX import (e.g. a Walmart order-history export from a
-  // browser extension, since Walmart itself publishes neither a
-  // consumer API nor a built-in export). Deliberately lands its results
-  // in the SAME `importItems` editable preview table as the receipt/
-  // list import above, per the backlog's own "same review screen, not
-  // a separate UI" guidance -- only the file-upload-and-column-mapping
-  // step below it differs, since a spreadsheet needs the user to say
-  // which column is which before anything can be parsed.
+  // Generic order-history CSV/XLSX import (e.g. a Walmart order-history
+  // export from a browser extension -- Walmart publishes neither a
+  // consumer API nor a built-in export). Lands in the SAME `importItems`
+  // editable preview table as the receipt/list import above; only the
+  // upload-and-column-mapping step differs, since a spreadsheet needs
+  // the user to say which column is which first.
   const [showOrderImportForm, setShowOrderImportForm] = useState(false);
   const [orderImportBusy, setOrderImportBusy] = useState(false);
   const [orderImportError, setOrderImportError] = useState(null);
@@ -310,9 +288,6 @@ export default function InventoryPage() {
       refresh();
       window.alert(`Added ${created.length} item(s) to inventory.`);
     } catch (err) {
-      // Bug fix (2026-08-02) -- this used to have no error handling at
-      // all, so a failed confirm (e.g. a validation error) silently did
-      // nothing with zero visible feedback.
       window.alert(`Could not add these items: ${err.message}`);
     }
   }
@@ -383,21 +358,15 @@ export default function InventoryPage() {
       const created = await api.post("/inventory/import/confirm", { items });
       discardImport();
       refresh();
-      // Author-requested feedback (2026-08-02): a clear count of what
-      // actually landed in inventory -- persists across discardImport
-      // clearing the review table, since it's set AFTER that call, not
-      // wiped by it.
+      // Set AFTER discardImport clears the review table, so the count
+      // of what actually landed survives that call.
       setImportResultMessage(
         `Added ${created.length} item(s) to inventory` +
           (created.length < items.length ? ` (${items.length - created.length} did not save -- see below).` : ".")
       );
     } catch (err) {
-      // Bug fix (2026-08-02, author-reported): this previously had no
-      // try/catch at all, so a failed confirm (bad data, a network
-      // hiccup, a validation error) silently did nothing -- no error, no
-      // items added, no visible sign anything went wrong. This is the
-      // most likely explanation for "I imported a receipt and nothing
-      // showed up in inventory."
+      // A failed confirm must surface: silently doing nothing reads as
+      // "I imported a receipt and nothing showed up in inventory."
       setImportConfirmError(err.message);
     } finally {
       setImportConfirmBusy(false);
@@ -521,15 +490,12 @@ export default function InventoryPage() {
           <option value="spice">Spice</option>
           <option value="other">Other</option>
         </select>
-        {/* Bug fix (2026-08-02, author-reported): these four buttons used
-            to all swap their label to a bare "Close" while open, so with
-            more than one panel open at once the toolbar showed several
-            identical, unlabeled "Close" buttons in a row with no way to
-            tell which one belonged to which panel below. Each button now
-            keeps its own distinct label at all times and gets a
-            highlighted "pressed" style (`.btn-toggle-active`) plus
-            `aria-pressed` while its panel is open -- click the SAME
-            button again to close that specific panel. */}
+        {/* Each toggle keeps its own distinct label at all times and
+            shows a pressed style (`.btn-toggle-active`) plus
+            `aria-pressed` while its panel is open. Swapping the label to
+            a bare "Close" would leave several identical buttons in a row
+            with several panels open, with no way to tell which belongs
+            to which. */}
         <button
           className={showAddForm ? "btn btn-toggle-active" : "btn btn-primary"}
           aria-pressed={showAddForm}
