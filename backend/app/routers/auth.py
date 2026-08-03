@@ -81,9 +81,10 @@ def set_password(payload: SetPasswordRequest, request: Request, db: Session = De
     change it," so an already-open browser tab (or a hijacked session)
     can't silently swap the password to something the real household
     doesn't know."""
-    if auth_service.is_enabled(db):
-        if not payload.current_password or not auth_service.verify_password(db, payload.current_password):
-            raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if auth_service.is_enabled(db) and (
+        not payload.current_password or not auth_service.verify_password(db, payload.current_password)
+    ):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
     try:
         auth_service.set_password(db, payload.password)
     except ValueError as exc:

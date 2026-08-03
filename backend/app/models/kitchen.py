@@ -3,7 +3,7 @@ kitchen, a camping trip, an RV, or a short-term rental with limited gear.
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, JSON, String, Text
+from sqlalchemy import JSON, Boolean, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

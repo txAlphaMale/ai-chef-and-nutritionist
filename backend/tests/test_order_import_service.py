@@ -14,7 +14,6 @@ import pytest
 from app.schemas.inventory import ColumnMapping
 from app.services import order_import_service as svc
 
-
 # ---- guess_column_mapping -------------------------------------------------
 
 

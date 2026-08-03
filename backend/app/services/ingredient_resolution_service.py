@@ -74,8 +74,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -218,7 +219,7 @@ _NEVER_SINGULARIZE = frozenset(
         "molasses", "asparagus", "hummus", "couscous", "grits", "chives", "watercress",
         "cress", "swiss", "bass", "haddock", "plaice", "salmon", "series", "species",
         "gas", "grass", "glass", "class", "mass", "cous", "brussels", "greens", "oats",
-        "beans", "peas", "lentils", "grits", "sprouts", "noodles", "crackers", "chips",
+        "beans", "peas", "lentils", "sprouts", "noodles", "crackers", "chips",
     }
 )
 

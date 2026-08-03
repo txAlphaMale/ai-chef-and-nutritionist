@@ -39,8 +39,8 @@ os.environ.setdefault("TLS_DIR", tempfile.mkdtemp(prefix="chef-test-tls-"))
 
 import pytest  # noqa: E402
 
+import app.models  # noqa: E402  -- import side effect: registers every model on Base.metadata
 from app.database import Base, SessionLocal, engine  # noqa: E402
-import app.models  # noqa: E402,F401  -- import side effect: registers every model on Base.metadata
 
 
 @pytest.fixture()

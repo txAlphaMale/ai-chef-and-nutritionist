@@ -12,7 +12,6 @@ import json
 
 from app.services import health_service
 
-
 # --- extract_bloodwork_text -------------------------------------------------
 
 

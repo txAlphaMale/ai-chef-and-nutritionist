@@ -60,7 +60,7 @@ def _load_keyring_meta() -> dict:
             return meta
     except FileNotFoundError:
         pass
-    except Exception as e:  # noqa: BLE001 - defensive, treat as unrotated
+    except Exception as e:
         print(f"[secrets_crypto] keyring file unreadable, treating as unrotated: {e}", flush=True)
     return {"current_version": 1, "keys": {}, "created_at": {}}
 
@@ -77,7 +77,7 @@ def _build_keyring() -> tuple[dict[int, Fernet], int]:
     for v_str, b64key in (meta.get("keys") or {}).items():
         try:
             ring[int(v_str)] = Fernet(b64key.encode() if isinstance(b64key, str) else b64key)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[secrets_crypto] keyring version {v_str} unusable, skipping: {e}", flush=True)
     return ring, int(meta.get("current_version") or 1)
 
@@ -159,5 +159,5 @@ def decrypt_or_legacy(value: str | None) -> str | None:
         return value
     try:
         return decrypt(value)
-    except (InvalidToken, ValueError, Exception):  # noqa: BLE001
+    except (InvalidToken, ValueError, Exception):
         return value

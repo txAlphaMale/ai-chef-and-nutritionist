@@ -57,6 +57,7 @@ per-file-row upload model rather than Fiduciary's watched-folder one:
 """
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
@@ -101,7 +102,7 @@ def extract_text(filename: str, content_type: str | None, raw_bytes: bytes) -> s
     if (content_type == "application/pdf") or lower_name.endswith(".pdf"):
         try:
             return extract_pdf_text(raw_bytes) or None
-        except Exception:  # noqa: BLE001 -- corrupt/unsupported PDF shouldn't block upload
+        except Exception:
             return None
 
     if lower_name.endswith(TEXT_EXTENSIONS) or (content_type or "").startswith("text/"):
@@ -114,10 +115,8 @@ def extract_text(filename: str, content_type: str | None, raw_bytes: bytes) -> s
 
 
 def delete_file(storage_path: str) -> None:
-    try:
+    with contextlib.suppress(OSError):
         os.remove(storage_path)
-    except OSError:
-        pass  # already gone, or never existed -- not fatal for a DB-row delete
 
 
 # --- Chunking & similarity (pure functions, ported from Fiduciary's
@@ -155,7 +154,11 @@ def chunk_text(text: str) -> list[str]:
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return -1.0
-    dot = sum(x * y for x, y in zip(a, b))
+    # strict=True: two embedding vectors of different lengths would mean
+    # the corpus was indexed under a different model than the query was
+    # embedded with, which should fail loudly rather than silently score
+    # on whichever prefix happened to line up.
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     return (dot / (norm_a * norm_b)) if norm_a and norm_b else -1.0
@@ -195,7 +198,7 @@ def ensure_indexed(db: Session, knowledge_file: KnowledgeFile | None = None) -> 
         for i, chunk in enumerate(chunks):
             try:
                 vector = ollama_client.embed(db, chunk, model=embed_model)
-            except Exception:  # noqa: BLE001 -- Ollama unreachable/model missing, etc.
+            except Exception:
                 had_error = True
                 break
             if vector:
@@ -210,19 +213,42 @@ def ensure_indexed(db: Session, knowledge_file: KnowledgeFile | None = None) -> 
     return failed
 
 
+def find_stale_files(db: Session) -> list[KnowledgeFile]:
+    """Active knowledge files whose index doesn't match the currently
+    configured embed model -- i.e. what a reindex would actually work on.
+    Used to report staleness without triggering the work."""
+    embed_model = settings_service.get_setting(db, "ollama_embed_model")
+    return [
+        kf
+        for kf in db.query(KnowledgeFile).filter_by(is_active=True).all()
+        if kf.content and (kf.indexed_embed_model != embed_model or not kf.chunks)
+    ]
+
+
 def search_knowledge(db: Session, query: str, k: int = 4) -> list[dict]:
     """Embeds `query` and returns the top-k most similar chunks across
     every active, indexed knowledge file, each as {"source" (filename),
-    "score", "text"} -- the actual retrieval step that replaces the old
-    always-inject-everything approach. Auto-indexes anything stale
-    first. Returns [] (not an error) if the query is empty, nothing is
-    indexed yet, or the embed call itself fails -- callers treat an
-    empty result as "no relevant reference material," same as before
-    there was any knowledge base at all."""
+    "score", "text"}. Returns [] (not an error) if the query is empty,
+    nothing is indexed yet, or the embed call itself fails -- callers
+    treat an empty result as "no relevant reference material," same as
+    before there was any knowledge base at all.
+
+    Audit P2-6: this used to call `ensure_indexed(db)` first, which made
+    retrieval a potentially unbounded operation. Retrieval runs inside
+    chat and meal-plan generation, both of which run on the single job
+    worker thread -- so a stale index (any embed-model change, or a file
+    uploaded while Ollama was down) turned the next chat message into N
+    sequential embed calls on that one thread, wedging every other AI
+    feature in the app behind it. That is the same single-point-of-
+    failure shape as audit P0-2, reached by a different route.
+
+    Retrieval now uses whatever index exists and never builds one.
+    Reindexing is an explicit queued job (`POST /api/knowledge/reindex`),
+    and `find_stale_files` above lets the UI say so rather than silently
+    fixing it at the worst possible moment."""
     query = (query or "").strip()
     if not query:
         return []
-    ensure_indexed(db)
     embed_model = settings_service.get_setting(db, "ollama_embed_model")
     rows = (
         db.query(KnowledgeChunk)
@@ -234,7 +260,7 @@ def search_knowledge(db: Session, query: str, k: int = 4) -> list[dict]:
         return []
     try:
         query_vector = ollama_client.embed(db, query, model=embed_model)
-    except Exception:  # noqa: BLE001 -- degrade to "no reference material" rather than erroring the caller
+    except Exception:
         return []
     if not query_vector:
         return []

@@ -129,7 +129,7 @@ export default function GroceryListPanel({ planId, refreshKey }) {
   return (
     <div className="card">
       <div className="page-toolbar">
-        <h3 style={{ margin: 0 }}>Grocery list</h3>
+        <h3 className="u-no-margin">Grocery list</h3>
         <button className="btn btn-secondary btn-sm" onClick={regenerate} disabled={busy}>
           Recompute from inventory
         </button>
@@ -205,20 +205,20 @@ export default function GroceryListPanel({ planId, refreshKey }) {
           step="any"
           value={newQty}
           onChange={(e) => setNewQty(e.target.value)}
-          style={{ maxWidth: 90 }}
+          className="input-quantity"
         />
         <input
           placeholder="unit"
           aria-label="New grocery item unit"
           value={newUnit}
           onChange={(e) => setNewUnit(e.target.value)}
-          style={{ maxWidth: 90 }}
+          className="input-quantity"
         />
         <select
           value={newCategory}
           aria-label="New grocery item category"
           onChange={(e) => setNewCategory(e.target.value)}
-          style={{ maxWidth: 130 }}
+          className="input-unit-select"
         >
           <option value="">(guess aisle)</option>
           {CATEGORY_ORDER.map((c) => (

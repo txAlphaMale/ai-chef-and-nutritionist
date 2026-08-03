@@ -249,7 +249,7 @@ export default function RecipesPage() {
             placeholder="https://example.com/some-recipe"
             value={importUrl}
             onChange={(e) => setImportUrl(e.target.value)}
-            style={{ flex: 1 }}
+            className="u-flex-1"
           />
           <button className="btn btn-secondary" onClick={handleImportUrl} disabled={importJob.busy || !importUrl.trim()}>
             {importJob.busy && <span className="busy-spinner" aria-hidden="true" />}
@@ -262,7 +262,7 @@ export default function RecipesPage() {
             placeholder="...or paste a recipe's text here"
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
-            style={{ flex: 1 }}
+            className="u-flex-1"
           />
         </div>
         <div className="form-actions">

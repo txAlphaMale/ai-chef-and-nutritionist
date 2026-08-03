@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import pathlib
 import plistlib
 
 import pytest
@@ -117,9 +118,9 @@ def test_generate_self_signed_requires_at_least_one_hostname():
 
 def test_generate_self_signed_replaces_a_previous_cert():
     ts.generate_self_signed(["10.0.0.1"])
-    first_cert = open(ts.CERT_PATH, "rb").read()
+    first_cert = pathlib.Path(ts.CERT_PATH).read_bytes()
     ts.generate_self_signed(["10.0.0.2"])
-    second_cert = open(ts.CERT_PATH, "rb").read()
+    second_cert = pathlib.Path(ts.CERT_PATH).read_bytes()
     assert first_cert != second_cert
     assert ts.status()["common_name"] == "10.0.0.2"
 
@@ -156,7 +157,7 @@ def test_import_signed_certificate_round_trip():
 def test_import_signed_certificate_rejects_mismatched_key():
     ts.generate_csr("chef.example.com", ["chef.example.com"])
     # A completely unrelated self-signed cert -- not derived from the pending CSR at all.
-    other_csr_pem = ts.generate_csr("someone-else.example.com")  # overwrites the pending CSR...
+    ts.generate_csr("someone-else.example.com")  # overwrites the pending CSR...
     # ...so sign a cert against a THIRD, never-pending key instead, guaranteeing a mismatch.
     from cryptography.hazmat.primitives.asymmetric import rsa
 

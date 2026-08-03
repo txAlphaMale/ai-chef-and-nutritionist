@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
-from app.models.base import TimestampMixin
+from app.models.base import TimestampMixin, UtcDateTime, utc_now
 
 
 class InventoryItem(Base, TimestampMixin):
@@ -18,32 +18,20 @@ class InventoryItem(Base, TimestampMixin):
     # pantry | fridge | freezer | produce | spice | other
     category: Mapped[str] = mapped_column(String(50), default="pantry")
 
-    # --- Quantity model (redesigned 2026-08-02, author-requested) ------
+    # --- Quantity model ------------------------------------------------
     #
     # `quantity` is the CURRENT ON-HAND amount, expressed in `unit` --
-    # this is the number every deduction (recipe-confirm via
-    # inventory_service.deduct_by_name) and every urgency/priority
-    # calculation actually reads and mutates. `unit` is meant to be a
-    # real, convertible measurement unit going forward (one of
-    # unit_conversion_service's canonical units -- oz/lb/g/kg/ml/l/cup/
-    # tbsp/tsp -- or the literal string "count" for items with no
-    # meaningful sub-unit, e.g. "3 apples") -- NOT a compound string like
+    # the number every deduction and every urgency calculation reads and
+    # mutates. `unit` must be a real convertible measurement unit (one of
+    # unit_conversion_service's canonical units, or the literal "count"
+    # for items with no meaningful sub-unit), NOT a compound string like
     # "8 oz bag" mixing a measurement with a container description.
     #
-    # Before this session, `unit` WAS that compound string (see git
-    # history / RECEIPT_IMPORT_PROMPT's prior rule 5), because there was
-    # nowhere else to put the container word. That silently broke two
-    # things this app already had, author-reported and confirmed by
-    # re-reading the actual code paths: (1) unit_conversion_service.
-    # normalize_unit("8 oz bag") doesn't recognize the string as a real
-    # unit, so a recipe asking for "4 oz bacon" against a row whose old
-    # `unit` was "24 oz pack" couldn't convert -- deduct_by_name fell back
-    # to subtracting 4 raw from `quantity`=1 (one PACKAGE), zeroing the
-    # whole pack after using a quarter of it; (2) cost_service divided a
-    # purchase price by the CURRENT, depleting `quantity` rather than a
-    # stable purchase-time snapshot, so cost-per-serving would silently
-    # drift upward as a package got used up even though nothing about the
-    # price paid had changed. Both are now fixed by the fields below.
+    # That distinction is the whole point of the package_* fields below,
+    # and getting it wrong breaks two things quietly: normalize_unit does
+    # not recognise "24 oz pack" as a unit, so a recipe asking for "4 oz
+    # bacon" cannot convert against it; and cost math needs a stable
+    # denominator, which a container word cannot provide.
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
@@ -191,7 +179,7 @@ class OrderImportProfile(Base):
     unit_column: Mapped[str | None] = mapped_column(String(200), nullable=True)
     price_column: Mapped[str | None] = mapped_column(String(200), nullable=True)
     date_column: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, nullable=False)
 
 
 class RecallAlert(Base, TimestampMixin):
@@ -252,5 +240,5 @@ class RecallCheckState(Base):
     __tablename__ = "recall_check_state"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     last_check_item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)

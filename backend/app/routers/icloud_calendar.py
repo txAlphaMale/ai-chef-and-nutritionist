@@ -36,7 +36,7 @@ def connect(db: Session = Depends(get_db)):
     try:
         return icloud_calendar_service.connect(db)
     except icloud_calendar_service.ICloudCalendarError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/disconnect")
@@ -50,7 +50,7 @@ def set_sync_enabled(payload: SyncEnabledUpdate, db: Session = Depends(get_db)):
     try:
         status = icloud_calendar_service.set_sync_enabled(db, payload.enabled)
     except icloud_calendar_service.ICloudCalendarError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     if payload.enabled:
         job_queue.enqueue("icloud_calendar_sync", "iCloud Calendar resync", _resync_job)
     return status

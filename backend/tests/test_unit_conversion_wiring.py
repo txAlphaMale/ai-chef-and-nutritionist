@@ -8,7 +8,6 @@ from __future__ import annotations
 from app.models import InventoryItem
 from app.services import inventory_service, meal_plan_service
 
-
 # --- aggregate_ingredients: cross-unit merging --------------------------
 
 

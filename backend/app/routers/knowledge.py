@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
 from app.models import KnowledgeFile
+from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.knowledge import KnowledgeFileRead, KnowledgeFileUpdate
-from app.services import job_queue, knowledge_service
+from app.services import job_queue, knowledge_service, settings_service
 
 router = APIRouter(prefix="/api/knowledge-files", tags=["knowledge-files"])
 
@@ -101,6 +102,58 @@ async def upload_knowledge_file(
 
     job_queue.enqueue("knowledge_reindex", f"Indexing: {kf_filename}", _run)
     return _to_read(kf)
+
+
+# Declared before the /{file_id} routes below -- FastAPI matches path
+# operations in declaration order, so a static path after a dynamic one
+# gets swallowed by it. Same discipline as routers/inventory.py.
+
+
+@router.get("/index-status")
+def knowledge_index_status(db: Session = Depends(get_db)):
+    """Whether retrieval is working from a current index.
+
+    Audit P2-6. `search_knowledge` used to silently reindex anything
+    stale before every retrieval -- which meant an embed-model change, or
+    a file uploaded while Ollama was down, turned the NEXT chat message
+    into a full re-embed on the single job worker thread, blocking every
+    other AI feature behind it. Retrieval no longer does that, so the
+    staleness has to be visible instead: this is what makes it visible,
+    and /reindex below is how it gets fixed, deliberately."""
+    stale = knowledge_service.find_stale_files(db)
+    return {
+        "embed_model": settings_service.get_setting(db, "ollama_embed_model"),
+        "stale_count": len(stale),
+        "stale_filenames": [kf.filename for kf in stale],
+    }
+
+
+@router.post("/reindex", response_model=JobEnqueuedResponse, status_code=202)
+def reindex_knowledge(db: Session = Depends(get_db)):
+    """Re-chunks and re-embeds every active file whose index doesn't
+    match the configured embed model. Queued, never inline: this is N
+    sequential Ollama calls per file and belongs nowhere near a request
+    handler."""
+    stale_count = len(knowledge_service.find_stale_files(db))
+
+    def _run() -> dict:
+        job_db = SessionLocal()
+        try:
+            failed = knowledge_service.ensure_indexed(job_db)
+            return {"failed_files": failed, "failed_count": len(failed)}
+        finally:
+            job_db.close()
+
+    job_id, created = job_queue.enqueue(
+        "knowledge_reindex",
+        f"Reindexing {stale_count} knowledge file(s)",
+        _run,
+        # One reindex at a time -- the work is idempotent, and queueing a
+        # second while the first is running would just re-embed the same
+        # files on the same single worker thread.
+        dedup_key="knowledge_reindex",
+    )
+    return JobEnqueuedResponse(job_id=job_id, created=created)
 
 
 @router.patch("/{file_id}", response_model=KnowledgeFileRead)

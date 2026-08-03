@@ -299,7 +299,7 @@ export default function DiningPage() {
           restaurant directly, especially for a strict/celiac-level restriction.
         </p>
         <div className="form-row dining-geocode-row">
-          <label style={{ flex: 1 }}>
+          <label className="u-flex-1">
             Address or zip code
             <input
               placeholder="e.g. 78701 or 500 Congress Ave, Austin TX"

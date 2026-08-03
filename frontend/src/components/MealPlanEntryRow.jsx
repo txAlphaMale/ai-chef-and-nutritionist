@@ -174,7 +174,7 @@ export default function MealPlanEntryRow({ entry, planId, recipeCatalog, allEntr
         onChange={(e) => setServings(e.target.value)}
         onBlur={() => Number(servings) !== entry.servings && patch({ servings: Number(servings) || 1 })}
         disabled={busy || entry.is_confirmed}
-        style={{ maxWidth: 70 }}
+        className="input-servings"
       />
 
       {leftoverCandidates.length > 0 && (

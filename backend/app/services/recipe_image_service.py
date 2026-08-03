@@ -14,6 +14,7 @@ extracted-text-bearing reference docs).
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import uuid
 
@@ -52,10 +53,8 @@ def save_image(content_type: str | None, raw_bytes: bytes) -> str:
 def delete_image(storage_path: str | None) -> None:
     if not storage_path:
         return
-    try:
+    with contextlib.suppress(OSError):
         os.remove(storage_path)
-    except OSError:
-        pass  # already gone, or never existed -- not fatal
 
 
 def guess_content_type(storage_path: str) -> str:

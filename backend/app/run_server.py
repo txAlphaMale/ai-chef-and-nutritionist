@@ -72,7 +72,7 @@ def _start_internal_http_thread():
         try:
             config = uvicorn.Config("app.main:app", host=HOST, port=int(HTTP_PORT), log_level="warning")
             asyncio.run(uvicorn.Server(config).serve())
-        except Exception as e:  # noqa: BLE001 -- must never take down the main HTTPS listener
+        except Exception as e:
             print(
                 f"[run_server] internal plain-HTTP listener on port {HTTP_PORT} failed to start ({e}) -- "
                 f"the frontend proxy and any direct HTTP client will not be able to reach this backend",

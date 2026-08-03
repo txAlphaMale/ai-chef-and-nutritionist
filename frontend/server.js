@@ -81,10 +81,33 @@ if (!LISTEN_PORT || !BACKEND_TARGET) {
   process.exit(1);
 }
 
+// Idle timeouts on both legs of the proxy.
+//
+// Without these, http-proxy leaves both sockets open indefinitely, so a
+// backend that accepts a connection and then stops responding holds a
+// socket on this process forever. Enough of those and the frontend stops
+// serving anything at all -- including the static shell, which has
+// nothing to do with the backend.
+//
+// These are IDLE timeouts (Node's socket.setTimeout fires on inactivity,
+// not on total duration), which is why a value this small is safe for a
+// slow but live response such as a large backup download: as long as
+// bytes keep arriving, the clock keeps resetting.
+//
+// It is deliberately unrelated to `ollama_timeout_seconds` (default 600).
+// Long AI work does not run inside a request -- it is enqueued on the job
+// worker and polled (audit P0-2/B11.1) -- so no legitimate proxied
+// request should ever sit idle for two minutes.
+const PROXY_IDLE_TIMEOUT_MS = Number(process.env.PROXY_IDLE_TIMEOUT_MS || 120000);
+
 const proxy = httpProxy.createProxyServer({
   target: BACKEND_TARGET,
   changeOrigin: true,
   xfwd: true,
+  // Outgoing: this process -> backend.
+  proxyTimeout: PROXY_IDLE_TIMEOUT_MS,
+  // Incoming: browser -> this process.
+  timeout: PROXY_IDLE_TIMEOUT_MS,
 });
 
 // A transient backend hiccup (it restarts itself in place to apply a new
@@ -97,12 +120,27 @@ const proxy = httpProxy.createProxyServer({
 // the frontend itself going dark.
 proxy.on('error', (err, req, res) => {
   console.error(`[chef-frontend] proxy error for ${req.method} ${req.url}: ${err.message}`);
+  // A timeout surfaces here as ECONNRESET/ETIMEDOUT. `res` is a plain
+  // Socket rather than a ServerResponse for a failed WebSocket upgrade,
+  // hence the writeHead guard -- calling it on a Socket would throw
+  // inside the very handler that exists to stop this process throwing.
+  if (!res || typeof res.writeHead !== 'function') {
+    if (res && typeof res.destroy === 'function') res.destroy();
+    return;
+  }
   if (res.headersSent) {
     res.end();
     return;
   }
-  res.writeHead(502, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ detail: `Backend unreachable from the frontend proxy (${err.code || err.message})` }));
+  const timedOut = err.code === 'ETIMEDOUT' || err.code === 'ESOCKETTIMEDOUT';
+  res.writeHead(timedOut ? 504 : 502, { 'Content-Type': 'application/json' });
+  res.end(
+    JSON.stringify({
+      detail: timedOut
+        ? `Backend did not respond within ${Math.round(PROXY_IDLE_TIMEOUT_MS / 1000)}s`
+        : `Backend unreachable from the frontend proxy (${err.code || err.message})`,
+    })
+  );
 });
 
 const serveConfig = {

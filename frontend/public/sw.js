@@ -14,7 +14,20 @@
 // the registration side. Requires a secure context (HTTPS or localhost),
 // same standing requirement as camera/geolocation in this app (B15.1).
 
-const CACHE_VERSION = "v1";
+// Versioned from the registration URL (`/sw.js?v=<build id>`, set in
+// src/main.jsx from vite.config.js's __BUILD_ID__), not by hand.
+//
+// This was a literal "v1" that was never bumped across the whole life of
+// the project, which meant the activate handler below -- which deletes
+// every cache whose name differs from the current one -- had nothing to
+// delete, ever. Two consequences: the shell cache grew without bound as
+// each build added another set of hashed assets, and the un-hashed files
+// (index.html, config.js) could be served from cache pointing at asset
+// hashes that no longer existed. A deploy that "doesn't take effect".
+//
+// Falling back to "dev" matters for the `npm run dev` case, where the
+// service worker is served without a query string.
+const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
 const CACHE_NAME = `chef-shell-${CACHE_VERSION}`;
 
 self.addEventListener("install", () => {
@@ -46,6 +59,12 @@ self.addEventListener("fetch", (event) => {
   // Home page status check exists to catch, not hide).
   if (url.pathname.startsWith("/api/") || url.pathname === "/health") return;
 
+  // config.js is runtime configuration written by the container at start
+  // (see frontend/server.js), not a build artifact -- it can legitimately
+  // change without a rebuild, which would leave a cached copy stale for a
+  // build id that is still current. Always live.
+  if (url.pathname === "/config.js") return;
+
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -55,16 +74,25 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() =>
-        caches.match(request).then((cached) => {
-          if (cached) return cached;
-          // A navigation this cache has never seen (e.g. first visit was
-          // already offline) -- fall back to the app shell itself so
-          // client-side (Hash) routing still renders something instead
-          // of a browser network-error page.
-          if (request.mode === "navigate") return caches.match("/index.html");
-          return Response.error();
-        })
-      )
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        // A navigation this cache has never seen (e.g. the first visit was
+        // already offline) -- fall back to the app shell so client-side
+        // (Hash) routing still renders something instead of a browser
+        // network-error page.
+        //
+        // Both keys are tried because they are genuinely different cache
+        // entries: a visit to "/" is stored under "/", while a visit to
+        // "/index.html" is stored under "/index.html". Only the latter
+        // was checked before, so the fallback missed for anyone who had
+        // ever loaded the app the normal way -- i.e. almost always.
+        if (request.mode === "navigate") {
+          return (
+            (await caches.match("/index.html")) || (await caches.match("/")) || Response.error()
+          );
+        }
+        return Response.error();
+      })
   );
 });

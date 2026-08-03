@@ -6,10 +6,11 @@ standing constraint as every other external-network feature in this
 project."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 import httpx
 
 from app.services import dining_service
-
 
 # ---- build_overpass_query ---------------------------------------------
 
@@ -281,9 +282,11 @@ class _ScriptedAsyncClient:
     `Exception` instance to raise (simulating a timeout/connection
     failure that never even produces a response object)."""
 
-    behaviors: list = []
-    captured_urls: list = []
-    captured_headers: list = []
+    # Class-level on purpose: the test double collects calls across
+    # every instance the code under test constructs.
+    behaviors: ClassVar[list] = []
+    captured_urls: ClassVar[list] = []
+    captured_headers: ClassVar[list] = []
 
     def __init__(self, timeout=None):
         pass

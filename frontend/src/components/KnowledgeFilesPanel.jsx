@@ -10,12 +10,23 @@ export default function KnowledgeFilesPanel() {
   const [error, setError] = useState(null);
   const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
+  // Audit P2-6 -- retrieval no longer silently rebuilds a stale index on
+  // the way past (that turned the next chat message into a full re-embed
+  // on the single job worker, blocking every other AI feature). So the
+  // staleness has to be visible and fixable here instead.
+  const [indexStatus, setIndexStatus] = useState(null);
+  const [reindexing, setReindexing] = useState(false);
 
   async function refresh() {
     setLoading(true);
     setError(null);
     try {
-      setFiles(await api.get("/knowledge-files"));
+      const [rows, status] = await Promise.all([
+        api.get("/knowledge-files"),
+        api.get("/knowledge-files/index-status"),
+      ]);
+      setFiles(rows);
+      setIndexStatus(status);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -58,6 +69,18 @@ export default function KnowledgeFilesPanel() {
     refresh();
   }
 
+  async function handleReindex() {
+    setReindexing(true);
+    setError(null);
+    try {
+      await api.post("/knowledge-files/reindex", {});
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReindexing(false);
+    }
+  }
+
   return (
     <div className="card">
       <h3>Nutritionist knowledge files</h3>
@@ -67,6 +90,21 @@ export default function KnowledgeFilesPanel() {
         request, not the whole file every time.
       </p>
       {error && <p className="error-text">{error}</p>}
+      {indexStatus?.stale_count > 0 && (
+        <div className="index-stale-notice">
+          <strong>
+            {indexStatus.stale_count} file{indexStatus.stale_count === 1 ? "" : "s"} not indexed for the current
+            embedding model ({indexStatus.embed_model}).
+          </strong>{" "}
+          Chat and meal-plan generation will not use {indexStatus.stale_count === 1 ? "it" : "them"} until you
+          reindex. This runs in the background and can take a while for large files.
+          <div className="form-actions">
+            <button className="btn btn-secondary" disabled={reindexing} onClick={handleReindex}>
+              {reindexing ? "Queued..." : "Reindex now"}
+            </button>
+          </div>
+        </div>
+      )}
       {loading ? (
         <p>Loading...</p>
       ) : files.length === 0 ? (
@@ -103,7 +141,7 @@ export default function KnowledgeFilesPanel() {
           aria-label="Knowledge file description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          style={{ flex: 1 }}
+          className="u-flex-1"
         />
         <label className="btn btn-secondary file-btn">
           {uploading ? "Uploading..." : "Upload file"}

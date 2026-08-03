@@ -11,7 +11,6 @@ from datetime import date
 from app.models import HealthMetricEntry, HouseholdMember
 from app.services import dri_service as dri
 
-
 # --- compute_bmr_mifflin_st_jeor --------------------------------------------
 
 

@@ -378,6 +378,27 @@ SETTING_SPECS: list[SettingSpec] = [
         ),
     ),
     SettingSpec(
+        key="cors_allow_origins",
+        label="Extra allowed browser origins (CORS)",
+        is_secret=False,
+        default="",
+        description=(
+            "Comma-separated, and empty is correct for a normal setup. Audit finding "
+            "P2-2. The browser never talks to the backend directly -- the frontend "
+            "reverse-proxies /api to it -- so every request your browser makes is "
+            "already same-origin and needs no CORS permission at all. This used to be "
+            "set to \"any origin on the internet, with credentials\", which granted "
+            "nothing useful and said something untrue. "
+            "Add an entry here only if a web page served from a DIFFERENT origin needs "
+            "to call this API from a browser -- for example after adding a local DNS "
+            "name like http://chef.lan:8095 while the app still knows itself by IP. "
+            "Include the scheme and port, e.g. http://chef.lan:8095. Scripts and curl "
+            "are unaffected either way: CORS is enforced by browsers, not by this API. "
+            "Takes effect on container restart."
+        ),
+        env_fallback="CORS_ALLOW_ORIGINS",
+    ),
+    SettingSpec(
         key="ingredient_transformation_words",
         label="Ingredient transformation words",
         is_secret=False,

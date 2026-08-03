@@ -3,3 +3,7 @@
 # Pinned to the version this repo's test suite has actually been run
 # against (backend/tests/, 202 tests as of 2026-08-01).
 pytest==9.1.1
+# Audit P3 -- lint in CI. Pinned like pytest above so a CI run and a
+# local run flag the same things; an unpinned linter turns an unrelated
+# release into a red build on a branch that changed nothing.
+ruff==0.16.1

@@ -31,7 +31,7 @@ for how this app actually runs:
   this deployment's hardware for no benefit a household app needs.
 """
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
 

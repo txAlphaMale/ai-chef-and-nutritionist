@@ -59,13 +59,13 @@ import queue
 import threading
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 _JOBS: dict[str, dict] = {}
 _JOBS_ORDER: list[str] = []
 _JOBS_LOCK = threading.Lock()
 _WORKER_LOCK = threading.Lock()
-_JOB_Q: "queue.Queue[tuple[str, Callable[[], dict]]]" = queue.Queue()
+_JOB_Q: queue.Queue[tuple[str, Callable[[], dict]]] = queue.Queue()
 
 # Ring-buffer cap on the in-memory registry -- mirrors Fiduciary's
 # JOBS_MAX, prevents unbounded growth over a long-running container's
@@ -234,7 +234,7 @@ def _worker() -> None:
         try:
             job["result"] = fn()
             job["status"] = "done"
-        except Exception as exc:  # noqa: BLE001 -- deliberately broad: any job body's failure must land in the status record, never crash the shared worker thread and take every future job down with it.
+        except Exception as exc:
             job["status"] = "error"
             job["error"] = str(exc)[:500]
         finally:

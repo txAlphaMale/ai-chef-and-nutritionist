@@ -133,7 +133,7 @@ async def import_wearable(file: UploadFile):
             try:
                 entries = health_service.parse_apple_health_export(raw_bytes, filename)
             except ValueError as e:
-                raise RuntimeError(str(e))
+                raise RuntimeError(str(e)) from e
             return HealthWearableImportResponse(
                 entries=entries, source_detail="apple_health", raw_model_output=None
             ).model_dump()

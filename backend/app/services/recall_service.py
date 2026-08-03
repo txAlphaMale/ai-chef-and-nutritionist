@@ -67,6 +67,7 @@ import lxml.html
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem, RecallAlert, RecallCheckState
+from app.models.base import utc_now
 from app.services import settings_service
 
 FSIS_RECALL_API_URL = "https://www.fsis.usda.gov/fsis/api/recall/v/1"
@@ -89,7 +90,7 @@ def _strip_html(value: str | None) -> str | None:
         return None
     try:
         text = lxml.html.fromstring(value).text_content()
-    except Exception:  # noqa: BLE001 -- malformed markup falls back to the raw string
+    except Exception:
         return value.strip() or None
     text = re.sub(r"\s+", " ", text).strip()
     return text or None
@@ -222,7 +223,7 @@ def is_check_due(db: Session) -> bool:
     state = _get_or_create_check_state(db)
     if state.last_checked_at is None:
         return True
-    return datetime.utcnow() - state.last_checked_at >= timedelta(hours=RECALL_CHECK_INTERVAL_HOURS)
+    return utc_now() - state.last_checked_at >= timedelta(hours=RECALL_CHECK_INTERVAL_HOURS)
 
 
 def check_inventory_for_recalls(db: Session, force: bool = False) -> dict:
@@ -246,9 +247,12 @@ def check_inventory_for_recalls(db: Session, force: bool = False) -> dict:
     afterward) reads the persisted RecallAlert rows for the actual data.
     """
     state = _get_or_create_check_state(db)
-    if not force and state.last_checked_at is not None:
-        if datetime.utcnow() - state.last_checked_at < timedelta(hours=RECALL_CHECK_INTERVAL_HOURS):
-            return {"checked": False, "reason": "throttled", "new_alert_count": 0}
+    if (
+        not force
+        and state.last_checked_at is not None
+        and utc_now() - state.last_checked_at < timedelta(hours=RECALL_CHECK_INTERVAL_HOURS)
+    ):
+        return {"checked": False, "reason": "throttled", "new_alert_count": 0}
 
     seen_lower: dict[str, str] = {}
     for row in db.query(InventoryItem.name).distinct():
@@ -286,7 +290,7 @@ def check_inventory_for_recalls(db: Session, force: bool = False) -> dict:
             )
             new_alert_count += 1
 
-    state.last_checked_at = datetime.utcnow()
+    state.last_checked_at = utc_now()
     state.last_check_item_count = len(names)
     db.commit()
     return {"checked": True, "items_checked": len(names), "new_alert_count": new_alert_count}

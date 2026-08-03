@@ -9,6 +9,8 @@ from __future__ import annotations
 import io
 import zipfile
 
+import pytest
+
 from app.services import health_service
 
 
@@ -87,11 +89,8 @@ def test_zip_without_export_xml_raises_readable_error():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("some_other_file.txt", b"not a health export")
-    try:
+    with pytest.raises(ValueError, match=r"export\.xml"):
         health_service.parse_apple_health_export(buf.getvalue(), "export.zip")
-        assert False, "expected a ValueError"
-    except ValueError as e:
-        assert "export.xml" in str(e)
 
 
 def test_empty_export_returns_no_entries():

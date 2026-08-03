@@ -13,7 +13,6 @@ from datetime import date
 from app.models import HouseholdPreferences, InventoryItem, MealPlan, MealPlanEntry, Recipe, RecipeIngredient
 from app.services import meal_plan_service
 
-
 # --- is_pantry_staple: pure matcher -----------------------------------------
 
 

@@ -35,8 +35,18 @@ RUN chmod +x docker-entrypoint.sh
 # Backlog B15.1 (2026-08-01) -- shared with the backend container via
 # the chef-tls volume (read-only here; the backend writes it). See
 # docker-entrypoint.sh and backend/app/services/tls_service.py.
+#
+# No VOLUME directive -- see backend/Dockerfile for why (it does not make
+# the Compose mount work, and it hands anyone running the image directly
+# a surprise anonymous volume).
 RUN mkdir -p /app/tls
-VOLUME ["/app/tls"]
+
+# Same fixed uid as the backend image, deliberately: the backend writes
+# the TLS key 0600 onto the shared chef-tls volume and this container has
+# to read it. Matching uids is what makes that readable without widening
+# the key's permissions.
+RUN groupadd --gid 10001 chef \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin chef
 
 EXPOSE 5173 5174
 # Backlog B15.1 -- docker-entrypoint.sh now decides plain-HTTP vs.

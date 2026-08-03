@@ -32,7 +32,7 @@ export default function RecallBanner() {
 
   useEffect(() => {
     refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   async function dismiss(alertId) {

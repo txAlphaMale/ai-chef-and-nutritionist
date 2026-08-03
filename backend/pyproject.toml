@@ -1,0 +1,103 @@
+# Ruff configuration.
+#
+# Audit P3: this repo had no linter in CI at all, so style and dead-import
+# drift went unchecked across ~16k lines. Ruff rather than flake8+isort+
+# black-check because it is one tool, one config, and fast enough that
+# running it is never the reason someone skips it.
+#
+# The rule selection below is deliberately narrow. A linter that fires on
+# things nobody intends to change trains people to ignore it, which is
+# worse than not having one: every rule here catches something that is
+# either a latent bug or genuinely misleading to read.
+
+[tool.ruff]
+line-length = 120
+
+# The shipped image and CI both run 3.12 (backend/Dockerfile,
+# .github/workflows/ci.yml). This floor is deliberately lower.
+#
+# Nothing in this codebase needs a 3.11+ feature, and the audit found
+# that local test runs had been happening on 3.10 while the image ran
+# 3.12 -- a split worth keeping harmless rather than turning into a
+# breakage. Setting py312 here makes ruff rewrite `timezone.utc` to
+# `datetime.UTC` (UP017), which is a pure alias introduced in 3.11: it
+# changes nothing at runtime and silently drops support for the
+# interpreter a contributor may actually have. Stating the real floor
+# once, here, is better than ignoring the rules it produces one at a
+# time.
+target-version = "py310"
+
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes -- undefined names, unused imports/variables. Real bugs.
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "B",    # flake8-bugbear -- mutable default args, loop-variable capture, etc.
+    "UP",   # pyupgrade -- e.g. datetime.utcnow() successors, modern typing
+    "C4",   # comprehension simplifications
+    "SIM",  # obvious simplifications
+    "RUF",  # ruff's own checks
+]
+ignore = [
+    # This project writes long explanatory comments on purpose (see the
+    # PROJECT-PLAN convention). Wrapping prose to a column limit is not
+    # a code-quality signal, and E501 on a comment is pure noise -- the
+    # formatter's line-length above still governs actual code.
+    "E501",
+    # `except Exception` is used deliberately at the boundaries with
+    # Ollama, Tavily, USDA, OSM and openFDA, where the documented design
+    # is to degrade to "no result" rather than propagate a third-party
+    # failure into a user-facing error. Each site already carries a
+    # comment saying so.
+    "BLE001",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 ("do not perform function call in argument defaults") fires 106
+# times on `db: Session = Depends(get_db)` and friends. That warning
+# exists because a mutable default is evaluated once at import; FastAPI's
+# dependency markers are the deliberate exception -- they are inert
+# sentinels that FastAPI resolves per request, and writing them any other
+# way is not possible. Listing them here is the supported fix and keeps
+# B008 live for the real cases it is meant to catch.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+    "fastapi.Security",
+    "Depends",
+    "Query",
+    "Path",
+    "Body",
+    "Header",
+    "Cookie",
+    "Form",
+    "File",
+    "Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The U+00D7 MULTIPLICATION SIGN in the multipack regex is deliberate --
+# Open Food Facts genuinely writes quantities as "12 × 355 ml", and the
+# pattern has to match that character as well as a plain "x".
+"app/services/package_parsing.py" = ["RUF001"]
+# Tests deliberately import fixtures and modules for their side effects,
+# and assert on private helpers. C408 (`dict(a=1)` over `{"a": 1}`) is
+# left alone in tests: the fixture builders here take ~15 keyword
+# arguments each and the call form reads better than a quoted-key
+# literal, which is the only thing C408 is arguing about.
+"tests/*" = ["F401", "F811", "C408"]
+# Models are imported purely so SQLAlchemy's registry and Alembic's
+# autogenerate see them -- that IS the point of the module.
+"app/models/__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

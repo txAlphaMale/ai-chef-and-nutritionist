@@ -32,12 +32,58 @@
   --color-on-danger: #ffffff;
 
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  /* Type scale. Added 2026-08-03 -- font sizes were previously hardcoded
+     as bare em values in ~48 places (0.85em fifteen times, 0.9em
+     fourteen), which is exactly the single-source-of-truth problem this
+     file exists to solve for colour. Relative units throughout so the
+     scale still respects the browser's own font-size setting. */
+  --font-xs: 0.75em;
+  --font-sm: 0.85em;
+  --font-md: 0.9em;
+  --font-base: 1em;
+  --font-lg: 1.1em;
+  --font-xl: 1.35em;
+  --font-2xl: 1.7em;
+  --font-3xl: 2em;
+
   --radius-sm: 4px;
   --radius-md: 8px;
+
+  /* Spacing scale.
+     `--space-*` are ALIASES of `--spacing-*`, not a second scale.
+     Both names were in use: `--spacing-*` was defined here and used
+     nearly everywhere, while a later dining-page section used
+     `--space-*`, which was never defined at all -- so seven declarations
+     (gap, margin, padding and font-size on .dining-filter-toggle,
+     .dining-contact and .dining-contact-link) were silently dropped by
+     the browser and those rules rendered with no spacing whatsoever.
+     Aliasing rather than renaming keeps both spellings correct forever,
+     which is the failure mode worth removing: the next person to write
+     either name gets working CSS. */
   --spacing-1: 4px;
   --spacing-2: 8px;
   --spacing-3: 16px;
   --spacing-4: 24px;
+  --space-1: var(--spacing-1);
+  --space-2: var(--spacing-2);
+  --space-3: var(--spacing-3);
+  --space-4: var(--spacing-4);
+
+  /* A slightly recessed surface for nested panels. Previously referenced
+     once as `var(--color-surface-alt, var(--color-surface))` without ever
+     being defined, so the fallback was the only branch that ever ran.
+     Derived rather than a literal, so it recomputes correctly under all
+     nine themes with no per-theme override -- the same reasoning the
+     note above gives for using color-mix instead of rgba() literals. A
+     hardcoded light grey here would have been unreadable on the dark
+     themes. */
+  --color-surface-alt: color-mix(in srgb, var(--color-text) 5%, var(--color-surface));
+
+  /* Minimum interactive target, from the B7.4 accessibility pass. Was
+     repeated as a literal 1.5rem/2.75rem in individual rules. */
+  --tap-target-sm: 1.5rem;
+  --tap-target: 2.75rem;
 }
 
 /* Alternate themes (2026-08-01, author request) -- each overrides ONLY
@@ -301,13 +347,13 @@ body {
 
 .hint {
   color: var(--color-text-muted);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 /* --- Buttons --- */
 .btn {
   font-family: inherit;
-  font-size: 0.95em;
+  font-size: var(--font-md);
   padding: var(--spacing-2) var(--spacing-3);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
@@ -354,7 +400,7 @@ body {
   color: var(--color-secondary);
   cursor: pointer;
   padding: 0;
-  font-size: 0.9em;
+  font-size: var(--font-md);
   margin-right: var(--spacing-2);
   text-decoration: underline;
 }
@@ -374,7 +420,7 @@ body {
    input on narrow widths the way an unwrapped inline pair would. */
 .settings-redirect-uri-suggestions {
   margin: var(--spacing-1) 0 var(--spacing-2);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 /* --- Toolbar --- */
@@ -446,7 +492,7 @@ body {
   border-radius: var(--radius-md);
   padding: var(--spacing-1) var(--spacing-3);
   margin: 0 var(--spacing-3) var(--spacing-3);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .jobs-badge-over {
@@ -552,11 +598,11 @@ body {
 .dining-allergen-list {
   margin: var(--spacing-2) 0;
   padding-left: 1.2em;
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .dining-caution {
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
   border-left: 3px solid var(--color-danger);
@@ -576,7 +622,7 @@ body {
 .item-form label {
   display: flex;
   flex-direction: column;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
   gap: 4px;
   margin-bottom: var(--spacing-2);
@@ -586,7 +632,7 @@ body {
 .item-form select,
 .item-form textarea {
   font-family: inherit;
-  font-size: 1em;
+  font-size: var(--font-base);
   padding: var(--spacing-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -665,7 +711,7 @@ body {
   text-align: left;
   padding: var(--spacing-2) var(--spacing-3);
   border-bottom: 1px solid var(--color-border);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .data-table th {
@@ -676,7 +722,7 @@ body {
 
 .reasons-cell {
   color: var(--color-text-muted);
-  font-size: 0.85em;
+  font-size: var(--font-sm);
 }
 
 .row-actions {
@@ -714,7 +760,7 @@ tr.urgency-low td {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: 1px 6px;
-  font-size: 0.8em;
+  font-size: var(--font-xs);
   color: var(--color-text-muted);
   margin-left: var(--spacing-1);
 }
@@ -776,7 +822,7 @@ tr.urgency-low td {
 
 .recipe-form legend {
   color: var(--color-text-muted);
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   padding: 0 var(--spacing-1);
 }
 
@@ -849,7 +895,7 @@ tr.urgency-low td {
 }
 
 .btn-sm {
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   padding: 4px var(--spacing-2);
 }
 
@@ -895,7 +941,7 @@ tr.urgency-low td {
    accent=caution, muted=unverified. */
 .provenance-badge {
   display: inline-block;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   padding: 2px var(--spacing-2);
   border-radius: var(--radius-sm);
   margin-bottom: var(--spacing-2);
@@ -1027,7 +1073,7 @@ tr.urgency-low td {
 
 .chat-msg {
   margin-bottom: var(--spacing-2);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .chat-msg-user {
@@ -1128,12 +1174,12 @@ tr.urgency-low td {
 
 .preview-entry-label {
   min-width: 140px;
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .day-guidance-label {
   min-width: 90px;
-  font-size: 0.9em;
+  font-size: var(--font-md);
   color: var(--color-text-muted);
 }
 
@@ -1145,7 +1191,7 @@ tr.urgency-low td {
 
 .grocery-category-heading {
   margin: var(--spacing-2) 0 var(--spacing-1);
-  font-size: 0.8em;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
@@ -1210,7 +1256,7 @@ tr.urgency-low td {
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--spacing-1);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .trend-chart-svg {
@@ -1230,7 +1276,7 @@ tr.urgency-low td {
 .trend-chart-axis {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75em;
+  font-size: var(--font-xs);
   color: var(--color-text-muted);
 }
 
@@ -1338,7 +1384,7 @@ tr.urgency-low td {
 }
 
 .chat-action-label {
-  font-size: 0.75em;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--color-text-muted);
@@ -1346,7 +1392,7 @@ tr.urgency-low td {
 }
 
 .chat-action-description {
-  font-size: 0.9em;
+  font-size: var(--font-md);
   margin-bottom: var(--spacing-2);
 }
 
@@ -1364,7 +1410,7 @@ tr.urgency-low td {
 .settings-row label {
   display: flex;
   flex-direction: column;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
   gap: 4px;
   margin-bottom: var(--spacing-1);
@@ -1373,7 +1419,7 @@ tr.urgency-low td {
 .settings-row input,
 .settings-row textarea {
   font-family: inherit;
-  font-size: 1em;
+  font-size: var(--font-base);
   padding: var(--spacing-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -1382,7 +1428,7 @@ tr.urgency-low td {
 
 .settings-row textarea {
   font-family: monospace;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   resize: vertical;
 }
 
@@ -1426,7 +1472,7 @@ tr.urgency-low td {
   border: none;
   border-bottom: 2px solid transparent;
   padding: var(--spacing-2) var(--spacing-3);
-  font-size: 0.95em;
+  font-size: var(--font-md);
   color: var(--color-text-muted);
   cursor: pointer;
 }
@@ -1443,7 +1489,7 @@ tr.urgency-low td {
 
 /* --- Appearance/theme picker (Settings page, 2026-08-01) --- */
 .theme-group-label {
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1499,12 +1545,12 @@ tr.urgency-low td {
 }
 
 .theme-swatch-label {
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   font-weight: 600;
 }
 
 .theme-swatch-active-marker {
-  font-size: 0.8em;
+  font-size: var(--font-xs);
   color: var(--color-primary);
 }
 
@@ -1528,7 +1574,7 @@ tr.urgency-low td {
 }
 
 .nutrition-target-list li {
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 /* --- Diet quality estimate (backlog B2.2, HEI-2020-inspired) --- */
@@ -1540,13 +1586,13 @@ tr.urgency-low td {
 }
 
 .diet-quality-score-number {
-  font-size: 2em;
+  font-size: var(--font-3xl);
   font-weight: 700;
   color: var(--color-primary);
 }
 
 .diet-quality-score-max {
-  font-size: 1.2em;
+  font-size: var(--font-lg);
   color: var(--color-text-muted);
 }
 
@@ -1717,7 +1763,7 @@ tr.urgency-low td {
      down slightly so "Back"/"Done"/"Next" all still fit one row on a
      phone without wrapping into a cramped stack. */
   .cook-mode-step-text {
-    font-size: 1.35em;
+    font-size: var(--font-xl);
   }
 
   .cook-mode-nav {
@@ -1779,7 +1825,7 @@ tr.urgency-low td {
 .wiki-search {
   width: 100%;
   font-family: inherit;
-  font-size: 1em;
+  font-size: var(--font-base);
   padding: var(--spacing-2);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -1806,7 +1852,7 @@ tr.urgency-low td {
   border: none;
   cursor: pointer;
   font-family: inherit;
-  font-size: 1.05em;
+  font-size: var(--font-base);
   font-weight: 600;
   color: var(--color-text);
   padding: var(--spacing-1) 0;
@@ -1906,7 +1952,7 @@ tr.urgency-low td {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--spacing-2);
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   font-family: monospace;
 }
 
@@ -1940,11 +1986,11 @@ tr.urgency-low td {
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-2);
-  font-size: 1.2em;
+  font-size: var(--font-lg);
 }
 
 .cook-mode-wakelock {
-  font-size: 0.95em;
+  font-size: var(--font-md);
 }
 
 .cook-mode-toolbar {
@@ -1983,12 +2029,12 @@ tr.urgency-low td {
 
 .cook-mode-step-counter {
   color: var(--color-text-muted);
-  font-size: 1.1em;
+  font-size: var(--font-lg);
   margin: 0;
 }
 
 .cook-mode-step-text {
-  font-size: 1.7em;
+  font-size: var(--font-2xl);
   line-height: 1.4;
   max-width: 44em;
   margin: 0;
@@ -2001,7 +2047,7 @@ tr.urgency-low td {
 }
 
 .cook-mode-nav .btn {
-  font-size: 1.1em;
+  font-size: var(--font-lg);
   padding: var(--spacing-3) var(--spacing-4);
   min-height: 48px;
   min-width: 120px;
@@ -2030,7 +2076,7 @@ tr.urgency-low td {
   border: 1px solid var(--color-secondary);
   border-radius: var(--radius-md);
   padding: var(--spacing-1) var(--spacing-3);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .timers-badge-time {
@@ -2072,8 +2118,8 @@ tr.urgency-low td {
 
 .dining-filter-toggle input {
   /* Meets the 24px touch-target floor the B7.4 accessibility pass set. */
-  width: 1.5rem;
-  height: 1.5rem;
+  width: var(--tap-target-sm);
+  height: var(--tap-target-sm);
   margin: 0;
   cursor: pointer;
 }
@@ -2090,7 +2136,7 @@ tr.urgency-low td {
   font-size: var(--font-sm);
   /* Comfortable tap target on the phone this page is actually used on. */
   padding: var(--space-1) 0;
-  min-height: 2.75rem;
+  min-height: var(--tap-target);
   display: inline-flex;
   align-items: center;
 }
@@ -2161,8 +2207,8 @@ tr.urgency-low td {
 .match-picker-option input {
   /* 24px touch-target floor, same as the B7.4 accessibility pass set for
      the dining filter toggle. */
-  width: 1.5rem;
-  height: 1.5rem;
+  width: var(--tap-target-sm);
+  height: var(--tap-target-sm);
   margin: 0;
   flex-shrink: 0;
 }
@@ -2179,7 +2225,7 @@ tr.urgency-low td {
 
 .match-picker-option-meta,
 .match-picker-option-reason {
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
 }
 
@@ -2189,13 +2235,13 @@ tr.urgency-low td {
 
 .match-picker-blocked {
   margin-top: var(--spacing-2);
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
 }
 
 .match-picker-blocked summary {
   cursor: pointer;
-  min-height: 2.75rem;
+  min-height: var(--tap-target);
   display: flex;
   align-items: center;
 }
@@ -2218,13 +2264,13 @@ tr.urgency-low td {
    reaching a persisted row, so no user had ever seen either one. */
 .grocery-match-note {
   display: block;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-text-muted);
 }
 
 .grocery-needs-review {
   display: block;
-  font-size: 0.85em;
+  font-size: var(--font-sm);
   color: var(--color-danger);
   margin-top: var(--spacing-1);
 }
@@ -2265,10 +2311,79 @@ tr.urgency-low td {
   padding: var(--spacing-2);
   border-left: 3px solid var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 6%, transparent);
-  font-size: 0.9em;
+  font-size: var(--font-md);
 }
 
 .deduction-notes ul {
   margin: var(--spacing-1) 0 0;
   padding-left: var(--spacing-3);
+}
+
+/* --- Layout utilities and form-field widths (2026-08-03) ---
+   These replace 26 inline `style={{...}}` objects scattered across the
+   pages and components. Inline styles are the one place theming cannot
+   reach -- they cannot be overridden by a theme, cannot respond to a
+   media query, and are invisible to anyone reading this file trying to
+   understand how something is sized. Moving them here is the same
+   single-source-of-truth rule this file already applies to colour.
+
+   The px values that were inline (70/90/130) became rem so they respect
+   the browser's own font-size setting; the change is under 3px at the
+   default size and nothing shifts perceptibly.
+
+   ONE inline style is deliberately left in place, in SettingsPage's
+   theme picker: its swatch background is a runtime value from the theme
+   registry, not a design token, and there is no static class that could
+   express it. */
+
+.u-flex-1 {
+  flex: 1;
+}
+
+.u-no-margin {
+  margin: 0;
+}
+
+.u-align-center {
+  align-items: center;
+}
+
+.input-servings {
+  max-width: 4.5rem;
+}
+
+.input-quantity {
+  max-width: 5.75rem;
+}
+
+.input-unit-select {
+  max-width: 8.25rem;
+}
+
+.input-measure {
+  width: 3.5em;
+}
+
+.input-amount {
+  width: 5em;
+}
+
+.input-unit {
+  width: 6em;
+}
+
+.input-name-cap {
+  max-width: 12em;
+}
+
+/* Knowledge files: retrieval no longer rebuilds a stale index on the way
+   past (audit P2-6), so the staleness is surfaced here instead. */
+.index-stale-notice {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border-left: 3px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+  font-size: var(--font-md);
 }

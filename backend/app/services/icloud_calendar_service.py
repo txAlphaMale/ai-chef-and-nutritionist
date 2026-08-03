@@ -50,6 +50,7 @@ integration in this app already carries.
 from __future__ import annotations
 
 import base64
+import contextlib
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
@@ -58,6 +59,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models import MealPlan, MealPlanEntry
+from app.models.base import utc_now
 from app.services import calendar_export_service as cal
 from app.services import settings_service
 
@@ -115,7 +117,7 @@ def connection_status(db: Session) -> dict:
 
 def _auth_headers(db: Session) -> dict:
     username, app_password = _get_credentials(db)
-    token = base64.b64encode(f"{username}:{app_password}".encode("utf-8")).decode("ascii")
+    token = base64.b64encode(f"{username}:{app_password}".encode()).decode("ascii")
     return {"Authorization": f"Basic {token}"}
 
 
@@ -225,13 +227,11 @@ def _discover_calendar_href(db: Session) -> str:
             b"<D:set><D:prop><D:displayname>" + DEDICATED_CALENDAR_NAME.encode("utf-8") + b"</D:displayname>"
             b"</D:prop></D:set></C:mkcalendar>"
         )
-        try:
+        with contextlib.suppress(ICloudCalendarError):
             _request(
                 db, "MKCALENDAR", calendar_url, body=mkcalendar_body,
                 extra_headers={"Content-Type": "application/xml; charset=utf-8"}, expect=(200, 201),
             )
-        except ICloudCalendarError:
-            # A 409 here most likely means a prior run already created it
             # (e.g. a crashed connect attempt) -- proceed with the same
             # deterministic slug rather than failing the whole connect;
             # the next PUT/DELETE against it will surface a real error
@@ -265,7 +265,7 @@ def _build_single_event_ics(meal_plan: MealPlan, entry: MealPlanEntry, now: date
     escaping/folding/summary/description building blocks rather than
     re-deriving them, so all three calendar surfaces (the .ics feed,
     Google sync, iCloud sync) always describe a given entry identically."""
-    stamp = cal._format_datetime(now or datetime.utcnow())
+    stamp = cal._format_datetime(now or utc_now())
     start = cal._entry_event_start(meal_plan, entry)
     end = start + timedelta(minutes=cal.EVENT_DURATION_MINUTES)
     lines = [

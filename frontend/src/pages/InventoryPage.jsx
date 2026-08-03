@@ -190,7 +190,7 @@ export default function InventoryPage() {
         included: true,
       }))
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [importJob.result]);
 
   // Backlog B10.3 (author-requested group, 2026-08-01) -- generic order-
@@ -658,7 +658,7 @@ export default function InventoryPage() {
               placeholder="...or paste a list of purchased items here, e.g. one per line"
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
-              style={{ flex: 1 }}
+              className="u-flex-1"
               disabled={importJob.busy}
             />
           </div>
@@ -770,7 +770,7 @@ export default function InventoryPage() {
                   placeholder="Save this mapping as..."
                   value={orderNewProfileName}
                   onChange={(e) => setOrderNewProfileName(e.target.value)}
-                  style={{ maxWidth: "12em" }}
+                  className="input-name-cap"
                 />
                 <button className="btn btn-secondary" onClick={handleSaveOrderProfile} disabled={!orderNewProfileName.trim()}>
                   Save profile
@@ -850,14 +850,14 @@ export default function InventoryPage() {
                           step="any"
                           value={row.quantity}
                           onChange={(e) => updateImportRow(i, "quantity", e.target.value)}
-                          style={{ width: "5em" }}
+                          className="input-amount"
                         />
                       </td>
                       <td data-label="Unit">
                         <input
                           value={row.unit}
                           onChange={(e) => updateImportRow(i, "unit", e.target.value)}
-                          style={{ width: "6em" }}
+                          className="input-unit"
                         />
                       </td>
                       <td data-label="Price">
@@ -867,7 +867,7 @@ export default function InventoryPage() {
                           placeholder="—"
                           value={row.unit_price}
                           onChange={(e) => updateImportRow(i, "unit_price", e.target.value)}
-                          style={{ width: "5em" }}
+                          className="input-amount"
                         />
                       </td>
                       <td data-label="Purchased">

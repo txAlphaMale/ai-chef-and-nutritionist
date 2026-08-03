@@ -1,57 +1,37 @@
-"""Fallback JSON-from-model-text extraction.
+r"""Fallback JSON-from-model-text extraction.
 
-READ THIS BEFORE EXTENDING ANYTHING HERE. As of the 2026-08-03 audit this
-module is no longer the primary path. Every structured AI call in this app
-now passes a JSON Schema to Ollama's `format` parameter (see
-app/schemas/ai_extraction.py and ollama_client.chat_json), which constrains
-decoding so a malformed response is unrepresentable rather than merely
-unlikely. That is the correct fix, and it makes almost everything below
-unnecessary.
+READ THIS BEFORE EXTENDING ANYTHING HERE. This module is NOT the primary
+path. Every structured AI call in the app passes a JSON Schema to
+Ollama's `format` parameter (see app/schemas/ai_extraction.py and
+ollama_client.chat_json), which constrains decoding so a malformed
+response is unrepresentable rather than merely unlikely.
 
 What remains here is the degradation path for an Ollama server too old to
-support `format`, and a cheap safety net for the handful of genuinely
-conversational responses that are not schema-constrained. If a model is
-producing output this module has to rescue, the answer is to constrain
-that call site -- not to add another recovery heuristic here. Three
-successive rounds of exactly that (the greedy-regex fix, the
-reasoning-trace stripper, the truncation salvage) is what the audit found,
-and each one left the underlying feature still failing.
+support `format`, plus a cheap safety net for the handful of genuinely
+conversational responses that are not schema-constrained.
 
-Bug fix (2026-08-03, author-reported: recipe PDF import went from
-"parses wrong" to "totally broken" -- "Could not extract a recipe from
-that input" on a plain, well-formed two-page recipe PDF). Root cause,
-found by tracing every consumer of `_extract_json_object` (recipe
-import, the recipe-chat "propose an edit" flow, health-metrics/bloodwork
-free-text parsing, and meal-plan generation's `new_recipe` proposals --
-ALL five of these share one function): that function was still the
-original naive implementation --
+**If a model is producing output this module has to rescue, constrain
+that call site -- do not add another recovery heuristic here.** Three
+successive rounds of exactly that (a greedy-regex fix, a reasoning-trace
+stripper, a truncation salvage) each left the underlying feature still
+failing, because the defect was in the generator and every fix was
+applied to the parser.
 
-    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+Two things this has to survive, which is why it is not just json.loads:
 
--- a GREEDY regex spanning the FIRST "{" anywhere in the response to the
-LAST "}" anywhere in it, with zero defense against a `<think>...</think>`
-reasoning trace landing inline in `message.content`. `ollama_client.chat`
-already requests `think=False` on every call, but its own module
-docstring documents this is NOT honored by every Ollama server version /
-model chat template combination -- and the household's configured chat
-model (`qwen3.6:27b`, a thinking-capable model, swapped in 2026-08-02)
-makes an inline trace containing a scratch JSON draft ("let me structure
-this: { "title": ... }") a routine occurrence, not a rare edge case. The
-greedy regex then spans from a brace INSIDE that scratch draft to the
-real answer's closing brace, producing unparseable garbage, which
-`_extract_json_object` silently turned into `{}` -- indistinguishable to
-the user from "the model genuinely couldn't find a recipe."
+- **Inline reasoning traces.** `ollama_client.chat` requests
+  `think=False`, but not every server/template honours it, and a
+  thinking-capable model routinely emits a scratch JSON draft mid-trace.
+  A naive "first { to last }" scan spans from a brace inside that draft
+  to the real answer's closing brace and yields garbage. `strip_reasoning`
+  removes the trace first, and the scan below is string-aware bracket
+  matching rather than a regex.
+- **Truncated output.** A response clipped mid-object is salvaged to the
+  last complete top-level field rather than discarded, so a partial
+  answer degrades to a partial result instead of an empty one.
 
-This exact failure mode was already found, root-caused, and fixed once
-before -- for the ARRAY-shaped receipt/vision-intake responses, in
-`inventory_service.py`'s `_extract_json_array` (see that function's own
-2026-08-02 bug-fix comment for the original investigation). This module
-is that same fix, generalized: `strip_reasoning` (moved here verbatim)
-plus a string-aware bracket-matching scan, offered for BOTH array and
-object shapes, so every JSON-consuming AI call site in this app --
-recipe import, recipe-chat edits, health/bloodwork parsing, meal-plan
-generation, receipt/vision intake -- gets the same defense instead of
-half the app having it and the other half not.
+Both array and object shapes are handled here so every JSON-consuming
+call site shares one defense, rather than half the app having it.
 """
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ pulled down and run by other households, not just the original author's.
 """
 from __future__ import annotations
 
-from sqlalchemy import Float, Integer, JSON, String, Text
+from sqlalchemy import JSON, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

@@ -47,7 +47,7 @@ def authorize(return_to: str, db: Session = Depends(get_db)):
     try:
         url = google_calendar_service.build_authorization_url(db, return_to)
     except google_calendar_service.GoogleCalendarError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"authorize_url": url}
 
 
@@ -102,7 +102,7 @@ def set_sync_enabled(payload: SyncEnabledUpdate, db: Session = Depends(get_db)):
     try:
         status = google_calendar_service.set_sync_enabled(db, payload.enabled)
     except google_calendar_service.GoogleCalendarError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     # Turning sync ON is the moment a household most wants "and now make
     # it match reality" -- auto-trigger a resync rather than requiring a
     # second, separate click to notice nothing has pushed yet.

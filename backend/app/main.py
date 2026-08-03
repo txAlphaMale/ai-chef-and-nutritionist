@@ -15,6 +15,7 @@ gate rather than a per-router dependency sprinkled onto each endpoint --
 see auth_gate's own docstring for why that specific mistake (checked on
 only a subset of endpoints) is the one this design avoids.
 """
+import contextlib
 import os
 from contextlib import asynccontextmanager
 
@@ -59,37 +60,64 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="Chef", version="0.1.0", lifespan=_lifespan)
 
+
+def get_configured_cors_origins() -> list[str]:
+    """Extra browser origins allowed to make credentialed API calls.
+
+    Read once, at import, because Starlette's CORSMiddleware fixes its
+    origin list when it is constructed -- editing the setting therefore
+    needs a container restart, which the setting's own description says.
+    Re-reading per request was the alternative and it would reintroduce
+    exactly the per-request database hit audit P2-3 just removed from the
+    auth gate.
+
+    Falls back to the CORS_ALLOW_ORIGINS environment variable, then to
+    nothing at all. Deliberately tolerant of the database being absent or
+    unmigrated: this runs at import time, which on a first-ever boot can
+    precede the migration, and an unreachable settings table must not
+    stop the app from starting."""
+    raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
+    try:
+        from app.services import settings_service
+
+        db = SessionLocal()
+        try:
+            raw = settings_service.get_setting(db, "cors_allow_origins") or raw
+        finally:
+            db.close()
+    except Exception:
+        pass  # unmigrated or unreachable DB -- env/empty is a safe answer
+    return [origin.strip() for origin in raw.replace("\n", ",").split(",") if origin.strip()]
+
+# CORS: no cross-origin credentialed access by default.
+#
+# The browser never talks to this origin. `frontend/server.js` reverse-
+# proxies /api/* and /health over the internal Docker network, so every
+# request the browser makes is same-origin with the frontend -- and CORS
+# does not apply to same-origin requests at all. Allowing any origin on
+# the internet to make credentialed requests to this API bought nothing
+# and said, literally, that it was fine for them to do so.
+#
+# Non-browser clients (curl, scripts, an HTTP client in another language)
+# are unaffected: CORS is a browser policy, enforced by the browser. A
+# script hitting the backend port directly never sends an Origin header
+# and never has one checked.
+#
+# The empty default is therefore correct for the normal deployment. The
+# setting exists for the case where a browser page served from some OTHER
+# origin genuinely needs to call this API -- e.g. reaching the host by a
+# new name (`chef.lan`) while the frontend still knows itself by IP, or a
+# separately-hosted dashboard. Adding an origin is a Settings edit, not a
+# rebuild, because a household adding a local DNS name should not have to
+# rebuild an image to keep working.
+_extra_origins = get_configured_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    # Backlog B10.2 (2026-08-01): switched from allow_origins=["*"] to
-    # allow_origin_regex -- the two are NOT equivalent once credentials
-    # are involved. Starlette's CORSMiddleware echoes back the literal
-    # string "*" for allow_origins=["*"] on ordinary (non-preflight)
-    # responses even with allow_credentials=True, which is exactly the
-    # invalid "Allow-Origin: * together with Allow-Credentials: true"
-    # combination browsers refuse to honor for credentialed requests --
-    # confirmed live via curl before this fix (the OPTIONS preflight
-    # correctly reflected the request Origin; the actual GET response
-    # did not). A regex match, by contrast, always echoes the SPECIFIC
-    # request Origin, which is what the new session-cookie auth gate
-    # (see auth_service.py/routers/auth.py) needs to actually receive
-    # its cookie back cross-origin in the production deployment (backend
-    # and frontend on different ports -- see api.js).
-    #
-    # Author-reported 2026-08-03: the browser no longer talks to this
-    # origin directly at all in normal use -- frontend/server.js reverse-
-    # proxies /api/* and /health to here over the internal Docker
-    # network, so the frontend's own origin is what the browser actually
-    # sees, and this CORS config only still matters for someone hitting
-    # the backend's own port directly (advanced/scripting use, or a
-    # deployment that hasn't rebuilt the frontend image yet). Left
-    # permissive rather than tightened to a concrete origin list, since
-    # narrowing it now would break exactly that direct-access case for no
-    # benefit -- nothing routed through the proxy is a "cross-origin
-    # browser request" in the first place, so CORS headers are moot for
-    # it either way.
-    allow_origin_regex=".*",
-    allow_credentials=True,
+    allow_origins=_extra_origins,
+    # Only meaningful when an explicit origin is listed above. With the
+    # default empty list this grants nothing -- Starlette will not emit
+    # an Access-Control-Allow-Origin for an origin that is not on it.
+    allow_credentials=bool(_extra_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -104,7 +132,7 @@ def _load_or_create_session_secret() -> str:
     of key than the Fernet key used for encrypting settings at rest."""
     path = os.environ.get("SESSION_SECRET_FILE", "/app/data/session_secret.key")
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             existing = f.read().strip()
             if existing:
                 return existing
@@ -117,10 +145,8 @@ def _load_or_create_session_secret() -> str:
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         f.write(key)
-    try:
+    with contextlib.suppress(Exception):
         os.chmod(tmp, 0o600)
-    except Exception:
-        pass
     os.replace(tmp, path)
     return key
 

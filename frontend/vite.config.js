@@ -15,6 +15,22 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    define: {
+      // A new value on every production build, used to version the
+      // service worker's cache (see public/sw.js and src/main.jsx).
+      //
+      // CACHE_VERSION used to be a hand-maintained "v1" that was never
+      // once bumped, so the shell cache was never invalidated and every
+      // build's assets accumulated in it forever. index.html and
+      // config.js are not content-hashed the way Vite's JS/CSS bundles
+      // are, so a stale index.html could keep pointing at an asset hash
+      // that no longer exists -- a redeploy that appears not to take
+      // effect, which is exactly what was reported and previously
+      // treated as a Cache-Control problem.
+      //
+      // Deriving it from the build removes the human step entirely.
+      __BUILD_ID__: JSON.stringify(String(Date.now())),
+    },
     server: {
       port: 5173,
       proxy: {

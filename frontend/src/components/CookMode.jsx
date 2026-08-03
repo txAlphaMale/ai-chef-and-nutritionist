@@ -39,7 +39,7 @@ export default function CookMode({ recipe, onExit }) {
     } catch {
       // Non-fatal -- starts from step 1 instead.
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [progressKey]);
 
   useEffect(() => {

@@ -31,6 +31,7 @@ separate UI" guidance.
 """
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
@@ -38,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
 from app.models import InventoryItem, OrderImportProfile
+from app.schemas.ai_extraction import ExtractedInventoryList, schema_of
 from app.schemas.inventory import (
     BarcodeLookupResponse,
     ColumnMapping,
@@ -63,7 +65,6 @@ from app.schemas.inventory import (
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
-from app.schemas.ai_extraction import ExtractedInventoryList, schema_of
 from app.schemas.jobs import JobEnqueuedResponse
 from app.services import (
     food_data_service,
@@ -97,51 +98,24 @@ Example: {"items": [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", 
 "category": "fridge", "estimated_expiration_days": 7, "confidence_note": null}]}
 """
 
-# Backlog B4.2 (author-requested 2026-08-01) -- shares VisionDetectedItem's
-# exact output shape with VISION_PROMPT above (same keys), so
-# inventory_service.parse_vision_response works unchanged for this
-# source too -- only the prompt differs. Uses the same "{content}"/
-# "{today}" str.replace() placeholder trick as
-# recipe_service.RECIPE_IMPORT_PROMPT: for a photo, the caller substitutes
-# a short description instead of real text (see import_inventory below)
-# rather than needing a second prompt template.
+# Shares VisionDetectedItem's output shape with VISION_PROMPT above, so
+# inventory_service.parse_vision_response works unchanged for both -- only
+# the prompt text differs.
 #
-# Substitution mechanics (2026-08-03, same pass as recipe_service.
-# RECIPE_IMPORT_PROMPT's rewrite, backlog B16.1): this prompt is now a
-# DB-backed, GUI-editable SystemPrompt (get_receipt_import_prompt, below),
-# so {content}/{today} are filled via plain str.replace() at each call
-# site rather than `.format()` -- the worked EXAMPLE below used to need
-# its literal `{`/`}` doubled to `{{`/`}}` to survive `.format()`; that
-# doubling is gone now, since .replace() has no such escaping rule and a
-# household member editing this in a textarea has no reason to know one
-# exists. `.format()`'s KeyError-on-a-stray-brace failure mode is exactly
-# the kind of code-only footgun a GUI-editable prompt cannot carry.
-# REWRITTEN FROM SCRATCH (2026-08-02, author-directed full reset): four
-# rounds of patching the previous prompt (see git history on this file)
-# chased symptoms one at a time -- date/price fields, quantity-vs-unit
-# conflation, anti-truncation wording, anti-merge wording -- each patch
-# making the prompt longer, until a live A/B test against the author's
-# real Ollama container proved the accumulated LENGTH itself was
-# overwhelming a 9B model into bailing out to a literal `[]` rather than
-# attempting the task (see PROJECT-PLAN.md's session log for that
-# investigation's full detail: `done_reason='stop'`, `eval_count=2` --
-# the model took its own documented "nothing found" escape hatch almost
-# instantly, on a fully correct, untruncated input). Trimming that same
-# prose-paragraph prompt bought partial headroom but was still patching
-# the same design. This version is a genuine redesign, not another
-# trim: numbered rules instead of flowing prose (more scannable, more
-# token-efficient per requirement stated), and -- notably absent from
-# every earlier version despite four rounds of edits -- one concrete
-# worked example showing a real source line mapped to its exact output
-# object, since a single good example is generally a stronger format/
-# behavior signal for a model than another paragraph of abstract
-# description. Rendered against the author's real 15-line, 8-food-item
-# Walmart receipt this comes to ~4090 chars / ~1169 tokens, well under
-# half of what the prompt that caused the bailout used for the exact
-# same content (7723 chars / ~2207 tokens). Every functional requirement from the prior version is still
-# here (non-food exclusion categories, abbreviation expansion, quantity-
-# vs-package-size, unit_price semantics, purchased_date semantics) --
-# reworded and reorganized, not dropped.
+# Placeholders are filled with plain str.replace(), not .format(). That is
+# load-bearing: this prompt is a DB-backed, GUI-editable SystemPrompt, and
+# .format() raises KeyError on any stray literal brace a household happens
+# to type. A worked example containing JSON is exactly the kind of text
+# that would trip it.
+#
+# Two things about the prompt's shape are deliberate and worth keeping if
+# it is ever edited again. Numbered rules rather than prose: the previous
+# prose version grew long enough that the model took its own "nothing
+# found" escape hatch instantly (done_reason='stop', eval_count=2) on a
+# perfectly valid receipt -- length itself was the failure. And one
+# concrete worked example mapping a real source line to its exact output
+# object, which is a stronger format signal to a model than another
+# paragraph of description.
 RECEIPT_IMPORT_PROMPT = """\
 Task: extract every human-food/grocery item purchased on this receipt, PDF \
 order, or list. Today's date: {today}.
@@ -667,10 +641,10 @@ async def import_inventory(
         else:
             try:
                 decoded = raw_bytes.decode("utf-8")
-            except UnicodeDecodeError:
+            except UnicodeDecodeError as exc:
                 raise HTTPException(
                     status_code=400, detail="Could not read this file as text. Upload a photo, PDF, or plain-text file."
-                )
+                ) from exc
             source_type = "text"
 
             def extractor(db: Session) -> str:
@@ -912,7 +886,10 @@ def _explicit_item(payload, db: Session) -> InventoryItem | None:
     if item is None:
         raise HTTPException(status_code=404, detail="Inventory item not found")
     if payload.remember_alias:
-        try:
+        # The name already resolves to this item without help -- nothing
+        # to remember, and not a reason to fail the write the user asked
+        # for.
+        with contextlib.suppress(ValueError):
             ingredient_resolution_service.remember_alias(
                 db,
                 alias_text=payload.ingredient_name,
@@ -920,11 +897,6 @@ def _explicit_item(payload, db: Session) -> InventoryItem | None:
                 inventory_item_id=item.id,
                 note="Saved from a disambiguation prompt",
             )
-        except ValueError:
-            # The name already resolves to this item without help --
-            # nothing to remember, and not a reason to fail the write the
-            # user actually asked for.
-            pass
     return item
 
 

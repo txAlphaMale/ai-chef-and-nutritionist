@@ -30,7 +30,6 @@ from app.services import (
     unit_conversion_service,
 )
 
-
 # --- P0-1 / P0-5: constrained decoding replaces prompt-only JSON ---------
 
 
@@ -101,9 +100,8 @@ def test_timeout_surfaces_as_an_actionable_error(db_session):
     with patch(
         "app.services.ollama_client.ollama.Client.chat",
         side_effect=httpx.ReadTimeout("timed out"),
-    ):
-        with pytest.raises(ollama_client.OllamaTimeout) as excinfo:
-            ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
+    ), pytest.raises(ollama_client.OllamaTimeout) as excinfo:
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
     message = str(excinfo.value)
     assert "timeout" in message.lower()
     assert "Settings" in message  # tells the user what to actually do
@@ -189,9 +187,11 @@ def test_recipe_pdf_with_no_text_layer_reports_why(db_session):
     be sent on as the prompt's SOURCE block -- producing "Could not extract
     a recipe from that input", indistinguishable from a parse failure on a
     perfectly readable file."""
-    with patch("app.services.recipe_service.extract_pdf_text", return_value="   \n  "):
-        with pytest.raises(RuntimeError) as excinfo:
-            recipe_service.parse_recipe_file_content(db_session, b"%PDF-1.4", "scan.pdf", "application/pdf")
+    with (
+        patch("app.services.recipe_service.extract_pdf_text", return_value="   \n  "),
+        pytest.raises(RuntimeError) as excinfo,
+    ):
+        recipe_service.parse_recipe_file_content(db_session, b"%PDF-1.4", "scan.pdf", "application/pdf")
     message = str(excinfo.value).lower()
     assert "scan" in message or "no extractable text" in message
 

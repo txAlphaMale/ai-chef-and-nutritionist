@@ -146,7 +146,7 @@ def scan_and_parse(db: Session, folder_path: str) -> dict:
             items.append(
                 {"filename": path.name, "relative_path": relative_path, "status": "ok", "recipe": parsed, "error": None}
             )
-        except Exception as exc:  # noqa: BLE001 -- one file's failure must not sink the whole batch
+        except Exception as exc:
             items.append(
                 {"filename": path.name, "relative_path": relative_path, "status": "error", "recipe": None, "error": str(exc)}
             )

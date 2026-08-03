@@ -228,7 +228,7 @@ export default function RecipeDetailPage() {
         ))}
       </div>
 
-      <div className="form-row no-print" style={{ alignItems: "center" }}>
+      <div className="form-row no-print u-align-center">
         <label>
           Servings
           <input

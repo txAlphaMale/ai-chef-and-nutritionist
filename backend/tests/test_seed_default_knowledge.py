@@ -17,8 +17,8 @@ from __future__ import annotations
 import os
 
 from app.models import KnowledgeFile
-from app.services import knowledge_service
 from app.seed import DEFAULT_KNOWLEDGE_FILES_DIR, seed_default_knowledge_files
+from app.services import knowledge_service
 
 
 def _bundled_filenames() -> list[str]:

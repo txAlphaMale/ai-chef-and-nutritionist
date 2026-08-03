@@ -386,7 +386,7 @@ export default function MealPlanPage() {
                   aria-label={`Servings for ${DAY_NAMES[entry.day_of_week]} ${entry.meal_type} (preview)`}
                   value={entry.servings}
                   onChange={(e) => updatePreviewEntry(i, "servings", e.target.value)}
-                  style={{ maxWidth: 70 }}
+                  className="input-servings"
                 />
                 <input
                   placeholder="tags"
@@ -426,7 +426,7 @@ export default function MealPlanPage() {
         <>
           <div className="card">
             <div className="page-toolbar">
-              <h3 style={{ margin: 0 }}>
+              <h3 className="u-no-margin">
                 Week of {selectedPlan.week_start_date} <span className="tag">{selectedPlan.status}</span>
               </h3>
               <a

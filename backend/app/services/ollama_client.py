@@ -253,7 +253,7 @@ def _chat_raw(
                 continue
             print(f"[ollama_client] {label} RESPONSE ERROR: {exc}", flush=True)
             raise
-        except Exception as exc:  # noqa: BLE001 -- logged and re-raised, never swallowed
+        except Exception as exc:
             print(f"[ollama_client] {label} EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
             raise
     raise last_exc or RuntimeError(f"{label} failed with no usable Ollama call")
@@ -422,5 +422,5 @@ def ping(db: Session) -> bool:
         base_url = settings_service.get_setting(db, "ollama_base_url")
         ollama.Client(host=base_url, timeout=httpx.Timeout(5.0)).list()
         return True
-    except Exception:  # noqa: BLE001 -- any failure means "not reachable", which is the answer
+    except Exception:
         return False

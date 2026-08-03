@@ -15,6 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
+from app.schemas.ai_extraction import ExtractedMealPlan, schema_of
 from app.services import (
     allergen_service,
     dietary_pattern_service,
@@ -24,7 +25,6 @@ from app.services import (
     recipe_service,
     unit_conversion_service,
 )
-from app.schemas.ai_extraction import ExtractedMealPlan, schema_of
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.recipe_service import _extract_json_object, _safe_int
 
@@ -434,8 +434,10 @@ def attach_restriction_warnings(db: Session, entries: list[dict]) -> list[dict]:
     recipe_id nor a new_recipe (a slot the model left empty) gets an
     empty result, not an error. Recipe rows are cached by id within one
     call so a staple reused across several slots in the same week is
-    only loaded once."""
+    only loaded once, and household restrictions are read once for the
+    whole plan rather than once per entry (audit P1-9)."""
     recipe_cache: dict[int, Recipe] = {}
+    restrictions = allergen_service.load_household_restrictions(db)
     for e in entries:
         if e.get("new_recipe"):
             ingredient_names = [i.get("ingredient_name", "") for i in e["new_recipe"].get("ingredients", [])]
@@ -447,7 +449,7 @@ def attach_restriction_warnings(db: Session, entries: list[dict]) -> list[dict]:
             ingredient_names = [i.ingredient_name for i in recipe.ingredients] if recipe else []
         else:
             ingredient_names = []
-        check = allergen_service.check_household_restrictions(db, ingredient_names)
+        check = allergen_service.check_household_restrictions(db, ingredient_names, restrictions)
         e["restriction_warnings"] = [vars(m) for m in check.matches]
         e["cross_contact_warnings"] = [vars(m) for m in check.cross_contact_matches]
     return entries

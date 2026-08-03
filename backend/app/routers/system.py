@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.system import PromptUpdate, SettingUpdate
-from app.services import backup_service, google_calendar_service, icloud_calendar_service, ollama_client, settings_service, tavily_client
+from app.services import (
+    backup_service,
+    google_calendar_service,
+    icloud_calendar_service,
+    ollama_client,
+    settings_service,
+    tavily_client,
+)
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 

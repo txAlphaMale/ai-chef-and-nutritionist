@@ -178,7 +178,7 @@ export default function RecipeChat({ recipeId, servings, onRecipeUpdated }) {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={busy}
-              style={{ flex: 1 }}
+              className="u-flex-1"
             />
             <button className="btn btn-primary" onClick={send} disabled={busy || !input.trim()}>
               {busy && <span className="busy-spinner" aria-hidden="true" />}

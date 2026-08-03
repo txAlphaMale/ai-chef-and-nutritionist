@@ -15,15 +15,24 @@ COPY alembic.ini .
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
-# SQLite + uploaded images live here; mount a volume over this path
-RUN mkdir -p /app/data
-VOLUME ["/app/data"]
+# SQLite + uploaded images live here; docker-compose.yml mounts the
+# chef-data named volume over it.
+#
+# No VOLUME directive. VOLUME is not what makes the Compose mount work --
+# Compose mounts the named volume regardless -- and it has a real cost:
+# anyone who runs this image directly (`docker run`) silently gets an
+# ANONYMOUS volume per container instead of an error or an obvious
+# ephemeral directory, so their data appears to persist and then vanishes
+# the next time they recreate the container without spotting why.
+RUN mkdir -p /app/data /app/tls
 
-# Backlog B15.1 (2026-08-01) -- shared with the frontend container via
-# the chef-tls volume, so both can serve the same certificate. See
-# app/services/tls_service.py's module docstring.
-RUN mkdir -p /app/tls
-VOLUME ["/app/tls"]
+# Runs as a non-root user. The uid is fixed rather than auto-assigned so
+# that files on the shared chef-tls volume have predictable ownership
+# across BOTH images -- the backend writes the certificate and the
+# frontend has to be able to read it, and tls_service writes the key
+# 0600, so "same uid in both containers" is what makes that work.
+RUN groupadd --gid 10001 chef \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin chef
 
 EXPOSE 8095 8446
 

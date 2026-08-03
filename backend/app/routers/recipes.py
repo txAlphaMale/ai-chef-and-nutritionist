@@ -7,6 +7,7 @@ swallow them.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -46,8 +47,16 @@ router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
 
 def _to_read(
-    recipe: Recipe, db: Session, servings_shown: int | None = None, unit_system: str = "original"
+    recipe: Recipe,
+    db: Session,
+    servings_shown: int | None = None,
+    unit_system: str = "original",
+    restrictions: allergen_service.HouseholdRestrictions | None = None,
 ) -> RecipeRead:
+    """Audit P1-9: pass `restrictions` when rendering MORE THAN ONE
+    recipe in a request. Without it this re-reads household preferences
+    per recipe, which on the Recipes list page meant one query per row on
+    the page users open most."""
     servings_shown = servings_shown or recipe.default_servings
     ingredients = [
         {
@@ -75,7 +84,7 @@ def _to_read(
     # to come from the ORM object directly in that branch.
     display_ingredients = recipe_service.apply_display_unit_system(scaled, unit_system)
     restriction_check = allergen_service.check_household_restrictions(
-        db, [ing.ingredient_name for ing in recipe.ingredients]
+        db, [ing.ingredient_name for ing in recipe.ingredients], restrictions
     )
     return RecipeRead(
         id=recipe.id,
@@ -137,7 +146,8 @@ def list_recipes(
     recipes = query.order_by(Recipe.title).all()
     if tag:
         recipes = [r for r in recipes if tag.lower() in {t.name for t in r.tags}]
-    return [_to_read(r, db) for r in recipes]
+    restrictions = allergen_service.load_household_restrictions(db)
+    return [_to_read(r, db, restrictions=restrictions) for r in recipes]
 
 
 @router.post("/import", response_model=JobEnqueuedResponse, status_code=202)
@@ -204,7 +214,7 @@ async def import_recipe(
             if url:
                 try:
                     html = recipe_service.fetch_html(url)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     raise RuntimeError(f"Could not fetch that URL: {exc}") from exc
 
                 # Backlog B9.3: try the page's own structured schema.org
@@ -233,10 +243,8 @@ async def import_recipe(
                     fetched = recipe_service.fetch_image_bytes(image_url)
                     if fetched:
                         raw_image_bytes, image_content_type = fetched
-                        try:
+                        with contextlib.suppress(ValueError):
                             image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-                        except ValueError:
-                            pass  # unsupported content type -- skip, not fatal to the import
 
                 if jsonld_parsed is not None:
                     raw_output = (
@@ -378,7 +386,8 @@ def confirm_folder_import(payload: RecipeFolderImportConfirmRequest, db: Session
     db.commit()
     for recipe in created:
         db.refresh(recipe)
-    return [_to_read(r, db) for r in created]
+    restrictions = allergen_service.load_household_restrictions(db)
+    return [_to_read(r, db, restrictions=restrictions) for r in created]
 
 
 @router.get("/{recipe_id}", response_model=RecipeRead)
@@ -412,7 +421,8 @@ def list_recipe_variants(recipe_id: int, db: Session = Depends(get_db)):
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    return [_to_read(v, db) for v in recipe.variants]
+    restrictions = allergen_service.load_household_restrictions(db)
+    return [_to_read(v, db, restrictions=restrictions) for v in recipe.variants]
 
 
 @router.post("", response_model=RecipeRead, status_code=201)

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, JSON, String, Text
+from sqlalchemy import JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.models.base import UtcDateTime, utc_now
 
 
 class ChatMessage(Base):
@@ -24,4 +25,4 @@ class ChatMessage(Base):
     # chat_service.py for the action schema and routers/chat.py for how
     # a confirmed action maps to an existing endpoint call.
     actions: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, index=True)

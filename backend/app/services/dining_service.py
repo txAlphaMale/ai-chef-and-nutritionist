@@ -1,51 +1,38 @@
-"""Backlog B10.1 (author-requested group, 2026-08-01): a dining-out
-finder -- restaurants near a given location, checked deterministically
-against the household's actual restriction taxonomy (allergen_service.py)
+"""Dining out: restaurants near a location, checked deterministically
+against the household's own restriction taxonomy (allergen_service.py)
 rather than an LLM guessing at safety.
 
-RESEARCH, verified live this session rather than assumed:
-- Find Me Gluten Free (the celiac-tooling category leader) publishes no
-  public API -- confirmed again, same finding as the original B10.1
-  backlog research.
-- OpenStreetMap's `diet:*` tag namespace (wiki.openstreetmap.org/wiki/
-  Key:diet:*, fetched live) is free, keyless, and has an APPROVED tag
-  for exactly this household's stated need: `diet:gluten_free`, with
-  documented values `only`/`yes`/`no` across the whole `diet:*`
-  namespace's own page, and `diet:gluten_free`'s OWN dedicated page
-  additionally documenting a fourth value, `limited` (flagged there as
-  "dubious/under discussion," not an official addition to the general
-  namespace) -- checked both pages separately rather than assuming they
-  agree, since the general Key:diet:* page's own "Possible tagging
-  mistakes" section explicitly lists `diet:vegetarian=limited` as a
-  MISTAKE to avoid, while diet:gluten_free's own page treats it as a
-  real, if contested, value. All four values are handled by
-  `evaluate_restrictions()` below.
-- CRITICAL LIMITATION, found by reading the wiki's own "Diet types"
-  table directly rather than assuming coverage: OSM's `diet:*` namespace
-  has NO tag for 7 of this app's 10 allergen-taxonomy entries (eggs,
-  fish, shellfish, tree_nuts, peanuts, soybeans, sesame --
-  allergen_service.ALLERGEN_CHOICES). The namespace covers dietary
-  PATTERNS (vegetarian/vegan/halal/kosher/gluten_free/dairy_free/keto/
-  etc.), not individual FDA-style allergen avoidance. This is a hard,
-  structural gap -- surfaced explicitly in every search result via
-  `allergens_with_no_data_source`, never silently dropped or glossed
-  over as "looks fine."
+**Safety framing, which governs everything below: this module never
+asserts a restaurant is safe.** It reports what a crowd-sourced OSM tag
+says, or that no tag exists, always paired with a caution to verify with
+the restaurant directly. A missing tag is UNKNOWN, never an implicit "no
+allergens present". Even `diet:gluten_free=only` is a crowd-sourced claim
+about general menu composition, not a guarantee about a given kitchen's
+cross-contact practices on a given day.
 
-SAFETY FRAMING (the backlog's own explicit requirement): this module
-NEVER asserts a restaurant is safe. It reports what a crowd-sourced OSM
-tag says (or that none exists), always paired with a caution to verify
-directly with the restaurant, and treats a missing tag as UNKNOWN, not
-as an implicit "no allergens present." Even a `diet:gluten_free=only`
-tag is a crowd-sourced claim about general menu composition, not a
-guarantee against a specific kitchen's cross-contact practices on a
-given day -- the caution message says so explicitly.
+Data source: OpenStreetMap's `diet:*` tag namespace, via Overpass. Free,
+keyless, and it has an approved tag for the household's stated need.
+Find Me Gluten Free -- the obvious alternative -- publishes no public API.
 
-Tavily enrichment (the backlog's OPTIONAL secondary data source, for
-surfacing menu pages/recent reviews) is deliberately NOT built in this
-pass -- the backlog's own text calls it optional, and the required,
-safety-relevant piece is the deterministic OSM check above. A
-reasonable follow-up once real usage shows whether the in-app OSM-only
-result is enough on its own.
+Two facts about that namespace that the code has to respect:
+
+- **Values.** The general `Key:diet:*` page documents `only`/`yes`/`no`.
+  `diet:gluten_free`'s own page documents a fourth, `limited`, flagged
+  there as contested. The two pages genuinely disagree: the general
+  page's "Possible tagging mistakes" section lists `diet:vegetarian=
+  limited` as a mistake, while diet:gluten_free's page treats `limited`
+  as real. `evaluate_restrictions()` handles all four.
+- **Coverage gap, structural and unfixable here.** `diet:*` describes
+  dietary PATTERNS (vegetarian/vegan/halal/kosher/gluten_free/dairy_free/
+  keto), not FDA-style individual allergen avoidance. It has no tag for 7
+  of this app's 10 allergens: eggs, fish, shellfish, tree nuts, peanuts,
+  soybeans, sesame. Every search result reports this explicitly via
+  `allergens_with_no_data_source` -- it is never silently dropped, and
+  absence of a tag is never rendered as "looks fine".
+
+Tavily enrichment (menu pages, recent reviews) is not built: the
+deterministic OSM check is the safety-relevant half, and a second source
+would only add confidence this module deliberately declines to express.
 """
 from __future__ import annotations
 
@@ -54,52 +41,35 @@ import math
 import httpx
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-# Fallback mirror (2026-08-02, author-reported live: "502 Could not reach
-# OpenStreetMap's Overpass API: Server error '504 Gateway Timeout'", hit
-# AFTER the 406/User-Agent fix above already deployed -- a different,
-# genuine failure mode: overpass-api.de's own gateway returned a real 504,
-# meaning the free public instance was itself overloaded/slow, not
-# anything wrong with this app's request). overpass-api.de's own usage
-# policy page only asks callers to stay under 10,000 queries/day and 1GB/
-# day -- it doesn't promise uptime, and the public instance is a shared,
-# best-effort community resource. Verified live (wiki.openstreetmap.org/
-# wiki/Overpass_API, "Public Overpass API instances" table, fetched
-# 2026-08-02) rather than guessed at a URL: private.coffee's instance
-# (formerly overpass.kumi.systems) is a real, currently-listed, global-
-# coverage mirror with an explicit "no rate limit in place" policy and
-# comparable hardware (4 servers, 20 cores/256GB RAM each) -- a
-# reasonable single fallback rather than guessing at an arbitrary mirror.
+# One fallback mirror, because the primary is a shared community
+# instance: overpass-api.de's usage policy asks callers to stay under
+# 10,000 queries and 1GB per day, and promises no uptime in return. A 504
+# from it means the public instance is overloaded, not that the request
+# was wrong. private.coffee (formerly overpass.kumi.systems) is a listed
+# global-coverage mirror with no rate limit of its own.
 OVERPASS_FALLBACK_URL = "https://overpass.private.coffee/api/interpreter"
 OVERPASS_TIMEOUT = 20.0
 
-# Backlog B10.1 follow-up (author-requested 2026-08-02): geocoding, so an
-# address or zip code works as well as manually-typed coordinates or
-# browser geolocation (the latter needing a secure context, and even then
-# capable of hanging/failing on some devices -- see PROJECT-PLAN.md's
-# geolocation bug-fix notes). Nominatim is OSM's own free, keyless
-# geocoder -- the same data-source family and "no per-user API key to
-# distribute with a self-hosted repo" reasoning as the Overpass search
-# above, not a new dependency class for this app.
+# Geocoding, so an address or zip code works as well as coordinates or
+# browser geolocation -- the last of which needs a secure context and can
+# still hang on some devices. Nominatim is OSM's own free, keyless
+# geocoder: same data family as the Overpass search above, and no
+# per-user API key to distribute with a self-hosted repo.
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_TIMEOUT = 15.0
 
-# Backlog B10.1 follow-up (author-requested 2026-08-02, second round): a
-# third location option alongside GPS/manual address. IMPORTANT to
-# understand what this actually returns -- it geolocates the BACKEND
-# CONTAINER's own outbound IP address, not the browsing device's IP.
-# For this app's actual deployment shape (self-hosted, backend and
-# household on the same home network, no reverse proxy in front per the
-# project's own documented "known simplification"), the backend's
-# outbound IP genuinely IS the household's ISP-assigned address, so this
-# gives a real, useful city-level fix for "where is this household
-# probably eating" -- but it would be WRONG if the app were ever
-# accessed remotely (VPN, travel, a cloud-hosted deployment), since it
-# would report the SERVER's location, not the requesting device's. The
-# frontend labels this "approximate (network-based)" rather than
-# implying device-level accuracy, and this docstring is the reason why.
-# ipwho.is chosen for the same free/keyless/no-API-key reasoning as
-# Nominatim/Overpass above -- verified live (2026-08-02) to return
-# latitude/longitude/city/region/country plus a `success` bool.
+# A third location option alongside GPS and a typed address.
+#
+# KNOW WHAT THIS RETURNS: it geolocates the BACKEND CONTAINER's outbound
+# IP, not the browsing device's. On the normal deployment -- self-hosted,
+# household and backend on one home network -- those are the same ISP
+# address, so it gives a genuine city-level fix. Accessed remotely (VPN,
+# travelling, a cloud host) it reports the SERVER's location instead,
+# which is wrong for the user's purpose. That is why the frontend labels
+# it "approximate (network-based)" rather than implying device accuracy.
+#
+# ipwho.is for the same free/keyless reasoning as Nominatim and Overpass;
+# it returns latitude/longitude/city/region/country plus a `success` bool.
 IPWHOIS_URL = "https://ipwho.is/"
 IPWHOIS_TIMEOUT = 10.0
 
@@ -240,32 +210,22 @@ async def search_nearby_restaurants(lat: float, lon: float, radius_m: int = 5000
     pass against the actual real deployment target once network access
     exists there.
 
-    Bug fix (2026-08-02, author-reported live: a 406 first, then --
-    after that was fixed by adding the User-Agent header below -- a real
-    504 Gateway Timeout from overpass-api.de's own server). Tries the
-    main instance first, then falls back to OVERPASS_FALLBACK_URL ONLY on
-    a server-side failure (5xx status, timeout, or connection error) --
-    deliberately does NOT retry on a 4xx client error (e.g. a malformed
-    query), since that would fail identically on the mirror and just
-    delay surfacing a real bug in this app's own request."""
+    Tries the main instance, then OVERPASS_FALLBACK_URL, but ONLY on a
+    server-side failure (5xx, timeout, connection error). A 4xx is
+    deliberately not retried: a malformed query fails identically on the
+    mirror, so retrying would only delay surfacing a real bug here."""
     query = build_overpass_query(lat, lon, radius_m)
     urls = (OVERPASS_URL, OVERPASS_FALLBACK_URL)
     for attempt, url in enumerate(urls):
         is_last_attempt = attempt == len(urls) - 1
         try:
             async with httpx.AsyncClient(timeout=OVERPASS_TIMEOUT) as client:
-                # Bug fix (2026-08-02, author-reported live: "502 Could
-                # not reach OpenStreetMap's Overpass API: Client error
-                # 406 Not Acceptable"). This call went out with no
-                # headers at all, so httpx sent its own default User-
-                # Agent (e.g. "python-httpx/0.27.0"). overpass-api.de
-                # started rejecting generic/default HTTP-client User-
-                # Agents with 406 as an anti-abuse measure -- the same
-                # courtesy-identification requirement Nominatim's usage
-                # policy already documents below, just enforced by
-                # Overpass's own server instead of a written policy.
-                # Reuses the same identifying header for both OSM
-                # services rather than keeping two near-duplicate ones.
+                # The User-Agent is required, not decorative:
+                # overpass-api.de returns 406 for a default HTTP-client
+                # User-Agent as an anti-abuse measure. Same courtesy
+                # identification Nominatim's usage policy asks for in
+                # writing, just enforced by the server here -- so one
+                # header serves both OSM services.
                 response = await client.post(url, data={"data": query}, headers=_osm_headers())
                 response.raise_for_status()
             return parse_overpass_response(response.json(), lat, lon)

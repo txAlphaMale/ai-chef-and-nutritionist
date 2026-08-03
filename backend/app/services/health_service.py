@@ -233,7 +233,7 @@ def extract_bloodwork_text(raw_bytes: bytes, filename: str, content_type: str) -
         return extract_pdf_text(raw_bytes)
     try:
         return raw_bytes.decode("utf-8", errors="replace")
-    except Exception:  # noqa: BLE001 -- defensive; decode() with errors="replace" shouldn't raise
+    except Exception:
         return ""
 
 
@@ -477,7 +477,7 @@ def parse_apple_health_export(raw_bytes: bytes, filename: str) -> list[dict]:
     daily_steps: dict[str, float] = {}
 
     with io.BytesIO(xml_bytes) as stream:
-        for event, elem in ET.iterparse(stream, events=("end",)):
+        for _event, elem in ET.iterparse(stream, events=("end",)):
             if elem.tag != "Record":
                 continue
             record_type = elem.get("type")
@@ -499,7 +499,7 @@ def parse_apple_health_export(raw_bytes: bytes, filename: str) -> list[dict]:
         {
             "entry_date": day,
             "weight_kg": round(daily_weight_kg[day], 2) if day in daily_weight_kg else None,
-            "steps": int(round(daily_steps[day])) if day in daily_steps else None,
+            "steps": round(daily_steps[day]) if day in daily_steps else None,
         }
         for day in all_days
     ]

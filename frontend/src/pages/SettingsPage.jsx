@@ -340,7 +340,7 @@ export default function SettingsPage() {
   async function refreshBackupManifest() {
     try {
       setBackupManifest(await api.get("/system/backup/manifest"));
-    } catch (e) {
+    } catch {
       setBackupManifest(null);
     }
   }
@@ -409,7 +409,7 @@ export default function SettingsPage() {
       groups[tab].push(spec);
     }
     return groups;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [otherSettings]);
 
   // Backlog B12.1 -- Google Calendar connection status + the OAuth
@@ -451,7 +451,7 @@ export default function SettingsPage() {
       window.history.replaceState(null, "", window.location.pathname + window.location.search + "#/settings");
     }
     refreshGcalStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   async function connectGoogleCalendar() {
@@ -713,7 +713,7 @@ export default function SettingsPage() {
       setSelfSignedHosts((prev) => prev || host);
       setCsrCommonName((prev) => prev || host);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   async function saveSetting(spec) {
@@ -932,7 +932,7 @@ export default function SettingsPage() {
           Integrations tab. */}
       <div className="card">
         <div className="page-toolbar">
-          <h3 style={{ margin: 0 }}>Connection status</h3>
+          <h3 className="u-no-margin">Connection status</h3>
           <button className="btn btn-secondary btn-sm" onClick={refreshStatus} disabled={statusLoading}>
             {statusLoading ? "Checking..." : "Refresh"}
           </button>
@@ -1318,7 +1318,7 @@ export default function SettingsPage() {
       {activeTab === "security" && (
         <div className="card">
           <div className="page-toolbar">
-            <h3 style={{ margin: 0 }}>Certificate (HTTPS)</h3>
+            <h3 className="u-no-margin">Certificate (HTTPS)</h3>
             <button className="btn btn-secondary btn-sm" onClick={refreshTlsStatus} disabled={tlsBusy}>
               Refresh
             </button>
@@ -1503,7 +1503,7 @@ export default function SettingsPage() {
       {activeTab === "backup" && (
         <div className="card">
           <div className="page-toolbar">
-            <h3 style={{ margin: 0 }}>Backup</h3>
+            <h3 className="u-no-margin">Backup</h3>
             <button className="btn btn-secondary btn-sm" onClick={refreshBackupManifest}>
               Refresh
             </button>

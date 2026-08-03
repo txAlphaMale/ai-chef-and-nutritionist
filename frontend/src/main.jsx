@@ -17,7 +17,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 // never competes with the initial page render for bandwidth/CPU.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
+    // The ?v= is what makes cache invalidation automatic. A browser
+    // re-fetches and re-installs a service worker whose URL changed, and
+    // sw.js reads this value to name its cache -- so each build gets a
+    // fresh cache and the activate handler deletes every older one. See
+    // vite.config.js's __BUILD_ID__ for why the previous hand-maintained
+    // version constant did not work.
+    navigator.serviceWorker.register(`/sw.js?v=${__BUILD_ID__}`).catch(() => {
       // Non-fatal -- the app works identically without it, just without
       // the app-shell caching/offline-reload benefit.
     });

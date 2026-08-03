@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Table, Text
+from sqlalchemy import JSON, Boolean, Column, Float, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
-from app.models.base import TimestampMixin
+from app.models.base import TimestampMixin, UtcDateTime
 
 recipe_tag_links = Table(
     "recipe_tag_links",
@@ -101,11 +101,11 @@ class Recipe(Base, TimestampMixin):
     # proposing a variant so the user can tell it apart from siblings.
     variant_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    ingredients: Mapped[list["RecipeIngredient"]] = relationship(
+    ingredients: Mapped[list[RecipeIngredient]] = relationship(
         back_populates="recipe", cascade="all, delete-orphan"
     )
-    tags: Mapped[list["MealTag"]] = relationship(secondary=recipe_tag_links)
-    variants: Mapped[list["Recipe"]] = relationship(
+    tags: Mapped[list[MealTag]] = relationship(secondary=recipe_tag_links)
+    variants: Mapped[list[Recipe]] = relationship(
         "Recipe",
         backref=backref("parent_recipe", remote_side="Recipe.id"),
         foreign_keys=[parent_recipe_id],
@@ -137,7 +137,7 @@ class RecipeIngredient(Base):
     # USDA/OFF on every recipe view; a future "refresh stale resolutions"
     # pass can use resolved_at to decide what's worth re-fetching.
     nutrition_per_100g: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     # Backlog B10.5 -- implied density (grams per mL), parsed from USDA's
     # foodPortions data at the same resolution pass as nutrition_per_100g
@@ -150,4 +150,4 @@ class RecipeIngredient(Base):
     # e.g. if USDA/OFF never reported a volume-unit portion for it).
     density_g_per_ml: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    recipe: Mapped["Recipe"] = relationship(back_populates="ingredients")
+    recipe: Mapped[Recipe] = relationship(back_populates="ingredients")

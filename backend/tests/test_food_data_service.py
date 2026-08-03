@@ -14,8 +14,8 @@ import httpx
 import pytest
 
 from app.models import RecipeIngredient
-from app.services import food_data_service as fds, settings_service
-
+from app.services import food_data_service as fds
+from app.services import settings_service
 
 # --- Pure parsing functions ---------------------------------------------
 

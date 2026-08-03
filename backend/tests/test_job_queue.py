@@ -73,7 +73,6 @@ def test_jobs_run_strictly_serially_not_concurrently():
     # back must never overlap in wall-clock time, even though nothing
     # here awaits the first one before submitting the second.
     events = []
-    lock_free_until = {"t": 0.0}
 
     def _slow(tag):
         start = time.time()

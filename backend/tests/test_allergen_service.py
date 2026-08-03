@@ -11,7 +11,6 @@ from __future__ import annotations
 from app.models import HouseholdPreferences
 from app.services import allergen_service as ag
 
-
 # --- find_allergen_matches ------------------------------------------------
 
 
@@ -192,8 +191,8 @@ def test_check_household_restrictions_empty_allergen_list_is_no_conflict(db_sess
 
 
 def test_allergen_choices_keys_match_keyword_dict():
-    assert ag.ALLERGEN_KEYS == set(ag.ALLERGEN_KEYWORDS.keys())
+    assert set(ag.ALLERGEN_KEYWORDS.keys()) == ag.ALLERGEN_KEYS
 
 
 def test_observance_levels_keys_are_the_documented_three():
-    assert ag.OBSERVANCE_LEVEL_KEYS == {"flexible", "strict_gluten_only", "strict_no_cross_contact"}
+    assert {"flexible", "strict_gluten_only", "strict_no_cross_contact"} == ag.OBSERVANCE_LEVEL_KEYS

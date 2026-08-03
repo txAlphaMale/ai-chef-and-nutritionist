@@ -4,7 +4,7 @@ computed server-side from weight_kg + the member's height_cm (see
 routers/health.py) rather than trusted from the client."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 

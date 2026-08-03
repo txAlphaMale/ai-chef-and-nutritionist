@@ -82,6 +82,7 @@ restart step.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import ipaddress
 import json
@@ -155,10 +156,8 @@ def _write_active(key_pem: bytes, cert_pem: bytes, chain_pem: bytes | None = Non
 
 def _clear_pending() -> None:
     for p in (PENDING_KEY_PATH, PENDING_CSR_PATH):
-        try:
+        with contextlib.suppress(OSError):
             os.remove(p)
-        except OSError:
-            pass
 
 
 def mark_applied() -> None:
@@ -249,7 +248,7 @@ def status() -> dict:
                 "self_issued": (cert.issuer == cert.subject),
             }
         )
-    except Exception as e:  # noqa: BLE001 -- a corrupt/unreadable cert file shouldn't 500 this endpoint
+    except Exception as e:
         out["error"] = f"could not read the installed certificate: {e}"
     return out
 
@@ -417,7 +416,7 @@ def generate_csr(common_name: str, sans: list[str] | None = None) -> str:
         raise ValueError("common_name is required")
     sans = [s.strip() for s in (sans or []) if s and s.strip()]
     if common_name not in sans:
-        sans = [common_name] + sans
+        sans = [common_name, *sans]
     _ensure_dir()
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     csr = (
@@ -476,10 +475,8 @@ def clear_active_cert() -> dict:
     """Removes the active cert/key -- the next (self-triggered) restart
     serves plain HTTP again."""
     for p in (CERT_PATH, KEY_PATH):
-        try:
+        with contextlib.suppress(OSError):
             os.remove(p)
-        except OSError:
-            pass
     _write_meta({"method": None, "domain": None, "restart_required": True})
     restart_to_apply()
     return status()

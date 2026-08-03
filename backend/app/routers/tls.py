@@ -55,7 +55,7 @@ def tls_self_signed(payload: SelfSignedRequest):
         )
     try:
         return {"ok": True, "status": tls_service.generate_self_signed(hosts)}
-    except Exception as e:  # noqa: BLE001 -- surfaced to the user as a plain error message, not a stack trace
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"self-signed generation failed: {e}") from e
 
 
@@ -71,7 +71,7 @@ def tls_csr(payload: CsrRequest):
     sans = [s.strip() for s in payload.sans if s.strip()]
     try:
         csr_pem = tls_service.generate_csr(cn, sans)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"CSR generation failed: {e}") from e
     return {
         "ok": True,
@@ -91,7 +91,7 @@ def tls_import_cert(payload: ImportCertRequest):
         return {"ok": True, "status": tls_service.import_signed_certificate(payload.cert_pem, payload.chain_pem)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"certificate import failed: {e}") from e
 
 

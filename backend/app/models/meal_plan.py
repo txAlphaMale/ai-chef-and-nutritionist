@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.database import Base
 from app.models.base import TimestampMixin
+
+if TYPE_CHECKING:  # SQLAlchemy resolves these from its own registry at
+    # mapper-config time, so they are not needed at runtime -- but without
+    # the import the names in the Mapped["..."] annotations below are
+    # undefined to every reader, type checker and linter.
+    from app.models.recipe import Recipe
 
 
 class MealPlan(Base, TimestampMixin):
@@ -21,7 +28,7 @@ class MealPlan(Base, TimestampMixin):
         ForeignKey("kitchen_profiles.id"), nullable=True
     )
 
-    entries: Mapped[list["MealPlanEntry"]] = relationship(
+    entries: Mapped[list[MealPlanEntry]] = relationship(
         back_populates="meal_plan", cascade="all, delete-orphan"
     )
 
@@ -104,9 +111,9 @@ class MealPlanEntry(Base, TimestampMixin):
     # reference this app doesn't otherwise model.
     google_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    meal_plan: Mapped["MealPlan"] = relationship(back_populates="entries")
-    recipe: Mapped["Recipe | None"] = relationship()
-    leftover_entries: Mapped[list["MealPlanEntry"]] = relationship(
+    meal_plan: Mapped[MealPlan] = relationship(back_populates="entries")
+    recipe: Mapped[Recipe | None] = relationship()
+    leftover_entries: Mapped[list[MealPlanEntry]] = relationship(
         "MealPlanEntry",
         backref=backref("leftover_of_entry", remote_side="MealPlanEntry.id"),
         foreign_keys=[leftover_of_entry_id],

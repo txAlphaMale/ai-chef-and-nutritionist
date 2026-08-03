@@ -257,14 +257,51 @@ def check_ingredients(
     )
 
 
-def check_household_restrictions(db: Session, ingredient_names: list[str]) -> RestrictionCheckResult:
-    """Convenience wrapper used by every router call site: loads the
-    (singleton) household preferences and runs check_ingredients against
-    them. Returns an empty (no-conflict) result rather than erroring if
-    preferences don't exist yet (e.g. an unseeded DB) -- callers here
-    shouldn't each have to think about that edge case the way routers/
-    household.py's own endpoints explicitly 404 on it."""
+@dataclass(frozen=True)
+class HouseholdRestrictions:
+    """The household's restriction settings, read once and passed around.
+
+    Audit P1-9. `check_household_restrictions` re-queries
+    HouseholdPreferences on every call, and `routers/recipes.py` calls it
+    once per recipe while building a list response -- so opening the
+    Recipes page ran one preferences query per recipe, on the page users
+    open most. This type is what lets a caller do the read once and hand
+    the result down."""
+
+    restricted_allergens: list[str]
+    gluten_observance_level: str | None
+
+
+NO_RESTRICTIONS = HouseholdRestrictions(restricted_allergens=[], gluten_observance_level=None)
+
+
+def load_household_restrictions(db: Session) -> HouseholdRestrictions:
+    """Reads the singleton household preferences once. Returns
+    NO_RESTRICTIONS rather than erroring when preferences don't exist yet
+    (an unseeded database) -- callers here shouldn't each have to think
+    about that edge case the way routers/household.py's own endpoints
+    explicitly 404 on it."""
     prefs = db.query(HouseholdPreferences).first()
     if prefs is None:
-        return RestrictionCheckResult()
-    return check_ingredients(ingredient_names, prefs.restricted_allergens or [], prefs.gluten_observance_level)
+        return NO_RESTRICTIONS
+    return HouseholdRestrictions(
+        restricted_allergens=prefs.restricted_allergens or [],
+        gluten_observance_level=prefs.gluten_observance_level,
+    )
+
+
+def check_household_restrictions(
+    db: Session, ingredient_names: list[str], restrictions: HouseholdRestrictions | None = None
+) -> RestrictionCheckResult:
+    """Convenience wrapper used by every router call site.
+
+    Pass `restrictions` when checking several recipes in one request --
+    it skips the preferences query entirely, which is the whole point of
+    `load_household_restrictions` above. Omitting it keeps the original
+    one-call-one-query behaviour, so single-recipe call sites needed no
+    change."""
+    if restrictions is None:
+        restrictions = load_household_restrictions(db)
+    return check_ingredients(
+        ingredient_names, restrictions.restricted_allergens, restrictions.gluten_observance_level
+    )

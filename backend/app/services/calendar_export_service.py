@@ -43,6 +43,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.models import MealPlan, MealPlanEntry
+from app.models.base import utc_now
 
 # Backlog B9.5's own stated simplification -- see module docstring.
 MEAL_TYPE_TIMES: dict[str, tuple[int, int]] = {
@@ -132,7 +133,7 @@ def build_ics(meal_plan: MealPlan, now: datetime | None = None) -> str:
     entries (`is_skipped`) are excluded -- there's nothing to attend.
     `now` is injectable for deterministic tests; defaults to the real
     current time for the DTSTAMP every VEVENT requires."""
-    stamp = _format_datetime((now or datetime.utcnow()))
+    stamp = _format_datetime(now or utc_now())
 
     lines = [
         "BEGIN:VCALENDAR",

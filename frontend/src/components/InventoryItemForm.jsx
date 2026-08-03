@@ -74,7 +74,7 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
     if (form.package_quantity !== "" && !Number.isNaN(count) && !Number.isNaN(size) && size > 0) {
       setForm((f) => ({ ...f, quantity: count * size }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [form.package_count, form.package_quantity]);
 
   function setQuantity(value) {
@@ -118,7 +118,7 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
       }
     }, 500);
     return () => clearTimeout(debounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [form.name, form.category, form.expiration_date]);
 
   function applySuggestedDate() {
@@ -261,7 +261,7 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
           <input
             type="number"
             step="any"
-            style={{ width: "6em" }}
+            className="input-unit"
             value={form.purchased_quantity ?? ""}
             onChange={(e) => set("purchased_quantity", e.target.value)}
             placeholder={String(initial.quantity ?? "")}

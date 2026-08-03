@@ -297,7 +297,7 @@ def test_sync_entry_not_skipped_pushes(db_session, monkeypatch):
 
 def test_resync_all_reports_plan_and_entry_counts(db_session, monkeypatch):
     _mark_connected(db_session)
-    plan1, entry1 = _make_plan_and_entry(db_session)
+    plan1, _entry1 = _make_plan_and_entry(db_session)
     entry2 = MealPlanEntry(meal_plan_id=plan1.id, day_of_week=3, meal_type="dinner", servings=2)
     db_session.add(entry2)
     db_session.commit()

@@ -137,8 +137,16 @@ export function useStepTimers() {
     writeTimers(readTimers().filter((t) => t.id !== id));
   }, []);
 
+  // The Date.now() below is deliberate, and the only honest way to render
+  // a countdown. `remainingSeconds` is derived from wall-clock time, not
+  // from state, so it MUST be recomputed on every render; holding it in
+  // state instead would be a second copy of the truth that drifts
+  // whenever a render is skipped. The re-render that makes it visible is
+  // driven by the interval above, so the impurity is bounded and
+  // intended rather than accidental.
   const withRemaining = timers.map((t) => ({
     ...t,
+    // eslint-disable-next-line react-hooks/purity
     remainingSeconds: Math.max(0, t.durationSeconds - (Date.now() - t.startedAt) / 1000),
   }));
 

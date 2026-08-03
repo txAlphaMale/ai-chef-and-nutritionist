@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.services import ollama_client, settings_service
 
 
@@ -289,12 +291,8 @@ def test_chat_logs_empty_content_clearly_rather_than_hiding_it(db_session, capsy
 def test_chat_logs_and_reraises_on_exception(db_session, capsys):
     mock_client = MagicMock()
     mock_client.chat.side_effect = RuntimeError("connection refused")
-    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
-        try:
-            ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
-            assert False, "expected the exception to propagate"
-        except RuntimeError:
-            pass
+    with patch("app.services.ollama_client.ollama.Client", return_value=mock_client), pytest.raises(RuntimeError):
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
     out = capsys.readouterr().out
     assert "EXCEPTION" in out
     assert "connection refused" in out

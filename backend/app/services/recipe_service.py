@@ -3,6 +3,7 @@
 context for the recipe-scoped chat feature."""
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import re
@@ -14,8 +15,8 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
-from app.services import ollama_client, recipe_image_service, unit_conversion_service
 from app.schemas.ai_extraction import ExtractedRecipe, ExtractedRecipeEdit, schema_of
+from app.services import ollama_client, recipe_image_service, unit_conversion_service
 from app.services.ai_json_extraction import extract_json_object
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
@@ -659,7 +660,7 @@ def extract_jsonld_recipe(html: str) -> dict | None:
     extraction path in that case, this never raises for "not found"."""
     try:
         tree = lxml.html.fromstring(html)
-    except Exception:  # noqa: BLE001 -- unparseable HTML falls back to the Ollama path, not an error here
+    except Exception:
         return None
 
     for script in tree.xpath('//script[@type="application/ld+json"]'):
@@ -751,7 +752,7 @@ def _format_quantity(quantity: float) -> str:
     return f"{quantity:.3f}".rstrip("0").rstrip(".")
 
 
-def _jsonld_ingredient_line(ing: "RecipeIngredient") -> str:
+def _jsonld_ingredient_line(ing: RecipeIngredient) -> str:
     """Reconstructs one free-text ingredient line ('2 cups flour,
     sifted') from this app's structured quantity/unit/name/prep_note
     fields -- schema.org's recipeIngredient is itself just a list of
@@ -857,7 +858,7 @@ def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes
             if len(resp.content) > max_bytes:
                 return None
             return resp.content, content_type
-    except Exception:  # noqa: BLE001 -- network/parsing failure here is never fatal to the import
+    except Exception:
         return None
 
 
@@ -945,10 +946,8 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
             fetched = fetch_image_bytes(image_url)
             if fetched:
                 raw_image_bytes, image_content_type = fetched
-                try:
+                with contextlib.suppress(ValueError):
                     image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-                except ValueError:
-                    pass  # unsupported content type -- skip, not fatal to the import
         raw_output = (
             "(parsed directly from the file's structured schema.org Recipe data -- "
             "Ollama was not used for this import)"
@@ -963,10 +962,8 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
             response_tokens=RECIPE_RESPONSE_TOKENS,
         )
         default_source = "import_image"
-        try:
+        with contextlib.suppress(ValueError):
             image_path = recipe_image_service.save_image(content_type, raw_bytes)
-        except ValueError:
-            pass  # unsupported content type -- skip, not fatal to the import
     elif content_type == "application/pdf" or filename_lower.endswith(".pdf"):
         pdf_text = extract_pdf_text(raw_bytes)
         if not pdf_text.strip():
@@ -998,10 +995,8 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
                 fetched = fetch_image_bytes(image_url)
                 if fetched:
                     raw_image_bytes, image_content_type = fetched
-                    try:
+                    with contextlib.suppress(ValueError):
                         image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-                    except ValueError:
-                        pass  # unsupported content type -- skip, not fatal to the import
             raw_output = (
                 "(parsed directly from the file's structured schema.org Recipe data -- "
                 "Ollama was not used for this import)"
@@ -1015,8 +1010,8 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
     else:
         try:
             text_content = raw_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            raise RuntimeError("Unsupported file type for recipe import")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("Unsupported file type for recipe import") from exc
         raw_output = _extract_via_ollama(db, text_content)
         default_source = "import_file"
 

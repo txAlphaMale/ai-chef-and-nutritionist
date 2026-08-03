@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from app.services.ai_json_extraction import extract_json_array, extract_json_object, strip_reasoning
 
-
 # --- strip_reasoning -----------------------------------------------------
 
 

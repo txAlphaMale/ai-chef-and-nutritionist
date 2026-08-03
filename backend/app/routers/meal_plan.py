@@ -467,7 +467,12 @@ def update_meal_plan_entry(plan_id: int, entry_id: int, payload: MealPlanEntryUp
 def confirm_meal_plan_entry(
     plan_id: int,
     entry_id: int,
-    payload: MealPlanEntryConfirmRequest = MealPlanEntryConfirmRequest(),
+    # `= None` rather than a default instance. A Pydantic model built
+    # in a signature default is constructed ONCE at import and shared
+    # by every request that omits a body -- mutating it anywhere would
+    # leak across requests. Nothing mutates it today; this removes the
+    # possibility rather than relying on that staying true.
+    payload: MealPlanEntryConfirmRequest | None = None,
     db: Session = Depends(get_db),
 ):
     """Marks a meal as actually made and deducts its ingredients (scaled
@@ -493,6 +498,7 @@ def confirm_meal_plan_entry(
     would double-count inventory usage for a meal that was never
     separately cooked. The entry still gets marked `is_confirmed=True`
     for tracking purposes -- it just doesn't touch inventory."""
+    payload = payload or MealPlanEntryConfirmRequest()
     entry = db.get(MealPlanEntry, entry_id)
     if entry is None or entry.meal_plan_id != plan_id:
         raise HTTPException(status_code=404, detail="Meal plan entry not found")

@@ -10,7 +10,6 @@ from __future__ import annotations
 from app.models import InventoryItem
 from app.services import meal_plan_service
 
-
 # --- guess_grocery_category ----------------------------------------------
 
 

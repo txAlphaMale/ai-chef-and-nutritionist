@@ -126,7 +126,12 @@ def parse_tabular_file(raw_bytes: bytes, filename: str, content_type: str) -> tu
         rows = []
         for raw_row in row_iter:
             row = {}
-            for header, value in zip(headers, raw_row):
+            # strict=False, deliberately: a spreadsheet row that is short
+            # or long relative to the header row is normal in real
+            # exports, and the surrounding code already skips blank
+            # headers. Truncating to the shorter of the two is the
+            # intended behaviour, not an oversight.
+            for header, value in zip(headers, raw_row, strict=False):
                 if not header:
                     continue
                 row[header] = "" if value is None else str(value).strip()

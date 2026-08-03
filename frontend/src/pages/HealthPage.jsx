@@ -27,7 +27,8 @@ const emptyMetricForm = {
 };
 
 export default function HealthPage() {
-  const [preferences, setPreferences] = useState(null);
+  // Only the setter is used -- the value is read through prefsForm below.
+  const [, setPreferences] = useState(null);
   const [prefsForm, setPrefsForm] = useState(null);
   const [prefsSaving, setPrefsSaving] = useState(false);
   // Backlog B3.1/B3.2 -- the fixed allergen taxonomy + observance levels
@@ -141,7 +142,7 @@ export default function HealthPage() {
 
   useEffect(() => {
     refreshMemberData(selectedMemberId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [selectedMemberId]);
 
   async function savePreferences(e) {
@@ -325,7 +326,7 @@ export default function HealthPage() {
 
   async function confirmAllBloodworkRows() {
     for (const row of bloodworkPreview) {
-      // eslint-disable-next-line no-await-in-loop -- deliberately serial,
+       
       // same reasoning as anywhere else in this app that posts several
       // rows in sequence: keeps error attribution to one row at a time
       // rather than racing several POSTs against the same member's log.
@@ -401,7 +402,7 @@ export default function HealthPage() {
 
   async function confirmAllWearableRows() {
     for (const row of wearablePreview) {
-      // eslint-disable-next-line no-await-in-loop -- deliberately serial, same reasoning as bloodwork's own loop above.
+       
       await confirmWearableRow(row);
     }
   }
@@ -538,7 +539,7 @@ export default function HealthPage() {
 
       <div className="card">
         <div className="page-toolbar">
-          <h3 style={{ margin: 0 }}>Household members</h3>
+          <h3 className="u-no-margin">Household members</h3>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowMemberForm((v) => !v)}>
             {showMemberForm ? "Close" : "+ Add member"}
           </button>
@@ -846,7 +847,7 @@ export default function HealthPage() {
                               placeholder="sys"
                               value={row.blood_pressure_systolic}
                               onChange={(e) => updateBloodworkRow(row._key, "blood_pressure_systolic", e.target.value)}
-                              style={{ width: "3.5em" }}
+                              className="input-measure"
                             />
                             /
                             <input
@@ -854,7 +855,7 @@ export default function HealthPage() {
                               placeholder="dia"
                               value={row.blood_pressure_diastolic}
                               onChange={(e) => updateBloodworkRow(row._key, "blood_pressure_diastolic", e.target.value)}
-                              style={{ width: "3.5em" }}
+                              className="input-measure"
                             />
                           </td>
                           <td data-label="Glucose">

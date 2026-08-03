@@ -37,6 +37,28 @@
 #    that") -- built now since the author asked for it directly.
 set -e
 
+APP_UID="${APP_UID:-10001}"
+APP_GID="${APP_GID:-10001}"
+
+# Drop to the non-root `chef` user and re-exec. See the backend's own
+# entrypoint for the full reasoning behind setpriv; the short version is
+# that it is in util-linux (so no new dependency) and execs rather than
+# forks, so this script keeps PID 1 and its TERM/INT trap below still
+# fires on `docker stop`.
+#
+# No chown here: /app/tls is mounted READ-ONLY in this container (the
+# backend owns writing the certificate), and the backend's entrypoint
+# already chowns that volume to the same uid this drops to.
+#
+# Probed before it is committed to, for the same reason as the backend:
+# a hardening step must never be the thing that stops the app starting.
+if [ "$(id -u)" = "0" ]; then
+  if setpriv --reuid="$APP_UID" --regid="$APP_GID" --init-groups --inh-caps=-all true 2>/dev/null; then
+    exec setpriv --reuid="$APP_UID" --regid="$APP_GID" --init-groups --inh-caps=-all "$0" "$@"
+  fi
+  echo "[chef-frontend] WARNING: could not drop privileges -- continuing as root" >&2
+fi
+
 BACKEND_PORT="${BACKEND_PORT:-8095}"
 BACKEND_HTTPS_PORT="${BACKEND_HTTPS_PORT:-8446}"
 # The backend's Docker Compose service name -- resolves over the private

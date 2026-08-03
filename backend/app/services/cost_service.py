@@ -174,8 +174,8 @@ def compute_ingredient_line_cost(
 
 
 def _summarize(lines: list[dict]) -> dict:
-    resolved_lines = [l for l in lines if l["resolved"]]
-    total = round(sum(l["line_cost"] for l in resolved_lines), 2) if resolved_lines else None
+    resolved_lines = [line for line in lines if line["resolved"]]
+    total = round(sum(line["line_cost"] for line in resolved_lines), 2) if resolved_lines else None
     if not lines:
         provenance = PROVENANCE_NO_DATA
     elif len(resolved_lines) == len(lines):
