@@ -29,16 +29,20 @@ Started via `python -m app.run_server` -- see the repo-root Dockerfile.
 """
 
 import http.server
-import os
 import threading
 
 import uvicorn
 
+from app.config import settings
 from app.services import tls_service
 
 HOST = "0.0.0.0"
-HTTP_PORT = os.environ.get("APP_PORT", "5173")
-HTTPS_PORT = os.environ.get("APP_HTTPS_PORT", "5174")
+# From settings, not a second os.environ read -- see app/config.py.
+# tls_service.status() reports these same two values to the Settings UI,
+# and the only way they can be guaranteed to match what is actually bound
+# is for both to read one declaration.
+HTTP_PORT = settings.app_port
+HTTPS_PORT = settings.app_https_port
 
 
 def _start_redirect_listener() -> None:
@@ -80,7 +84,7 @@ def _start_redirect_listener() -> None:
 
     def _run() -> None:
         try:
-            http.server.ThreadingHTTPServer((HOST, int(HTTP_PORT)), _RedirectHandler).serve_forever()
+            http.server.ThreadingHTTPServer((HOST, HTTP_PORT), _RedirectHandler).serve_forever()
         except Exception as exc:
             print(
                 f"[run_server] HTTP->HTTPS redirect listener on port {HTTP_PORT} failed to start "
@@ -99,7 +103,7 @@ def main() -> None:
         config = uvicorn.Config(
             "app.main:app",
             host=HOST,
-            port=int(HTTPS_PORT),
+            port=HTTPS_PORT,
             ssl_certfile=tls_service.CERT_PATH,
             ssl_keyfile=tls_service.KEY_PATH,
         )
@@ -109,7 +113,7 @@ def main() -> None:
             f"one up under Settings > Security > Certificate)",
             flush=True,
         )
-        config = uvicorn.Config("app.main:app", host=HOST, port=int(HTTP_PORT))
+        config = uvicorn.Config("app.main:app", host=HOST, port=HTTP_PORT)
     uvicorn.Server(config).run()
 
 

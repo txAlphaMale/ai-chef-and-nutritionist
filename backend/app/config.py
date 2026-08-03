@@ -16,7 +16,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    backend_port: int = 8095
+    # The ports the one container actually binds. Declared here, and
+    # nowhere else, because two things need them and they must agree:
+    # run_server.py binds them, and tls_service.status() reports them to
+    # Settings > Security > Certificate so the household can be told the
+    # exact HTTPS address to trust. When those two were separate env
+    # reads they drifted -- the reported ports outlived the backend
+    # service they were named after and pointed at nothing.
+    app_port: int = 5173
+    app_https_port: int = 5174
     database_url: str = "sqlite:////app/data/chef.db"
 
 

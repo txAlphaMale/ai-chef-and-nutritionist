@@ -126,9 +126,8 @@ const SETTINGS_TABS = [
 ];
 const SETTINGS_TAB_STORAGE_KEY = "chefSettingsTab";
 
-// Corrected 2026-08-01 -- the author hit this directly in Google Cloud
-// Console: a redirect URI built from the browser's own LAN address
-// (e.g. http://10.11.24.21:8095/...) is REJECTED by Google's own
+// A redirect URI built from the browser's own LAN address
+// (e.g. http://10.11.24.21:5173/...) is REJECTED by Google's own
 // redirect URI validation, not by anything Chef does. Verified against
 // Google's own documented validation rules (Redirect URI validation
 // rules table, developers.google.com/identity/protocols/oauth2/
@@ -634,18 +633,12 @@ export default function SettingsPage() {
           // pre-fills an EMPTY, never-saved field -- never overwrites a
           // value the household already set.
           //
-          // Author-reported 2026-08-03: this used to key off
-          // `backendOrigin` (the backend container's OWN port) because
-          // Google used to redirect straight back to the backend
-          // directly. Now that frontend/server.js proxies /api/* to the
-          // backend, Google needs to redirect back to the FRONTEND's own
-          // origin instead (the proxy forwards the callback through) --
-          // hence `window.location.origin` here, not backendOrigin
-          // (which is now always empty, see api.js). Anyone who
-          // connected Google Calendar before this change will need to
-          // update both this setting and their Google Cloud Console
-          // OAuth client's authorized redirect URI -- see the WIKI's
-          // Google Calendar entry for the exact migration step.
+          // Keyed off `window.location.origin` rather than
+          // `backendOrigin`: Google redirects the BROWSER back here, so
+          // the URI has to be an address that browser can resolve. Since
+          // the API is served from this same origin, that is simply the
+          // page's own origin (and backendOrigin is empty anyway, see
+          // api.js).
           next[s.key] = suggestedRedirectUri(window.location.origin);
         } else {
           // Non-secret fields are prefilled with their current value for editing.
@@ -699,15 +692,12 @@ export default function SettingsPage() {
     refreshAuthStatus();
     refreshBackupManifest();
     refreshTlsStatus();
-    // Backlog B15.1 -- prefill the self-signed hostname/CSR common-name
-    // fields with the address this browser is already using to reach
-    // Chef (window.location -- the frontend's own address, which is the
-    // one address that actually needs a certificate now that
-    // frontend/server.js proxies to the backend internally; see the
-    // 2026-08-03 note above). A household usually wants the cert to
-    // cover exactly the address they already type into a browser --
-    // only prefills empty fields, never overwrites something the
-    // household typed.
+    // Prefill the self-signed hostname/CSR common-name fields with the
+    // address this browser is already using to reach Chef. That is the
+    // one address needing a certificate, since the whole app is served
+    // from it. A household usually wants the cert to cover exactly the
+    // address they already type into a browser -- so only prefill empty
+    // fields, never overwrite something the household typed.
     if (window.location.hostname) {
       const host = window.location.hostname;
       setSelfSignedHosts((prev) => prev || host);
@@ -1361,9 +1351,9 @@ export default function SettingsPage() {
                 <p className="hint">Applying the new certificate now -- this page may briefly disconnect and reconnect.</p>
               )}
               <p className="hint">
-                Backend: plain HTTP on port {tlsStatus.http_port}, HTTPS on port {tlsStatus.https_port} once a
-                certificate is active. The frontend (this page) has its own matching HTTP/HTTPS ports -- see the{" "}
-                <a href="#/wiki?entry=https-setup">WIKI's HTTPS entry</a> for the exact addresses.
+                Chef serves plain HTTP on port {tlsStatus.http_port} and HTTPS on port {tlsStatus.https_port} once a
+                certificate is active -- one address for the whole app, API included. See the{" "}
+                <a href="#/wiki?entry=https-setup">WIKI's HTTPS entry</a> for the exact addresses to use.
               </p>
               {tlsStatus.active && !tlsStatus.error && (
                 <p className="hint">

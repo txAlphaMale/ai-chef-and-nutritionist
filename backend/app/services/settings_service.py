@@ -286,7 +286,7 @@ SETTING_SPECS: list[SettingSpec] = [
         description=(
             "Must exactly match one of the 'Authorized redirect URIs' registered "
             "on your Google Cloud OAuth client. Google's own validation REJECTS a "
-            "raw LAN IP address here (e.g. http://10.11.24.21:8095/...) even though "
+            "raw LAN IP address here (e.g. http://10.11.24.21:5173/...) even though "
             "that's how most LAN-hosted apps are normally reached -- only a real "
             "domain name or http://localhost:<port> (any port, plain HTTP, no "
             "certificate needed) is accepted. The Settings page auto-suggests "
@@ -384,16 +384,13 @@ SETTING_SPECS: list[SettingSpec] = [
         is_secret=False,
         default="",
         description=(
-            "Comma-separated, and empty is correct for a normal setup. Audit finding "
-            "P2-2. The browser never talks to the backend directly -- the frontend "
-            "reverse-proxies /api to it -- so every request your browser makes is "
-            "already same-origin and needs no CORS permission at all. This used to be "
-            'set to "any origin on the internet, with credentials", which granted '
-            "nothing useful and said something untrue. "
+            "Comma-separated, and empty is correct for a normal setup. Chef serves the "
+            "app and the API from one origin, so every request your browser makes is "
+            "already same-origin and needs no CORS permission at all. "
             "Add an entry here only if a web page served from a DIFFERENT origin needs "
             "to call this API from a browser -- for example after adding a local DNS "
-            "name like http://chef.lan:8095 while the app still knows itself by IP. "
-            "Include the scheme and port, e.g. http://chef.lan:8095. Scripts and curl "
+            "name like http://chef.lan:5173 while the app still knows itself by IP. "
+            "Include the scheme and port, e.g. http://chef.lan:5173. Scripts and curl "
             "are unaffected either way: CORS is enforced by browsers, not by this API. "
             "Takes effect on container restart."
         ),

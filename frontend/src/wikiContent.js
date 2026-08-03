@@ -152,30 +152,26 @@ export const WIKI_ENTRIES = [
       {
         type: "note",
         text:
-          "**Updated 2026-08-03: the redirect URI now points at the FRONTEND, not the backend.** Earlier " +
-          "versions of this guide (and the app itself) had this pointing at the backend container's own port " +
-          "(`BACKEND_PORT`/`BACKEND_HTTPS_PORT` in your `.env`) directly. As of `frontend/server.js`'s reverse " +
-          "proxy, a browser never talks to the backend directly at all -- Google needs to redirect back to the " +
-          "address the browser can actually reach, which is now the frontend's (`FRONTEND_PORT`/" +
-          "`FRONTEND_HTTPS_PORT` -- whatever YOU have those set to, not necessarily Chef's `5173`/`5174` " +
-          "defaults). If you connected Google Calendar before this change: update **Google OAuth redirect URI** " +
-          "in Chef's Settings (use the auto-suggest buttons below the field, which read your browser's actual " +
-          "current address rather than assuming a default) AND update the matching \"Authorized redirect URI\" " +
-          "on your OAuth client in Google Cloud Console (Google Auth Platform → Clients → your client → edit) to " +
-          "match -- then reconnect. The Settings page shows a warning banner on this card if it detects your " +
-          "saved value doesn't match the current page's address.",
+          "**The redirect URI must be the address your browser actually reaches Chef at.** Google sends the " +
+          "browser back there after consent, so it has to be an address that browser can resolve -- Chef's own " +
+          "`APP_PORT`/`APP_HTTPS_PORT`, whatever YOU have those set to, not necessarily the `5173`/`5174` " +
+          "defaults. Two places have to agree: **Google OAuth redirect URI** in Chef's Settings (use the " +
+          "auto-suggest buttons below the field, which read your browser's actual current address rather than " +
+          "assuming a default) and the matching \"Authorized redirect URI\" on your OAuth client in Google Cloud " +
+          "Console (Google Auth Platform → Clients → your client → edit). If they drift apart, reconnecting " +
+          "fails; the Settings page shows a warning banner on this card when it detects the saved value doesn't " +
+          "match the current page's address.",
       },
       {
         type: "note",
         text:
-          "**Why a plain LAN address (like `http://10.11.24.21:<port>/...`) doesn't work here, corrected " +
-          "2026-08-01.** An earlier version of this guide suggested using the LAN address you normally reach " +
-          "Chef at directly -- that's wrong, and Google Cloud Console will reject it with \"Invalid Redirect: " +
-          "must end with a public top-level domain\" / \"must use a domain that is a valid top private domain.\" " +
-          "This is Google's own OAuth redirect URI policy, not a Chef limitation: per Google's documented " +
-          "validation rules, a redirect URI's host **cannot be a raw IP address** (with one exception, below), " +
-          "and non-localhost URIs must use HTTPS, which this LAN-only app deliberately doesn't set up (see the " +
-          "known plain-HTTP simplification elsewhere in this WIKI/PROJECT-PLAN). Two real ways forward:",
+          "**Why a plain LAN address (like `http://10.11.24.21:<port>/...`) doesn't work here.** Google Cloud " +
+          "Console rejects it with \"Invalid Redirect: must end with a public top-level domain\" / \"must use a " +
+          "domain that is a valid top private domain.\" This is Google's own OAuth redirect URI policy, not a " +
+          "Chef limitation: per Google's documented validation rules, a redirect URI's host **cannot be a raw IP " +
+          "address** (with one exception, below), and non-localhost URIs must use HTTPS. Chef can serve HTTPS " +
+          "(see the HTTPS entry in this WIKI), but a self-signed certificate does not satisfy Google here -- the " +
+          "host still has to be a real domain name rather than an IP. Two real ways forward:",
       },
       {
         type: "steps",
@@ -183,10 +179,9 @@ export const WIKI_ENTRIES = [
           "**Loopback (`http://localhost:<port>` or `http://127.0.0.1:<port>`) -- Chef's default suggestion, " +
             "zero extra setup.** Google explicitly exempts localhost/127.0.0.1 addresses from BOTH restrictions " +
             "above (any port, plain HTTP, no certificate) -- it's a documented carve-out, not a workaround. The " +
-            "catch: the OAuth \"Connect\" click has to happen from a browser that reaches Chef's FRONTEND as " +
-            "`localhost` (updated 2026-08-03 -- this used to mean the backend's own port; now it means the " +
-            "frontend's, since that's the address Google redirects back to). **Use whatever your own " +
-            "`FRONTEND_PORT` (or `FRONTEND_HTTPS_PORT`, if you've set up HTTPS) is actually set to in your " +
+            "catch: the OAuth \"Connect\" click has to happen from a browser that reaches Chef as `localhost`, " +
+            "since that's the address Google redirects back to. **Use whatever your own `APP_PORT` (or " +
+            "`APP_HTTPS_PORT`, if you've set up HTTPS) is actually set to in your " +
             "`.env`** -- the examples here show `5173`, Chef's own default, only as a placeholder; if you changed " +
             "it (e.g. because 5173 conflicted with something else on your machine), use your real value " +
             "everywhere below instead, including in the redirect URI itself. In practice this means either " +
@@ -198,7 +193,7 @@ export const WIKI_ENTRIES = [
           "**A public-DNS-to-LAN-IP hostname (e.g. sslip.io/nip.io) -- lets ANY device on the LAN click Connect, " +
             "no server-machine/tunnel needed.** Services like `sslip.io` and `nip.io` publish real, public DNS " +
             "records that embed an IP address in the hostname itself and resolve back to it -- for example " +
-            "`http://chef.10-11-24-21.sslip.io:<your-frontend-port>/api/calendar/google/callback` is a real " +
+            "`http://chef.10-11-24-21.sslip.io:<your-app-port>/api/calendar/google/callback` is a real " +
             "domain name (passes Google's check) that any device's normal DNS resolves straight back to " +
             "`10.11.24.21` -- the actual HTTP connection still goes directly over your LAN, never through " +
             "sslip.io itself; only the one-time DNS lookup touches the public internet. That lookup is not a new " +
@@ -206,7 +201,7 @@ export const WIKI_ENTRIES = [
             "screen anyway, so if it can do that, it can already resolve a public DNS name too. Trade-off: it " +
             "depends on a free third-party DNS service staying up, which loopback doesn't. To use this, register " +
             "the sslip.io-style URL as the \"Authorized redirect URI\" in step 6 below instead of localhost -- " +
-            "using YOUR frontend's actual port (`FRONTEND_PORT` in your `.env`), not necessarily 5173 -- and type " +
+            "using YOUR actual port (`APP_PORT` in your `.env`), not necessarily 5173 -- and type " +
             "that same value into Chef's **Google OAuth redirect URI** field (the auto-suggest buttons only offer " +
             "localhost or this browser's raw address, so this path needs a manual paste).",
         ],
@@ -319,13 +314,8 @@ export const WIKI_ENTRIES = [
       {
         type: "p",
         text:
-          "**Updated 2026-08-03: only ONE address needs trusting now, not two.** This used to require clicking " +
-          "through the browser warning at both the frontend's address AND the backend's separately -- the single " +
-          "most-missed step in this whole guide, and the root cause behind a real " +
-          "\"backend unreachable\"/camera-never-engages bug report from a phone on the LAN that had only ever " +
-          "trusted one of the two. `frontend/server.js` now reverse-proxies API calls to the backend itself, over " +
-          "the private Docker network -- your browser only ever talks to the frontend's own address, so there's " +
-          "only ever one certificate warning to accept, on any device.",
+          "**Only ONE address needs trusting.** Chef serves the whole app -- pages and API alike -- from a " +
+          "single address, so there is exactly one certificate warning to accept, on any device.",
       },
       {
         type: "steps",
@@ -335,11 +325,10 @@ export const WIKI_ENTRIES = [
             "reach Chef. Add any OTHER address you also use (e.g. both a LAN IP and a `.local` hostname, or " +
             "`localhost` if you sometimes browse from the server itself) -- separated by commas or spaces. A " +
             "browser rejects the certificate on any address not listed here, even if it's otherwise valid.",
-          "Click **Generate self-signed certificate**. The backend restarts itself in place within a couple of " +
-            "seconds to start serving HTTPS; the frontend container notices the same shared certificate " +
-            "independently and switches over shortly after (it polls every few seconds, no action needed).",
-          "Visit `https://<the address you chose>:5174` (the frontend's default HTTPS port -- see the note below " +
-            "if you changed `FRONTEND_HTTPS_PORT` in `.env`) and click through the warning (**Advanced > Proceed** " +
+          "Click **Generate self-signed certificate**. Chef restarts itself in place within a couple of " +
+            "seconds and comes back serving HTTPS -- no separate command, and no second service to wait on.",
+          "Visit `https://<the address you chose>:5174` (Chef's default HTTPS port -- see the note below " +
+            "if you changed `APP_HTTPS_PORT` in `.env`) and click through the warning (**Advanced > Proceed** " +
             "in Chrome; **Advanced > Accept the Risk and Continue** in Firefox; similar wording elsewhere).",
           "Reload the page (not a hard requirement, but clears up anything that loaded mid-transition). The " +
             "camera and location features now work. The old plain-HTTP address on port 5173 now auto-redirects " +
@@ -421,24 +410,21 @@ export const WIKI_ENTRIES = [
       {
         type: "p",
         text:
-          "**Reverting to plain HTTP:** click **Remove certificate** on the Settings page. Both containers " +
-          "revert to plain HTTP within a few seconds -- camera and location features stop working again, exactly " +
+          "**Reverting to plain HTTP:** click **Remove certificate** on the Settings page. Chef reverts to " +
+          "plain HTTP within a few seconds -- camera and location features stop working again, exactly " +
           "as before any of this was set up.",
       },
       {
         type: "note",
         text:
-          "**Troubleshooting a stuck \"Loading...\" page after generating a certificate, updated 2026-08-03:** " +
-          "this used to almost always mean the BACKEND's own address hadn't been separately trusted (back when " +
-          "the browser called it directly) -- that's no longer possible now that `frontend/server.js` proxies " +
-          "every API call internally, so there's no second certificate for the browser to be missing. If you're " +
-          "still stuck on \"Loading...\" after accepting the frontend's own certificate warning, open your " +
-          "browser's developer console (F12) and check the Network tab: a request to `/api/...` or `/health` " +
-          "returning a plain 502 with `\"Backend unreachable from the frontend proxy\"` means the FRONTEND " +
-          "container itself can't reach the backend container -- check that both containers are actually running " +
-          "(`docker compose ps`) and that `BACKEND_INTERNAL_HOST`/`BACKEND_PORT` in `.env` match the backend " +
-          "service's real name/port in `docker-compose.yml`, then check `docker compose logs backend` for why it " +
-          "isn't answering.",
+          "**Troubleshooting a stuck \"Loading...\" page after generating a certificate:** the API is served " +
+          "from the same address as the page, so there is no second certificate for the browser to be missing " +
+          "and no internal hop that can fail on its own. If you're still stuck after accepting the certificate " +
+          "warning, open your browser's developer console (F12) and check the Network tab. Requests to " +
+          "`/api/...` or `/health` failing to connect at all means the container isn't up or isn't listening on " +
+          "the port you're using -- check `docker compose ps` (a crash loop reports `unhealthy` rather than " +
+          "`running`) and `docker compose logs chef` for why, and confirm the port in your URL matches " +
+          "`APP_HTTPS_PORT` in `.env`.",
       },
     ],
   },

@@ -55,24 +55,14 @@ install) with no network calls, so both are fully unit-testable, unlike
 the ACME path Fiduciary itself documents as only testable against a
 stubbed acme.sh.
 
-Architecture note for Chef specifically (Fiduciary is a single
-container, so this problem doesn't arise there): Chef's frontend and
-backend are two SEPARATE containers (see docker-compose.yml), and a
-browser's Secure Context check is about the ORIGIN THE PAGE ITSELF WAS
-LOADED FROM, not which origin its API calls target -- so the frontend
-container needs to serve HTTPS too, not just the backend. Both
-containers share one cert via a new `chef-tls` Docker volume (this
-module writes it; the frontend's docker-entrypoint.sh only reads it,
-read-only) -- one cert, covering the same LAN IP/hostname(s), used by
-both. `frontend/src/api.js`'s existing `backendOrigin` already derives
-its protocol from `window.location.protocol`, so once the frontend page
-itself is HTTPS, its own API calls to the backend automatically become
-HTTPS too, provided the backend is ALSO listening on its own HTTPS port
-at that moment -- no code change needed there, just both containers
-agreeing on when a cert is active, which is what watching the SAME
-shared file gives them for free.
+One certificate covers everything, because one container serves
+everything. A browser's Secure Context check is about the origin the
+PAGE was loaded from, not the origin its API calls target -- and since
+the app and the API share an origin, a single cert on a single listener
+satisfies both. The cert lives on the `chef-tls` volume so it survives
+a rebuild.
 
-`run_server.py` (the backend container's entrypoint) picks up
+`run_server.py` (the container's entrypoint) picks up
 CERT_PATH/KEY_PATH at launch and decides plain-HTTP vs. HTTPS from their
 presence -- nothing in THIS module talks to uvicorn directly.
 `restart_to_apply()` re-execs run_server.py in place (same PID, so
@@ -98,6 +88,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+
+from app.config import settings
 
 TLS_DIR = os.environ.get("TLS_DIR", "/app/tls")
 CERT_PATH = os.path.join(TLS_DIR, "cert.pem")
@@ -214,19 +206,18 @@ def status() -> dict:
         "domain": meta.get("domain"),
         "pending_csr": os.path.isfile(PENDING_CSR_PATH),
         "restart_required": bool(meta.get("restart_required")),
-        # So the UI can tell the household (and link to) the EXACT right
-        # address instead of guessing/hardcoding a port -- these are what
-        # run_server.py itself reads to decide which port to bind, so
-        # they can never drift from reality.
-        "http_port": os.environ.get("BACKEND_PORT", "8095"),
-        "https_port": os.environ.get("BACKEND_HTTPS_PORT", "8446"),
+        # So the UI can tell the household the EXACT right address instead
+        # of guessing or hardcoding a port. These come from app/config.py,
+        # which is also where run_server.py reads the ports it binds --
+        # one declaration, so the reported address cannot disagree with
+        # the listening one.
+        "http_port": str(settings.app_port),
+        "https_port": str(settings.app_https_port),
         "note": (
-            "HTTPS is served once a certificate exists AND the backend has (re)started to pick "
+            "HTTPS is served once a certificate exists AND the app has (re)started to pick "
             "it up. That restart is automatic -- the app restarts itself in place a couple "
-            "seconds after installing a new/imported certificate, so no separate manual step is "
-            "needed; only in-flight requests at that instant are interrupted. The frontend "
-            "container picks up the same certificate independently on its own next check "
-            "(usually within a few seconds), no restart command needed there either."
+            "seconds after installing a new/imported certificate, so no separate manual step "
+            "is needed; only in-flight requests at that instant are interrupted."
         ),
     }
     if not out["active"]:

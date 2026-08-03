@@ -1,28 +1,16 @@
 // Thin fetch wrapper -- every request goes through here so error
 // handling and the JSON dance stay consistent across pages.
 //
-// Author-reported 2026-08-03: this used to hit the backend container
-// directly on its own port (BACKEND_PORT, learned at page load from
-// window.__CHEF_CONFIG__/config.js) whenever this wasn't a `npm run dev`
-// session -- a documented simplification ("Known simplification:
-// frontend/backend origins" in PROJECT-PLAN.md) that worked fine from
-// the machine running Docker, but asked every OTHER device on the LAN to
-// independently reach a second origin and (once B15.1 added HTTPS) trust
-// a second certificate. Any one of those failing looked like "Backend
-// status: unreachable" on the Home page, or a barcode scanner that
-// silently never engaged, with no obvious link back to the real cause.
+// Empty on purpose: the API and this page are served from one origin, so
+// every call is same-origin and a relative URL is correct everywhere --
+// in dev (via vite.config.js's proxy) and in the Docker image (where
+// app/static_files.py mounts the built frontend under the API) alike.
 //
-// Fixed at the architecture level, not per-symptom: frontend/server.js
-// now reverse-proxies /api/* and /health to the backend itself, over the
-// private Docker network -- the BROWSER never talks to the backend at
-// all anymore, only this frontend process does. That makes every
-// request genuinely same-origin from the browser's point of view, in
-// dev (via vite.config.js's proxy) and in the production Docker build
-// (via server.js) alike -- so backendOrigin is now always empty, kept
-// only so every existing `${backendOrigin}/api/...`-style call site
-// elsewhere in this app (recipe images, calendar/JSON-LD/backup/
-// certificate downloads, etc.) still resolves correctly as a plain
-// relative, same-origin URL without needing to be touched individually.
+// Kept as an exported constant rather than deleted because roughly a
+// dozen call sites elsewhere build URLs as `${backendOrigin}/api/...`
+// for things fetch() doesn't handle -- recipe images, calendar/JSON-LD/
+// backup/certificate downloads, anything that becomes an href or a src.
+// Removing it would mean touching all of them for no behaviour change.
 export const backendOrigin = "";
 
 const BASE = `${backendOrigin}/api`;
@@ -30,13 +18,10 @@ const BASE = `${backendOrigin}/api`;
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
-    // Backlog B10.2 (2026-08-01) -- the session-cookie auth gate needs
-    // the browser to send/receive its cookie. Now that every request is
-    // genuinely same-origin (2026-08-03, see backendOrigin above), a
-    // same-origin fetch would send the cookie by default anyway -- this
-    // is kept as an explicit, harmless superset rather than removed, so
-    // nothing changes here if a future deployment ever reintroduces a
-    // cross-origin path.
+    // The session-cookie auth gate needs the browser to send/receive its
+    // cookie. Same-origin fetch would do that by default, so this is an
+    // explicit, harmless superset -- kept so nothing breaks here if a
+    // deployment ever reintroduces a cross-origin path.
     credentials: "include",
     ...options,
   });
