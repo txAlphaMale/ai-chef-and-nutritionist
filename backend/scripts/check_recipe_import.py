@@ -27,6 +27,13 @@ code is 0 only if every check passes, so this can gate a change.
 import sys
 from pathlib import Path
 
+# Invoked as a plain path (`python scripts/check_recipe_import.py`),
+# Python puts THIS file's directory on sys.path -- not the working
+# directory -- so `import app` fails even though /app is right there.
+# Adding the parent explicitly makes both forms work: that one, and
+# `python -m scripts.check_recipe_import` from /app.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from app.database import SessionLocal
 from app.services import recipe_service
 
