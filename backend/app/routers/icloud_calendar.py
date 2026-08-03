@@ -9,6 +9,7 @@ calendar discovery. The automatic sync-on-change calls live alongside
 the meal-plan mutations themselves in routers/meal_plan.py, same
 placement as the Google equivalent.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException

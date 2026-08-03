@@ -5,6 +5,7 @@ instruction block in the literal generated prompt text -- same "assert on
 the real generated string" discipline as the B2.3 dietary-pattern tests
 (test_meal_plan_dietary_pattern.py).
 """
+
 from __future__ import annotations
 
 from app.services import meal_plan_service

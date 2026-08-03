@@ -12,6 +12,7 @@ this is a module-level constant read at import time, so it's patched
 directly via monkeypatch.setattr rather than an environment variable
 (which knowledge_service already read once, before this test ever runs).
 """
+
 from __future__ import annotations
 
 import os

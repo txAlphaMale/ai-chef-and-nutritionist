@@ -14,6 +14,7 @@ duplicating that logic here, matching the preview-then-confirm pattern
 used everywhere else in this app (vision intake, recipe import, meal
 plan generation).
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -288,9 +289,7 @@ def _format_knowledge_section(knowledge_context: str | None) -> str:
     return (
         "\nRelevant reference material the household has provided (a nutritionist's "
         "guidance, a specific diet plan, etc.), retrieved for this message -- follow it "
-        "where relevant and it doesn't conflict with the dietary restrictions above:\n"
-        + knowledge_context
-        + "\n"
+        "where relevant and it doesn't conflict with the dietary restrictions above:\n" + knowledge_context + "\n"
     )
 
 

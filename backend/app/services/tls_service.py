@@ -80,6 +80,7 @@ Docker's restart policy never sees an exit) so a newly generated/
 imported cert takes effect within a couple seconds, no separate manual
 restart step.
 """
+
 from __future__ import annotations
 
 import contextlib

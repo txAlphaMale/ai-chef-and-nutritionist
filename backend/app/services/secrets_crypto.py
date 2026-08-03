@@ -14,6 +14,7 @@ later without a bulk re-encrypt: version 1 ciphertext is unprefixed
 separate keyring file, all new encrypts use it, and old ciphertext keeps
 decrypting under its original key forever.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,9 +67,7 @@ def _load_keyring_meta() -> dict:
 
 
 def _save_keyring_meta(meta: dict) -> None:
-    _atomic_write_bytes(
-        SECRETS_KEYRING_FILE, json.dumps(meta, indent=2).encode("utf-8"), mode=0o600
-    )
+    _atomic_write_bytes(SECRETS_KEYRING_FILE, json.dumps(meta, indent=2).encode("utf-8"), mode=0o600)
 
 
 def _build_keyring() -> tuple[dict[int, Fernet], int]:

@@ -51,6 +51,7 @@ alongside every figure, so a medium-confidence match is information the
 user can evaluate rather than a silent write. `matched_confidence` is
 returned on every line so the UI can mark the uncertain ones.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -107,9 +108,7 @@ def _find_priced_inventory_match(db: Session, ingredient_name: str) -> tuple[Inv
     return match.payload, match.confidence, match.reason
 
 
-def compute_ingredient_line_cost(
-    db: Session, ingredient_name: str, quantity: float | None, unit: str | None
-) -> dict:
+def compute_ingredient_line_cost(db: Session, ingredient_name: str, quantity: float | None, unit: str | None) -> dict:
     """Returns a per-ingredient cost line: {ingredient_name, quantity,
     unit, resolved, unit_cost (dollars per single `unit`, once matched),
     line_cost, matched_item_name, note}. `resolved` is False (never a
@@ -146,12 +145,14 @@ def compute_ingredient_line_cost(
             **base,
             "unit_cost": round(price_per_match_unit, 4),
             "matched_item_name": match.name,
-            "note": "ingredient has no stated quantity (e.g. \"to taste\")",
+            "note": 'ingredient has no stated quantity (e.g. "to taste")',
         }
 
     qty_in_match_unit = quantity
-    if unit and match.unit and unit_conversion_service.normalize_unit(unit) != unit_conversion_service.normalize_unit(
-        match.unit
+    if (
+        unit
+        and match.unit
+        and unit_conversion_service.normalize_unit(unit) != unit_conversion_service.normalize_unit(match.unit)
     ):
         converted = unit_conversion_service.convert(quantity, unit, match.unit)
         if converted is None:
@@ -215,7 +216,5 @@ def compute_grocery_list_cost(db: Session, grocery_items: list[GroceryListItem])
     Already-purchased items are excluded: they're spent money, not a
     projection, and mixing the two would overstate what's left to buy."""
     unpurchased = [item for item in grocery_items if not item.is_purchased]
-    lines = [
-        compute_ingredient_line_cost(db, item.ingredient_name, item.quantity, item.unit) for item in unpurchased
-    ]
+    lines = [compute_ingredient_line_cost(db, item.ingredient_name, item.quantity, item.unit) for item in unpurchased]
     return _summarize(lines)

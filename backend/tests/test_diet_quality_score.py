@@ -6,6 +6,7 @@ test_meal_plan_nutrition_summary.py -- compute_diet_quality_score is a
 pure function over a MealPlan's entries/recipes/ingredients, no DB
 session required.
 """
+
 from __future__ import annotations
 
 from app.models import MealPlan, MealPlanEntry, Recipe, RecipeIngredient

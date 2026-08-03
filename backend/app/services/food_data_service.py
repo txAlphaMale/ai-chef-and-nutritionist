@@ -56,6 +56,7 @@ hitting the real APIs -- the parsing functions (`_parse_usda_nutrients`,
 representative fixture payloads shaped like the real APIs' documented
 response schemas.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

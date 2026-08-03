@@ -3,6 +3,7 @@
 module is pure deterministic parsing, so unlike B4.2's receipt import,
 every code path is fully unit-testable without mocking anything.
 """
+
 from __future__ import annotations
 
 import io
@@ -138,7 +139,11 @@ def test_apply_mapping_happy_path():
     headers = ["Item Name", "Qty", "Unit", "Price", "Order Date"]
     rows = [{"Item Name": "Bananas", "Qty": "2", "Unit": "lb", "Price": "$1.29", "Order Date": "2026-07-28"}]
     mapping = ColumnMapping(
-        name_column="Item Name", quantity_column="Qty", unit_column="Unit", price_column="Price", date_column="Order Date"
+        name_column="Item Name",
+        quantity_column="Qty",
+        unit_column="Unit",
+        price_column="Price",
+        date_column="Order Date",
     )
     items, skipped = svc.apply_mapping(headers, rows, mapping)
     assert skipped == 0

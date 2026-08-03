@@ -53,6 +53,7 @@ consistent queue shared by every AI feature so a chat message sent while
 a receipt import is running gets queued instead of racing it for the
 same GPU.
 """
+
 from __future__ import annotations
 
 import queue
@@ -72,7 +73,6 @@ _JOB_Q: queue.Queue[tuple[str, Callable[[], dict]]] = queue.Queue()
 # lifetime. Finished jobs age out oldest-first; this only trims the
 # STATUS record, never anything already written to the database.
 JOBS_MAX = 100
-
 
 
 # How long a single job may run before the status board reports it as

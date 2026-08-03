@@ -12,6 +12,7 @@ lifecycle (tied 1:1 to a recipe row, deleted when the recipe or the
 image is replaced/removed) and different content (photos, not
 extracted-text-bearing reference docs).
 """
+
 from __future__ import annotations
 
 import contextlib

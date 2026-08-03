@@ -10,6 +10,7 @@ app was reachable at all.
 So: assert that "/" returns the SPA, that the API is not shadowed by the
 mount, and that the cache headers are what a redeploy depends on.
 """
+
 from __future__ import annotations
 
 import pathlib

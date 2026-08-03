@@ -47,6 +47,7 @@ round trip. The author should treat first use as the real integration
 test, same standing caveat every other author-facing external
 integration in this app already carries.
 """
+
 from __future__ import annotations
 
 import base64
@@ -163,7 +164,7 @@ _PROPFIND_CALENDAR_HOME_SET = (
 )
 _PROPFIND_CHILDREN = (
     b'<?xml version="1.0" encoding="utf-8" ?>'
-    b"<D:propfind xmlns:D=\"DAV:\"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>"
+    b'<D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>'
 )
 
 
@@ -195,7 +196,10 @@ def _discover_calendar_href(db: Session) -> str:
         return cached
 
     principal_resp = _request(
-        db, "PROPFIND", ICLOUD_CALDAV_BASE + "/", body=_PROPFIND_CURRENT_USER_PRINCIPAL,
+        db,
+        "PROPFIND",
+        ICLOUD_CALDAV_BASE + "/",
+        body=_PROPFIND_CURRENT_USER_PRINCIPAL,
         extra_headers={"Depth": "0", "Content-Type": "application/xml; charset=utf-8"},
     )
     principal_href = _find_href(principal_resp.content, "current-user-principal")
@@ -204,7 +208,10 @@ def _discover_calendar_href(db: Session) -> str:
     principal_url = urljoin(str(principal_resp.url), principal_href)
 
     home_resp = _request(
-        db, "PROPFIND", principal_url, body=_PROPFIND_CALENDAR_HOME_SET,
+        db,
+        "PROPFIND",
+        principal_url,
+        body=_PROPFIND_CALENDAR_HOME_SET,
         extra_headers={"Depth": "0", "Content-Type": "application/xml; charset=utf-8"},
     )
     home_href = _find_href(home_resp.content, "calendar-home-set")
@@ -213,7 +220,10 @@ def _discover_calendar_href(db: Session) -> str:
     home_url = urljoin(str(home_resp.url), home_href)
 
     children_resp = _request(
-        db, "PROPFIND", home_url, body=_PROPFIND_CHILDREN,
+        db,
+        "PROPFIND",
+        home_url,
+        body=_PROPFIND_CHILDREN,
         extra_headers={"Depth": "1", "Content-Type": "application/xml; charset=utf-8"},
     )
     existing_href = _find_calendar_href_by_displayname(children_resp.content, DEDICATED_CALENDAR_NAME)
@@ -229,8 +239,12 @@ def _discover_calendar_href(db: Session) -> str:
         )
         with contextlib.suppress(ICloudCalendarError):
             _request(
-                db, "MKCALENDAR", calendar_url, body=mkcalendar_body,
-                extra_headers={"Content-Type": "application/xml; charset=utf-8"}, expect=(200, 201),
+                db,
+                "MKCALENDAR",
+                calendar_url,
+                body=mkcalendar_body,
+                extra_headers={"Content-Type": "application/xml; charset=utf-8"},
+                expect=(200, 201),
             )
             # (e.g. a crashed connect attempt) -- proceed with the same
             # deterministic slug rather than failing the whole connect;
@@ -294,7 +308,14 @@ def push_entry(db: Session, meal_plan: MealPlan, entry: MealPlanEntry) -> None:
     calendar_href = _discover_calendar_href(db)
     body = _build_single_event_ics(meal_plan, entry)
     url = _event_url(calendar_href, entry.id)
-    _request(db, "PUT", url, body=body, extra_headers={"Content-Type": "text/calendar; charset=utf-8"}, expect=(200, 201, 204))
+    _request(
+        db,
+        "PUT",
+        url,
+        body=body,
+        extra_headers={"Content-Type": "text/calendar; charset=utf-8"},
+        expect=(200, 201, 204),
+    )
 
 
 def delete_event(db: Session, entry_id: int) -> None:

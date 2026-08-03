@@ -5,6 +5,7 @@ resulting guidance block in the literal generated prompt text -- the same
 "assert on the real generated string, not just that a context dict was
 built" discipline the Phase 6 health/knowledge context wiring used.
 """
+
 from __future__ import annotations
 
 from app.models import HouseholdPreferences

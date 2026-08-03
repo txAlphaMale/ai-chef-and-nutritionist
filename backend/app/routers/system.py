@@ -4,6 +4,7 @@ update, and Ollama/Tavily connectivity checks. Phase 2 shipped this
 read-only; Phase 8 (Settings GUI) adds the PATCH endpoints the frontend
 settings page needs -- no new machinery, both PATCHes just call the
 service/model layer Phase 2 already built."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -47,10 +48,7 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
 @router.get("/prompts")
 def list_prompts(db: Session = Depends(get_db)):
     rows = db.query(SystemPrompt).all()
-    return [
-        {"prompt_key": r.prompt_key, "content": r.content, "is_active": r.is_active}
-        for r in rows
-    ]
+    return [{"prompt_key": r.prompt_key, "content": r.content, "is_active": r.is_active} for r in rows]
 
 
 @router.patch("/prompts/{prompt_key}")

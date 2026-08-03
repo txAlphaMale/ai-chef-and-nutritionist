@@ -29,6 +29,7 @@ same VisionDetectedItem preview shape and reuses /import/confirm's
 bulk-create, per the backlog's explicit "same review screen, not a
 separate UI" guidance.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -183,6 +184,7 @@ def get_vision_prompt(db: Session) -> str:
     pantry/fridge photo-intake prompt, no placeholders to fill)."""
     return ollama_client.get_active_prompt(db, "vision_intake") or VISION_PROMPT
 
+
 # Model swap (2026-08-02, author-directed): the author pointed out this
 # whole investigation had narrowed to "make qwen3.5:9b work" instead of
 # asking whether it was the right model for the job, and separately
@@ -228,7 +230,6 @@ INVENTORY_RESPONSE_TOKENS = 3000
 # temperature 0 and no penalties.
 
 
-
 @router.get("", response_model=list[InventoryItemRead])
 def list_inventory(
     db: Session = Depends(get_db),
@@ -249,10 +250,7 @@ def list_inventory(
 @router.get("/priority-suggestions", response_model=list[PrioritySuggestion])
 def priority_suggestions(limit: int = 10, db: Session = Depends(get_db)):
     scored = inventory_service.get_priority_suggestions(db, limit=limit)
-    return [
-        PrioritySuggestion(item=item, urgency_score=score, reasons=reasons)
-        for item, score, reasons in scored
-    ]
+    return [PrioritySuggestion(item=item, urgency_score=score, reasons=reasons) for item, score, reasons in scored]
 
 
 @router.get("/expiring-digest", response_model=ExpiringDigestResponse)
@@ -320,7 +318,9 @@ def barcode_lookup(barcode: str):
         package_descriptor=package_descriptor,
         category=category or "other",
         image_url=image_url,
-        confidence_note=None if name else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
+        confidence_note=None
+        if name
+        else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
     )
 
 
@@ -562,7 +562,9 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
                 f"head={head!r} tail={tail!r}",
                 flush=True,
             )
-        return InventoryImportResponse(detected_items=detected, raw_model_output=raw_output, source_type=source_type).model_dump()
+        return InventoryImportResponse(
+            detected_items=detected, raw_model_output=raw_output, source_type=source_type
+        ).model_dump()
     finally:
         db.close()
 
@@ -605,9 +607,11 @@ async def import_inventory(
                 # opens inside the job body, on the worker thread), and
                 # get_receipt_import_prompt needs one to check for a
                 # household override.
-                prompt = get_receipt_import_prompt(db).replace(
-                    "{content}", "[see attached photo of a receipt]"
-                ).replace("{today}", date.today().isoformat())
+                prompt = (
+                    get_receipt_import_prompt(db)
+                    .replace("{content}", "[see attached photo of a receipt]")
+                    .replace("{today}", date.today().isoformat())
+                )
                 return ollama_client.describe_image_json(
                     db,
                     raw_bytes,
@@ -943,9 +947,7 @@ def update_inventory_by_name(payload: InventoryUpdateByNameRequest, db: Session 
     Same three-outcome contract as /deduct above, and for the same reason:
     "we're out of milk" zeroing the wrong row is the same class of silent
     corruption as deducting from it."""
-    updates = payload.model_dump(
-        exclude={"ingredient_name", "item_id", "remember_alias"}, exclude_unset=True
-    )
+    updates = payload.model_dump(exclude={"ingredient_name", "item_id", "remember_alias"}, exclude_unset=True)
     item = _explicit_item(payload, db)
     if item is not None:
         return inventory_service.update_item(db, item, **updates)

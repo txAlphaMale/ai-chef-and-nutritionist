@@ -6,6 +6,7 @@ dietary restrictions/goals, indulgence cadence. Seed defaults are
 intentionally generic (see app/seed.py) since this repo is meant to be
 pulled down and run by other households, not just the original author's.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import JSON, Float, Integer, String, Text

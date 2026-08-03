@@ -4,6 +4,7 @@ and temp secrets directory conftest.py already sets up for every test
 (DATABASE_URL/SECRETS_KEY_FILE/SECRETS_KEYRING_FILE), so
 build_backup_archive() genuinely exercises its real sqlite-path
 resolution and file-inclusion logic rather than a mocked stand-in."""
+
 from __future__ import annotations
 
 import io

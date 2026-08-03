@@ -9,6 +9,7 @@ the Settings UI (Phase 8) without a container rebuild or restart. This
 mirrors the author's preferred pattern from a sibling project: `.env` is
 for bootstrap plumbing, the DB is the source of truth for everything else.
 """
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

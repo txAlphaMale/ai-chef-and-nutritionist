@@ -1,5 +1,6 @@
 """Pydantic request/response models for household-wide preferences and
 individual member profiles."""
+
 from __future__ import annotations
 
 from datetime import datetime

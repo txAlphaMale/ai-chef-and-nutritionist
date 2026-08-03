@@ -6,6 +6,7 @@ live alongside the meal-plan mutations themselves in routers/meal_plan.py
 connection-management surface a household visits once (or rarely), not
 part of the meal-plan request path.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException

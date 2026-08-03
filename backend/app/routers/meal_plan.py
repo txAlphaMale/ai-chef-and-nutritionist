@@ -8,6 +8,7 @@ Route ordering matters -- the static /generate path is declared before
 the dynamic /{plan_id} routes so FastAPI's route-matching order doesn't
 swallow it.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException

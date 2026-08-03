@@ -6,6 +6,7 @@ or whether anything matching is currently tracked in inventory (a
 stronger exclusion than the pre-existing "no quantity + inventory match"
 omission this sits alongside).
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -134,7 +135,9 @@ def _entry(day_of_week: int, recipe: Recipe, servings: int = 2) -> MealPlanEntry
 
 
 def test_compute_grocery_list_excludes_configured_staples(db_session):
-    db_session.add(HouseholdPreferences(household_size=2, dietary_restrictions=[], pantry_staples=["salt", "olive oil"]))
+    db_session.add(
+        HouseholdPreferences(household_size=2, dietary_restrictions=[], pantry_staples=["salt", "olive oil"])
+    )
     recipe = _recipe([("chicken breast", 2, "lb"), ("salt", 1, "tsp"), ("olive oil", 2, "tbsp")])
     db_session.add(MealPlan(week_start_date=date(2026, 8, 10), entries=[_entry(0, recipe)]))
     db_session.commit()

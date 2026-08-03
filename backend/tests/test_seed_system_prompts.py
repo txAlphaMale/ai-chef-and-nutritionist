@@ -11,6 +11,7 @@ Mirrors test_seed_default_knowledge.py's own knowledge_service.
 KNOWLEDGE_FILES_DIR monkeypatch (seed.seed() also seeds default knowledge
 files, which write to a real filesystem path that doesn't exist -- and
 shouldn't be created -- outside a real container)."""
+
 from __future__ import annotations
 
 from app.models import SystemPrompt

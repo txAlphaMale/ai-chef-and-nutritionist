@@ -55,6 +55,7 @@ and apps like Fig/Spoonful). Only surfaced when the household's
 itself a restricted allergen -- a household that hasn't restricted
 gluten at all shouldn't be warned about oats.
 """
+
 from __future__ import annotations
 
 import re
@@ -96,33 +97,101 @@ OBSERVANCE_LEVEL_KEYS: frozenset[str] = frozenset(o["key"] for o in OBSERVANCE_L
 # rye reference also lighting up, and vice versa.
 ALLERGEN_KEYWORDS: dict[str, list[str]] = {
     "milk": [
-        "milk", "dairy", "cream", "butter", "buttermilk", "cheese", "yogurt", "yoghurt",
-        "whey", "casein", "ghee", "half and half", "half-and-half",
+        "milk",
+        "dairy",
+        "cream",
+        "butter",
+        "buttermilk",
+        "cheese",
+        "yogurt",
+        "yoghurt",
+        "whey",
+        "casein",
+        "ghee",
+        "half and half",
+        "half-and-half",
     ],
     "eggs": ["egg", "eggs", "egg white", "egg yolk", "albumin", "mayonnaise", "meringue"],
     "fish": [
-        "fish", "salmon", "tuna", "cod", "anchovy", "anchovies", "sardine",
-        "halibut", "tilapia", "trout", "fish sauce", "worcestershire",
+        "fish",
+        "salmon",
+        "tuna",
+        "cod",
+        "anchovy",
+        "anchovies",
+        "sardine",
+        "halibut",
+        "tilapia",
+        "trout",
+        "fish sauce",
+        "worcestershire",
     ],
     "shellfish": [
-        "shrimp", "prawn", "prawns", "crab", "lobster", "crawfish", "crayfish",
-        "scallop", "clam", "mussel", "oyster", "squid", "calamari",
+        "shrimp",
+        "prawn",
+        "prawns",
+        "crab",
+        "lobster",
+        "crawfish",
+        "crayfish",
+        "scallop",
+        "clam",
+        "mussel",
+        "oyster",
+        "squid",
+        "calamari",
     ],
     "tree_nuts": [
-        "almond", "walnut", "pecan", "cashew", "pistachio", "hazelnut",
-        "macadamia", "brazil nut", "chestnut", "pine nut",
+        "almond",
+        "walnut",
+        "pecan",
+        "cashew",
+        "pistachio",
+        "hazelnut",
+        "macadamia",
+        "brazil nut",
+        "chestnut",
+        "pine nut",
     ],
     "peanuts": ["peanut", "peanuts", "groundnut", "peanut butter"],
     "wheat": [
-        "wheat", "flour", "semolina", "durum", "spelt", "farro", "bulgur",
-        "couscous", "seitan", "wheat starch", "panko", "breadcrumb", "bread crumb",
+        "wheat",
+        "flour",
+        "semolina",
+        "durum",
+        "spelt",
+        "farro",
+        "bulgur",
+        "couscous",
+        "seitan",
+        "wheat starch",
+        "panko",
+        "breadcrumb",
+        "bread crumb",
     ],
     "soybeans": ["soy", "soya", "soybean", "soybeans", "tofu", "edamame", "tempeh", "miso", "soy sauce", "tamari"],
     "sesame": ["sesame", "tahini", "benne"],
     "gluten": [
-        "wheat", "flour", "semolina", "durum", "spelt", "farro", "bulgur",
-        "couscous", "seitan", "wheat starch", "panko", "breadcrumb", "bread crumb",
-        "barley", "rye", "malt", "triticale", "kamut", "brewer's yeast", "brewers yeast",
+        "wheat",
+        "flour",
+        "semolina",
+        "durum",
+        "spelt",
+        "farro",
+        "bulgur",
+        "couscous",
+        "seitan",
+        "wheat starch",
+        "panko",
+        "breadcrumb",
+        "bread crumb",
+        "barley",
+        "rye",
+        "malt",
+        "triticale",
+        "kamut",
+        "brewer's yeast",
+        "brewers yeast",
     ],
 }
 
@@ -238,7 +307,9 @@ def find_cross_contact_matches(
         if not name or _is_negated("gluten", name):
             continue
         for keyword in _find_keyword_hits(_CROSS_CONTACT_PATTERN, name):
-            matches.append(AllergenMatch(allergen="gluten_cross_contact", ingredient_name=name, matched_keyword=keyword))
+            matches.append(
+                AllergenMatch(allergen="gluten_cross_contact", ingredient_name=name, matched_keyword=keyword)
+            )
     return matches
 
 
@@ -253,7 +324,9 @@ def check_ingredients(
         return RestrictionCheckResult()
     return RestrictionCheckResult(
         matches=find_allergen_matches(ingredient_names, restricted_allergens),
-        cross_contact_matches=find_cross_contact_matches(ingredient_names, restricted_allergens, gluten_observance_level),
+        cross_contact_matches=find_cross_contact_matches(
+            ingredient_names, restricted_allergens, gluten_observance_level
+        ),
     )
 
 
@@ -302,6 +375,4 @@ def check_household_restrictions(
     change."""
     if restrictions is None:
         restrictions = load_household_restrictions(db)
-    return check_ingredients(
-        ingredient_names, restrictions.restricted_allergens, restrictions.gluten_observance_level
-    )
+    return check_ingredients(ingredient_names, restrictions.restricted_allergens, restrictions.gluten_observance_level)

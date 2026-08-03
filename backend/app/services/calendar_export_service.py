@@ -38,6 +38,7 @@ Only DTSTAMP (when the feed was generated, a required VEVENT property
 with real semantic meaning tied to generation time, not the meal itself)
 is emitted as true UTC.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -63,11 +64,7 @@ def _escape_text(value: str) -> str:
     newline are the only characters that need it for the fields this
     module emits (SUMMARY/DESCRIPTION)."""
     return (
-        value.replace("\\", "\\\\")
-        .replace(";", "\\;")
-        .replace(",", "\\,")
-        .replace("\r\n", "\\n")
-        .replace("\n", "\\n")
+        value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n")
     )
 
 

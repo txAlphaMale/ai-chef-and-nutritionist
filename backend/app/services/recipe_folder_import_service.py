@@ -25,6 +25,7 @@ routers/recipes.py's single-upload POST /api/recipes/import already
 uses (refactored out of that endpoint specifically so this batch path
 and the single-upload path can never silently drift apart -- see that
 module's B13.1 comments)."""
+
 from __future__ import annotations
 
 import os
@@ -122,7 +123,13 @@ def scan_and_parse(db: Session, folder_path: str) -> dict:
     the other 38 back for review."""
     listing = list_importable_files(folder_path)
     if listing["error"]:
-        return {"items": [], "skipped": [], "truncated": False, "scanned_folder": folder_path, "error": listing["error"]}
+        return {
+            "items": [],
+            "skipped": [],
+            "truncated": False,
+            "scanned_folder": folder_path,
+            "error": listing["error"],
+        }
 
     items = []
     for path_str in listing["files"]:
@@ -148,7 +155,13 @@ def scan_and_parse(db: Session, folder_path: str) -> dict:
             )
         except Exception as exc:
             items.append(
-                {"filename": path.name, "relative_path": relative_path, "status": "error", "recipe": None, "error": str(exc)}
+                {
+                    "filename": path.name,
+                    "relative_path": relative_path,
+                    "status": "error",
+                    "recipe": None,
+                    "error": str(exc),
+                }
             )
 
     return {

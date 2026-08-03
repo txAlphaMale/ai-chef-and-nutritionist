@@ -2,6 +2,7 @@
 check -- lives in its own module (rather than inside schemas/recipe.py or
 schemas/meal_plan.py) since both of those, plus schemas/household.py,
 need it and neither should import from the other."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel

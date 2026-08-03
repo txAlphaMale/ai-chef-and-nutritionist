@@ -10,6 +10,7 @@ test file states for using plain httpx over a heavier SDK. XML fixtures
 are shaped like Apple's own published CalDAV multistatus examples
 (RFC 4791/RFC 5397), not guessed.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -87,7 +88,9 @@ def test_is_configured_requires_both_username_and_password(db_session):
 def test_is_connected_requires_calendar_href(db_session):
     _configure_credentials(db_session)
     assert icloud.is_connected(db_session) is False
-    settings_service.set_setting(db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/")
+    settings_service.set_setting(
+        db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/"
+    )
     assert icloud.is_connected(db_session) is True
 
 
@@ -149,7 +152,9 @@ def test_discover_calendar_href_raises_readable_error_on_bad_credentials(db_sess
 
 
 def test_push_entry_puts_to_deterministic_url(db_session, monkeypatch):
-    settings_service.set_setting(db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/")
+    settings_service.set_setting(
+        db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/"
+    )
     _configure_credentials(db_session)
     plan = MealPlan(week_start_date=__import__("datetime").date(2026, 8, 3))
     entry = MealPlanEntry(id=42, day_of_week=0, meal_type="dinner", servings=2, meal_plan=plan)
@@ -171,7 +176,9 @@ def test_push_entry_puts_to_deterministic_url(db_session, monkeypatch):
 
 
 def test_delete_event_treats_404_as_success(db_session, monkeypatch):
-    settings_service.set_setting(db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/")
+    settings_service.set_setting(
+        db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/"
+    )
     _configure_credentials(db_session)
 
     def fake_request(method, url, headers=None, content=None, timeout=None, follow_redirects=None):
@@ -193,7 +200,9 @@ def test_delete_event_is_a_noop_when_never_connected(db_session, monkeypatch):
 
 
 def test_sync_entry_deletes_when_skipped(db_session, monkeypatch):
-    settings_service.set_setting(db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/")
+    settings_service.set_setting(
+        db_session, "icloud_calendar_calendar_href", "https://caldav.icloud.com/1234567/calendars/chef-meal-plan/"
+    )
     _configure_credentials(db_session)
     plan = MealPlan(week_start_date=__import__("datetime").date(2026, 8, 3))
     entry = MealPlanEntry(id=7, day_of_week=0, meal_type="dinner", servings=2, is_skipped=True, meal_plan=plan)

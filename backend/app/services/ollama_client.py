@@ -35,6 +35,7 @@ Two model-compatibility notes, both handled rather than assumed:
 - Not every model accepts a `think` parameter. A server rejecting it is
   retried once without it rather than surfacing as a hard failure.
 """
+
 from __future__ import annotations
 
 import httpx

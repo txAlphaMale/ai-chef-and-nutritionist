@@ -11,6 +11,7 @@ test_inventory_import.py's own docstring for the same discipline), so
 this file sticks to what recipe_folder_import_service itself is
 responsible for: finding the right files, and turning per-file
 success/failure into the right response shape."""
+
 from __future__ import annotations
 
 from app.services import recipe_folder_import_service as rfi
@@ -136,7 +137,11 @@ def test_scan_and_parse_reports_relative_path_for_nested_files(tmp_path, monkeyp
         rfi.recipe_service,
         "parse_recipe_file_content",
         lambda db, raw_bytes, filename, content_type="": {
-            "raw_output": "x", "default_source": "import_file", "citation": {}, "image_path": None, "jsonld_parsed": None
+            "raw_output": "x",
+            "default_source": "import_file",
+            "citation": {},
+            "image_path": None,
+            "jsonld_parsed": None,
         },
     )
     monkeypatch.setattr(
@@ -155,7 +160,11 @@ def test_scan_and_parse_isolates_one_files_failure_from_the_rest(tmp_path, monke
         if filename == "bad.txt":
             raise RuntimeError("Could not extract a recipe from that input")
         return {
-            "raw_output": "raw", "default_source": "import_file", "citation": {}, "image_path": None, "jsonld_parsed": None
+            "raw_output": "raw",
+            "default_source": "import_file",
+            "citation": {},
+            "image_path": None,
+            "jsonld_parsed": None,
         }
 
     monkeypatch.setattr(rfi.recipe_service, "parse_recipe_file_content", fake_parse_file_content)

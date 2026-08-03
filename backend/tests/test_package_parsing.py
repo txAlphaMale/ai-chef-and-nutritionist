@@ -12,6 +12,7 @@ screenshot/receipt data produced under the OLD compound-unit design
 suite doubles as a regression guard against the specific real-world
 inputs the redesign was meant to fix.
 """
+
 from __future__ import annotations
 
 from app.services.package_parsing import parse_package_text

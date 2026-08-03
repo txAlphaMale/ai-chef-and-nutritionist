@@ -2,6 +2,7 @@
 files. Full extracted `content` is intentionally never returned from the
 list/get endpoints (it can be large and isn't meant for display) -- only
 a short excerpt, for a quick sanity-check preview in the UI."""
+
 from __future__ import annotations
 
 from datetime import datetime

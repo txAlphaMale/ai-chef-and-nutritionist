@@ -52,6 +52,7 @@ already documents for its own registry) so the callback can bounce the
 browser back to the right device's Settings page rather than assuming
 a fixed frontend address.
 """
+
 from __future__ import annotations
 
 import secrets

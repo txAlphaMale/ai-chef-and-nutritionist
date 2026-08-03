@@ -4,6 +4,7 @@ export.xml/.zip parsing) and parse_wearable_ai_response (the AI-
 extraction fallback for any other export format, sharing
 parse_bloodwork_response's own defensive-parsing discipline).
 """
+
 from __future__ import annotations
 
 import io
@@ -16,8 +17,7 @@ from app.services import health_service
 
 def _apple_health_xml(records: str) -> bytes:
     return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<HealthData locale=\"en_US\">\n" + records + "\n</HealthData>\n"
+        '<?xml version="1.0" encoding="UTF-8"?>\n<HealthData locale="en_US">\n' + records + "\n</HealthData>\n"
     ).encode("utf-8")
 
 
@@ -79,7 +79,9 @@ def test_accepts_export_zip_and_finds_export_xml():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("apple_health_export/export.xml", xml_bytes)
-        zf.writestr("apple_health_export/export_cda.xml", b"<HealthData></HealthData>")  # longer name, should be skipped
+        zf.writestr(
+            "apple_health_export/export_cda.xml", b"<HealthData></HealthData>"
+        )  # longer name, should be skipped
     entries = health_service.parse_apple_health_export(buf.getvalue(), "export.zip")
     assert len(entries) == 1
     assert entries[0]["weight_kg"] == 80.0

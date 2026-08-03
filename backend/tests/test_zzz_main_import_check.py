@@ -16,6 +16,7 @@ Depends on conftest.py's SESSION_SECRET_FILE/TLS_DIR redirects (added
 alongside this test, backlog B15.1) -- both would otherwise try to write
 under real container paths (/app/data, /app/tls) that don't exist in a
 sandbox/CI environment."""
+
 from __future__ import annotations
 
 

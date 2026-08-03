@@ -6,6 +6,7 @@ constraint as every other AI-consuming endpoint in this project); what's
 tested is the defensive parsing that has to handle real, imperfect model
 output.
 """
+
 from __future__ import annotations
 
 import json

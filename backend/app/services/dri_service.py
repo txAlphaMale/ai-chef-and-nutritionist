@@ -50,6 +50,7 @@ used for BMI category in health_service.py. A household member with
 different, clinician-provided targets should treat this as a rough
 default, not an override.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session

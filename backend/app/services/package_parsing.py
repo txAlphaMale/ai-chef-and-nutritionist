@@ -43,6 +43,7 @@ apples" or "1 dozen" -- those have no separate "package size" concept to
 extract (the count IS the whole quantity), and the caller should just
 keep treating them as a plain count, same as today.
 """
+
 from __future__ import annotations
 
 import re
@@ -56,8 +57,18 @@ from app.services import unit_conversion_service
 # from unit_conversion_service's own registry rather than a second,
 # potentially-drifting list of unit spellings.
 _UNIT_WORDS = sorted(
-    {*unit_conversion_service.VOLUME_TO_ML, *unit_conversion_service.MASS_TO_G, *unit_conversion_service.UNIT_SYNONYMS,
-     "fl oz", "fl. oz", "fl. oz.", "count", "ct", "each", "ea"},
+    {
+        *unit_conversion_service.VOLUME_TO_ML,
+        *unit_conversion_service.MASS_TO_G,
+        *unit_conversion_service.UNIT_SYNONYMS,
+        "fl oz",
+        "fl. oz",
+        "fl. oz.",
+        "count",
+        "ct",
+        "each",
+        "ea",
+    },
     key=len,
     reverse=True,
 )

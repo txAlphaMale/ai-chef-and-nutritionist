@@ -2,6 +2,7 @@
 finder. See dining_service.py's module docstring for the full research
 writeup (Overpass tag coverage, its hard limitations, and the safety-
 framing discipline this endpoint follows)."""
+
 from __future__ import annotations
 
 import httpx
@@ -57,9 +58,7 @@ async def geolocate_by_ip():
     try:
         result = await dining_service.geolocate_by_ip()
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Could not reach the IP geolocation service: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"Could not reach the IP geolocation service: {exc}") from exc
     if not result:
         raise HTTPException(status_code=404, detail="Could not determine an approximate location from this network.")
     return result
@@ -81,9 +80,7 @@ async def nearby_restaurants(
     try:
         places = await dining_service.search_nearby_restaurants(lat, lon, radius_m)
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Could not reach OpenStreetMap's Overpass API: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"Could not reach OpenStreetMap's Overpass API: {exc}") from exc
 
     prefs = db.query(HouseholdPreferences).first()
     restricted = (prefs.restricted_allergens or []) if prefs else []
@@ -96,8 +93,6 @@ async def nearby_restaurants(
     # every tagged match beyond the 50th-nearest venue. The restriction
     # check is pure local computation over data already fetched, so
     # running it on the full result set costs nothing.
-    evaluated = [
-        {**place, **dining_service.evaluate_restrictions(place, restricted, observance)} for place in places
-    ]
+    evaluated = [{**place, **dining_service.evaluate_restrictions(place, restricted, observance)} for place in places]
     evaluated.sort(key=dining_service.restriction_sort_key)
     return evaluated[:MAX_RESULTS]

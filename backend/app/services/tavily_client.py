@@ -1,5 +1,6 @@
 """Thin wrapper around tavily-python, configured from the DB-backed
 (encrypted) API key rather than a static env var."""
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session

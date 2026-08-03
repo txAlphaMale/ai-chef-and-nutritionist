@@ -16,6 +16,7 @@ overwrites a value the user has already set, in .env or in the UI.
 
 Run with: python -m app.seed
 """
+
 import os
 
 from app.database import Base, SessionLocal, engine

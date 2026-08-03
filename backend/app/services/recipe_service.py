@@ -1,6 +1,7 @@
 """Recipe business logic: servings scaling, AI-assisted import parsing
 (text, PDF, photo, or URL -> structured recipe JSON), and building
 context for the recipe-scoped chat feature."""
+
 from __future__ import annotations
 
 import contextlib
@@ -388,11 +389,21 @@ def extract_url_content(url: str) -> dict:
 # step, never data corruption.
 
 _UNICODE_FRACTIONS: dict[str, float] = {
-    "¼": 0.25, "½": 0.5, "¾": 0.75,
-    "⅓": 1 / 3, "⅔": 2 / 3,
-    "⅕": 0.2, "⅖": 0.4, "⅗": 0.6, "⅘": 0.8,
-    "⅙": 1 / 6, "⅚": 5 / 6,
-    "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+    "¼": 0.25,
+    "½": 0.5,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅕": 0.2,
+    "⅖": 0.4,
+    "⅗": 0.6,
+    "⅘": 0.8,
+    "⅙": 1 / 6,
+    "⅚": 5 / 6,
+    "⅛": 0.125,
+    "⅜": 0.375,
+    "⅝": 0.625,
+    "⅞": 0.875,
 }
 
 # Count-style descriptors schema.org `recipeIngredient` strings commonly
@@ -404,23 +415,36 @@ _UNICODE_FRACTIONS: dict[str, float] = {
 # trailing s" stripping, since that breaks on "-es" plurals like
 # "dashes"/"pinches").
 _COUNT_UNIT_WORDS: dict[str, str] = {
-    "clove": "clove", "cloves": "clove",
-    "slice": "slice", "slices": "slice",
-    "can": "can", "cans": "can",
-    "package": "package", "packages": "package", "pkg": "package",
-    "stick": "stick", "sticks": "stick",
-    "bunch": "bunch", "bunches": "bunch",
-    "head": "head", "heads": "head",
-    "piece": "piece", "pieces": "piece",
-    "pinch": "pinch", "pinches": "pinch",
-    "dash": "dash", "dashes": "dash",
-    "sprig": "sprig", "sprigs": "sprig",
-    "large": "large", "medium": "medium", "small": "small", "whole": "whole",
+    "clove": "clove",
+    "cloves": "clove",
+    "slice": "slice",
+    "slices": "slice",
+    "can": "can",
+    "cans": "can",
+    "package": "package",
+    "packages": "package",
+    "pkg": "package",
+    "stick": "stick",
+    "sticks": "stick",
+    "bunch": "bunch",
+    "bunches": "bunch",
+    "head": "head",
+    "heads": "head",
+    "piece": "piece",
+    "pieces": "piece",
+    "pinch": "pinch",
+    "pinches": "pinch",
+    "dash": "dash",
+    "dashes": "dash",
+    "sprig": "sprig",
+    "sprigs": "sprig",
+    "large": "large",
+    "medium": "medium",
+    "small": "small",
+    "whole": "whole",
 }
 
-_QTY_RE = re.compile(
-    r"^\s*(\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\d+|[" + "".join(_UNICODE_FRACTIONS) + r"])\s*"
-)
+_QTY_RE = re.compile(r"^\s*(\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\d+|[" + "".join(_UNICODE_FRACTIONS) + r"])\s*")
 
 
 def _parse_quantity_token(token: str) -> float | None:
@@ -449,7 +473,7 @@ def _parse_ingredient_line(line: str) -> dict:
     m = _QTY_RE.match(remainder)
     if m:
         quantity = _parse_quantity_token(m.group(1))
-        remainder = remainder[m.end():].strip()
+        remainder = remainder[m.end() :].strip()
 
     unit = None
     word_match = re.match(r"^([A-Za-z]+)\.?\b", remainder)
@@ -458,10 +482,10 @@ def _parse_ingredient_line(line: str) -> dict:
         normalized = normalize_unit(candidate)
         if normalized in VOLUME_UNITS or normalized in MASS_UNITS:
             unit = normalized
-            remainder = remainder[word_match.end():].strip()
+            remainder = remainder[word_match.end() :].strip()
         elif candidate in _COUNT_UNIT_WORDS:
             unit = _COUNT_UNIT_WORDS[candidate]
-            remainder = remainder[word_match.end():].strip()
+            remainder = remainder[word_match.end() :].strip()
 
     if remainder.lower().startswith("of "):
         remainder = remainder[3:].strip()
@@ -949,8 +973,7 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
                 with contextlib.suppress(ValueError):
                     image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
         raw_output = (
-            "(parsed directly from the file's structured schema.org Recipe data -- "
-            "Ollama was not used for this import)"
+            "(parsed directly from the file's structured schema.org Recipe data -- Ollama was not used for this import)"
         )
         default_source = "import_file_jsonld"
     elif content_type.startswith("image/"):
@@ -1069,12 +1092,8 @@ def _format_ingredient_line(ing: dict) -> str:
 
 
 def build_recipe_chat_context(recipe_read: dict) -> str:
-    ingredients_lines = "\n".join(
-        _format_ingredient_line(ing) for ing in recipe_read.get("ingredients", [])
-    )
-    instructions_lines = "\n".join(
-        f"{i + 1}. {step}" for i, step in enumerate(recipe_read.get("instructions", []))
-    )
+    ingredients_lines = "\n".join(_format_ingredient_line(ing) for ing in recipe_read.get("ingredients", []))
+    instructions_lines = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(recipe_read.get("instructions", [])))
     tips_block = ""
     if recipe_read.get("tips"):
         tips_lines = "\n".join(f"- {t}" for t in recipe_read["tips"])

@@ -19,6 +19,7 @@ order-import endpoints for where this is wired in, and
 app/models/inventory.py's `OrderImportProfile` docstring for why no
 pre-built retailer profile ships.
 """
+
 from __future__ import annotations
 
 import csv
@@ -86,7 +87,8 @@ def parse_tabular_file(raw_bytes: bytes, filename: str, content_type: str) -> tu
     lower_name = (filename or "").lower()
     is_csv = content_type in ("text/csv", "application/csv") or lower_name.endswith(".csv")
     is_xlsx = (
-        content_type in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")
+        content_type
+        in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")
         or lower_name.endswith(".xlsx")
         or lower_name.endswith(".xls")
     )

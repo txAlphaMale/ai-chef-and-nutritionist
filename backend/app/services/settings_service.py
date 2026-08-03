@@ -12,6 +12,7 @@ setting means adding one entry here plus, if relevant, a seed.py
 consumer -- no schema change needed since AppSetting is a generic
 key/value table.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -325,7 +326,7 @@ SETTING_SPECS: list[SettingSpec] = [
         is_secret=False,
         default="false",
         description=(
-            "\"true\"/\"false\". Whether meal-plan changes push to the connected "
+            '"true"/"false". Whether meal-plan changes push to the connected '
             "Google Calendar. Turned on automatically on first successful "
             "connect; toggle off any time to pause pushing without disconnecting."
         ),
@@ -372,7 +373,7 @@ SETTING_SPECS: list[SettingSpec] = [
         is_secret=False,
         default="false",
         description=(
-            "\"true\"/\"false\". Whether meal-plan changes push to the connected iCloud "
+            '"true"/"false". Whether meal-plan changes push to the connected iCloud '
             "Calendar. Turned on automatically on first successful connect; toggle off any time "
             "to pause pushing without disconnecting."
         ),
@@ -387,7 +388,7 @@ SETTING_SPECS: list[SettingSpec] = [
             "P2-2. The browser never talks to the backend directly -- the frontend "
             "reverse-proxies /api to it -- so every request your browser makes is "
             "already same-origin and needs no CORS permission at all. This used to be "
-            "set to \"any origin on the internet, with credentials\", which granted "
+            'set to "any origin on the internet, with credentials", which granted '
             "nothing useful and said something untrue. "
             "Add an entry here only if a web page served from a DIFFERENT origin needs "
             "to call this API from a browser -- for example after adding a local DNS "
@@ -404,12 +405,12 @@ SETTING_SPECS: list[SettingSpec] = [
         is_secret=False,
         default=_DEFAULT_TRANSFORMATION_WORDS_CSV,
         description=(
-            "Comma-separated. Audit finding P1-5. Words that mean \"a product made FROM "
-            "an ingredient\" rather than \"a specific kind of that ingredient\". When one "
+            'Comma-separated. Audit finding P1-5. Words that mean "a product made FROM '
+            'an ingredient" rather than "a specific kind of that ingredient". When one '
             "of these appears in an inventory item's name but not in the ingredient being "
             "looked up (or vice versa), the two are treated as different foods and never "
-            "matched -- this is what stops a recipe's \"chicken\" being deducted from a "
-            "carton of \"chicken broth\", or \"almond\" from \"almond milk\". "
+            'matched -- this is what stops a recipe\'s "chicken" being deducted from a '
+            'carton of "chicken broth", or "almond" from "almond milk". '
             "Editable because no fixed list can be complete: add a word if you find a pair "
             "the matcher wrongly treats as the same ingredient, remove one if it is "
             "blocking a match you actually want. Clearing this box entirely restores the "

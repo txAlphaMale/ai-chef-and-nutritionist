@@ -1,4 +1,5 @@
 """Pantry / fridge / freezer / produce / spice inventory tracking."""
+
 from __future__ import annotations
 
 from datetime import date, datetime

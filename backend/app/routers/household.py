@@ -3,6 +3,7 @@ and individual member profiles (age/height/sex/activity level) --
 household_size/dietary_restrictions/goals feed meal-plan generation
 (meal_plan_service.py), and member height feeds BMI calculation when
 logging health metrics (routers/health.py)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException

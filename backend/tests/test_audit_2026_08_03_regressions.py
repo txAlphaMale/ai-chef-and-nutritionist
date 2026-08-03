@@ -7,6 +7,7 @@ glance whether a change is reintroducing something already understood.
 
 See AUDIT-2026-08-03.md for the full findings each of these corresponds to.
 """
+
 from __future__ import annotations
 
 import json
@@ -97,10 +98,13 @@ def test_ollama_client_sets_an_explicit_timeout(db_session):
 
 
 def test_timeout_surfaces_as_an_actionable_error(db_session):
-    with patch(
-        "app.services.ollama_client.ollama.Client.chat",
-        side_effect=httpx.ReadTimeout("timed out"),
-    ), pytest.raises(ollama_client.OllamaTimeout) as excinfo:
+    with (
+        patch(
+            "app.services.ollama_client.ollama.Client.chat",
+            side_effect=httpx.ReadTimeout("timed out"),
+        ),
+        pytest.raises(ollama_client.OllamaTimeout) as excinfo,
+    ):
         ollama_client.chat(db_session, [{"role": "user", "content": "hi"}])
     message = str(excinfo.value)
     assert "timeout" in message.lower()

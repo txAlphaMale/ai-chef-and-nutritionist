@@ -1,5 +1,6 @@
 """Recipes, their ingredients, and the tag system used for meal-planning
 filters (quick, portable, non-refrigerated, dutch-oven-only, etc.)."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -101,9 +102,7 @@ class Recipe(Base, TimestampMixin):
     # proposing a variant so the user can tell it apart from siblings.
     variant_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    ingredients: Mapped[list[RecipeIngredient]] = relationship(
-        back_populates="recipe", cascade="all, delete-orphan"
-    )
+    ingredients: Mapped[list[RecipeIngredient]] = relationship(back_populates="recipe", cascade="all, delete-orphan")
     tags: Mapped[list[MealTag]] = relationship(secondary=recipe_tag_links)
     variants: Mapped[list[Recipe]] = relationship(
         "Recipe",

@@ -1,4 +1,5 @@
 """Backlog B10.1 (2026-08-01): the dining-out finder's response shapes."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

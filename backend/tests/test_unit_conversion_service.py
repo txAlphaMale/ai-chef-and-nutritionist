@@ -1,6 +1,7 @@
 """Unit tests for the shared B5.3/B10.5 unit-conversion layer
 (app/services/unit_conversion_service.py). Pure functions, no DB/network
 involved at all."""
+
 from __future__ import annotations
 
 import pytest

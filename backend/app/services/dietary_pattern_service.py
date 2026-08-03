@@ -24,6 +24,7 @@ so is deliberately left as future work rather than built speculatively
 here -- Portfolio is the pattern the household's own stated goal
 actually calls for.
 """
+
 from __future__ import annotations
 
 DIETARY_PATTERNS: list[dict] = [

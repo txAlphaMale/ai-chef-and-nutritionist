@@ -1,4 +1,5 @@
 """Weekly meal plans, their per-meal entries, and the derived grocery list."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -24,13 +25,9 @@ class MealPlan(Base, TimestampMixin):
     week_start_date: Mapped[date] = mapped_column(Date, index=True)
     household_size_snapshot: Mapped[int] = mapped_column(Integer, default=2)
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|active|archived
-    kitchen_profile_id: Mapped[int | None] = mapped_column(
-        ForeignKey("kitchen_profiles.id"), nullable=True
-    )
+    kitchen_profile_id: Mapped[int | None] = mapped_column(ForeignKey("kitchen_profiles.id"), nullable=True)
 
-    entries: Mapped[list[MealPlanEntry]] = relationship(
-        back_populates="meal_plan", cascade="all, delete-orphan"
-    )
+    entries: Mapped[list[MealPlanEntry]] = relationship(back_populates="meal_plan", cascade="all, delete-orphan")
 
 
 class MealPlanEntry(Base, TimestampMixin):
@@ -94,9 +91,7 @@ class MealPlanEntry(Base, TimestampMixin):
     # deleting an entry that had leftovers linked to it should not
     # silently make a grocery-list shortfall appear elsewhere), not a
     # data-integrity break.
-    leftover_of_entry_id: Mapped[int | None] = mapped_column(
-        ForeignKey("meal_plan_entries.id"), nullable=True
-    )
+    leftover_of_entry_id: Mapped[int | None] = mapped_column(ForeignKey("meal_plan_entries.id"), nullable=True)
 
     # Backlog B12.1 (2026-08-01) -- the Google Calendar event id this
     # entry currently corresponds to in the household's dedicated "Chef

@@ -10,6 +10,7 @@ DB-touching wrappers around them, and LLM output parsing is defensive
 (strict JSON first, then a best-effort extraction) since real model
 output often wraps JSON in prose or markdown fences.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -140,9 +141,7 @@ def gather_generation_context(
         # synthetic one is built from what generation itself most needs
         # grounded: dietary restrictions and stated goals.
         "health_summary": health_service.build_health_context_summary(db),
-        "knowledge_context": health_service.build_knowledge_context(
-            db, _build_knowledge_query(household)
-        ),
+        "knowledge_context": health_service.build_knowledge_context(db, _build_knowledge_query(household)),
     }
 
 
@@ -332,18 +331,14 @@ def _format_knowledge_section(knowledge_context: str | None) -> str:
     return (
         "\nReference material the household has provided (a nutritionist's "
         "guidance, a specific diet plan, etc.) -- follow it where relevant "
-        "and it doesn't conflict with the dietary restrictions above:\n"
-        + knowledge_context
-        + "\n"
+        "and it doesn't conflict with the dietary restrictions above:\n" + knowledge_context + "\n"
     )
 
 
 def build_generation_prompt(context: dict) -> str:
     goals_line = f"Goals: {context['goals']}. " if context.get("goals") else ""
     dietary = ", ".join(context.get("dietary_restrictions") or []) or "none specified"
-    extra_notes = (
-        f"\nAdditional notes from the household: {context['notes']}\n" if context.get("notes") else ""
-    )
+    extra_notes = f"\nAdditional notes from the household: {context['notes']}\n" if context.get("notes") else ""
     return MEAL_PLAN_PROMPT_TEMPLATE.format(
         meal_types=sorted(set(context.get("meal_types_requested") or MEAL_TYPE_VALUES)),
         household_size=context.get("household_size", 2),
@@ -400,9 +395,7 @@ def parse_meal_plan_response(raw_text: str) -> list[dict]:
                 "recipe_id": _safe_int(e.get("recipe_id")),
                 "new_recipe": new_recipe,
                 "servings": _safe_int(e.get("servings")) or 2,
-                "requested_tags": [
-                    str(t).strip().lower() for t in (e.get("requested_tags") or []) if str(t).strip()
-                ],
+                "requested_tags": [str(t).strip().lower() for t in (e.get("requested_tags") or []) if str(t).strip()],
                 "is_indulgence": bool(e.get("is_indulgence")),
                 "notes": e.get("notes") or None,
             }
@@ -534,29 +527,128 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     # first specifically to win over a generic "pepper"/"onion" spice-
     # aisle false match.
     "produce": [
-        "apple", "banana", "orange", "lemon", "lime", "grape", "melon", "berries", "strawberry",
-        "blueberry", "raspberry", "avocado", "tomato", "onion", "garlic", "potato", "sweet potato",
-        "carrot", "celery", "lettuce", "spinach", "kale", "broccoli", "cauliflower", "cucumber",
-        "zucchini", "squash", "cabbage", "mushroom", "bell pepper", "jalapeno", "cilantro", "parsley",
-        "fresh basil", "fresh herbs", "green onion", "scallion", "ginger root",
+        "apple",
+        "banana",
+        "orange",
+        "lemon",
+        "lime",
+        "grape",
+        "melon",
+        "berries",
+        "strawberry",
+        "blueberry",
+        "raspberry",
+        "avocado",
+        "tomato",
+        "onion",
+        "garlic",
+        "potato",
+        "sweet potato",
+        "carrot",
+        "celery",
+        "lettuce",
+        "spinach",
+        "kale",
+        "broccoli",
+        "cauliflower",
+        "cucumber",
+        "zucchini",
+        "squash",
+        "cabbage",
+        "mushroom",
+        "bell pepper",
+        "jalapeno",
+        "cilantro",
+        "parsley",
+        "fresh basil",
+        "fresh herbs",
+        "green onion",
+        "scallion",
+        "ginger root",
     ],
     "fridge": [
-        "milk", "cheese", "yogurt", "yoghurt", "butter", "cream", "egg", "eggs", "sour cream",
-        "cottage cheese", "cream cheese", "tofu", "hummus", "deli", "ham", "bacon", "sausage",
-        "chicken breast", "chicken thigh", "ground beef", "steak", "pork chop", "salmon", "shrimp",
-        "fish fillet", "tortilla",
+        "milk",
+        "cheese",
+        "yogurt",
+        "yoghurt",
+        "butter",
+        "cream",
+        "egg",
+        "eggs",
+        "sour cream",
+        "cottage cheese",
+        "cream cheese",
+        "tofu",
+        "hummus",
+        "deli",
+        "ham",
+        "bacon",
+        "sausage",
+        "chicken breast",
+        "chicken thigh",
+        "ground beef",
+        "steak",
+        "pork chop",
+        "salmon",
+        "shrimp",
+        "fish fillet",
+        "tortilla",
     ],
     "freezer": ["frozen", "ice cream", "popsicle"],
     "spice": [
-        "salt", "black pepper", "white pepper", "cumin", "paprika", "cinnamon", "oregano",
-        "dried basil", "cayenne", "turmeric", "nutmeg", "chili powder", "curry powder", "spice",
-        "seasoning", "vanilla extract", "bay leaf", "thyme", "rosemary",
+        "salt",
+        "black pepper",
+        "white pepper",
+        "cumin",
+        "paprika",
+        "cinnamon",
+        "oregano",
+        "dried basil",
+        "cayenne",
+        "turmeric",
+        "nutmeg",
+        "chili powder",
+        "curry powder",
+        "spice",
+        "seasoning",
+        "vanilla extract",
+        "bay leaf",
+        "thyme",
+        "rosemary",
     ],
     "pantry": [
-        "flour", "sugar", "rice", "pasta", "noodle", "bread", "oil", "vinegar", "canned",
-        "beans", "lentil", "broth", "stock", "cereal", "oats", "oatmeal", "nuts", "peanut butter",
-        "honey", "syrup", "sauce", "ketchup", "mustard", "mayonnaise", "soy sauce", "cracker",
-        "chip", "cookie", "baking powder", "baking soda", "yeast", "cornstarch",
+        "flour",
+        "sugar",
+        "rice",
+        "pasta",
+        "noodle",
+        "bread",
+        "oil",
+        "vinegar",
+        "canned",
+        "beans",
+        "lentil",
+        "broth",
+        "stock",
+        "cereal",
+        "oats",
+        "oatmeal",
+        "nuts",
+        "peanut butter",
+        "honey",
+        "syrup",
+        "sauce",
+        "ketchup",
+        "mustard",
+        "mayonnaise",
+        "soy sauce",
+        "cracker",
+        "chip",
+        "cookie",
+        "baking powder",
+        "baking soda",
+        "yeast",
+        "cornstarch",
     ],
 }
 
@@ -803,8 +895,7 @@ def compute_grocery_list(db: Session, meal_plan: MealPlan) -> list[dict]:
             continue
         recipe = entry.recipe
         base_ingredients = [
-            {"ingredient_name": i.ingredient_name, "quantity": i.quantity, "unit": i.unit}
-            for i in recipe.ingredients
+            {"ingredient_name": i.ingredient_name, "quantity": i.quantity, "unit": i.unit} for i in recipe.ingredients
         ]
         scaled = recipe_service.scale_ingredients(base_ingredients, recipe.default_servings, entry.servings)
         ingredient_lists.append(scaled)

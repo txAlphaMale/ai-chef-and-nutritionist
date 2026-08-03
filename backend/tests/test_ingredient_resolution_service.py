@@ -10,6 +10,7 @@ each test names the old behaviour it replaces, so a future session can
 tell whether a change is reintroducing something already understood
 rather than fixing something new.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -121,7 +122,7 @@ def test_plurals_fold_without_mangling_words_that_only_look_plural():
 
 
 def test_a_source_qualifier_on_a_transformation_word_is_only_a_suggestion():
-    """"olive oil" is oil but "peanut butter" is not butter -- identical
+    """ "olive oil" is oil but "peanut butter" is not butter -- identical
     grammar, opposite answers, and nothing in the strings separates them.
     So the whole family sits just under the write threshold: usable for a
     grocery list, a question before a deduction."""
@@ -209,7 +210,7 @@ def test_advisory_call_sites_accept_a_medium_confidence_match(db_session):
 
 
 def test_advisory_call_sites_still_refuse_a_low_confidence_match(db_session):
-    """"oil" against "oil-packed tuna" is below even the advisory bar, so
+    """ "oil" against "oil-packed tuna" is below even the advisory bar, so
     the line keeps its full quantity. Buying oil you did not need is
     recoverable; not buying it is not."""
     from app.services import meal_plan_service
@@ -256,7 +257,7 @@ def test_an_alias_survives_the_row_it_was_taught_on_being_replaced(db_session):
 
 
 def test_an_alias_is_matched_on_its_normalised_form(db_session):
-    """"Chopped Tomatoes", "chopped tomato" and "CHOPPED TOMATOES" are
+    """ "Chopped Tomatoes", "chopped tomato" and "CHOPPED TOMATOES" are
     one alias, not three rows."""
     _item(db_session, "san marzano", 2.0, "can")
     irs.remember_alias(db_session, "Chopped Tomatoes", "san marzano")
@@ -376,9 +377,7 @@ def test_answering_the_question_applies_the_deduction_and_remembers_it(db_sessio
     assert result.quantity == 1.0
 
     # Asked once. The second time, no 409.
-    again = deduct_inventory(
-        InventoryDeductRequest(ingredient_name="chicken", quantity=1.0, unit="lb"), db_session
-    )
+    again = deduct_inventory(InventoryDeductRequest(ingredient_name="chicken", quantity=1.0, unit="lb"), db_session)
     assert again.id == breast.id
     assert again.quantity == 0.0
 

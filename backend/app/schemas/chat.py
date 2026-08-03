@@ -1,4 +1,5 @@
 """Pydantic request/response models for the persistent chat API."""
+
 from __future__ import annotations
 
 from datetime import datetime

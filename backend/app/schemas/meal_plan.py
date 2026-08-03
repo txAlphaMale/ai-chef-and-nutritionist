@@ -1,6 +1,7 @@
 """Pydantic request/response models for the meal-plan API: AI-assisted
 weekly generation (preview-then-confirm, same pattern as recipe import),
 manual plan/entry CRUD, and the derived grocery list."""
+
 from __future__ import annotations
 
 from datetime import date, datetime

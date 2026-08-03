@@ -1,5 +1,6 @@
 """Unit tests for the B2.3 dietary-pattern preset registry
 (app.services.dietary_pattern_service)."""
+
 from __future__ import annotations
 
 from app.services import dietary_pattern_service

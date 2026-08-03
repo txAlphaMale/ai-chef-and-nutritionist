@@ -1,6 +1,7 @@
 """Pydantic request/response models for kitchen/equipment profiles --
 lets the meal planner adapt to a home kitchen, camping trip, RV, or
 short-term rental with limited gear (see KitchenProfile model)."""
+
 from __future__ import annotations
 
 from datetime import datetime

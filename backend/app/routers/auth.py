@@ -13,6 +13,7 @@ every other /api/* route goes through -- no per-route auth check
 duplicated here, which is deliberately the discipline Fiduciary's own
 auth.py docstring says its OWN predecessor got wrong (a token checked on
 only 23 of 127 endpoints)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request

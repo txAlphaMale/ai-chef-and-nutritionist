@@ -5,6 +5,7 @@ flattening, and the end-to-end extract_jsonld_recipe() over small
 hand-built HTML fixtures (a single Recipe object, an @graph-wrapped
 document, a list containing a non-Recipe sibling type, and pages with no
 usable JSON-LD at all)."""
+
 from __future__ import annotations
 
 import json

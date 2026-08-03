@@ -5,6 +5,7 @@ why a formal Read schema wasn't added (the shape already varies by
 whether a cert is active, and X.509-derived fields are read fresh off
 disk every call rather than persisted, so a rigid schema would fight
 that more than help)."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

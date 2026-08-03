@@ -6,6 +6,7 @@ check_ingredients need no DB session at all. check_household_restrictions
 is exercised against a real (but unpersisted -- no db.add/commit needed
 since it only reads) HouseholdPreferences row via the db_session fixture.
 """
+
 from __future__ import annotations
 
 from app.models import HouseholdPreferences
@@ -33,9 +34,7 @@ def test_find_allergen_matches_case_insensitive():
 
 
 def test_find_allergen_matches_multiple_allergens_multiple_ingredients():
-    matches = ag.find_allergen_matches(
-        ["butter", "peanut butter", "rice"], ["milk", "peanuts"]
-    )
+    matches = ag.find_allergen_matches(["butter", "peanut butter", "rice"], ["milk", "peanuts"])
     allergens_hit = {m.allergen for m in matches}
     assert allergens_hit == {"milk", "peanuts"}
     # "butter" matches milk in both ingredient strings that contain it
@@ -111,7 +110,9 @@ def test_cross_contact_requires_gluten_actually_restricted():
 
 
 def test_cross_contact_hit_when_both_conditions_met():
-    matches = ag.find_cross_contact_matches(["rolled oats"], ["gluten"], gluten_observance_level="strict_no_cross_contact")
+    matches = ag.find_cross_contact_matches(
+        ["rolled oats"], ["gluten"], gluten_observance_level="strict_no_cross_contact"
+    )
     assert len(matches) == 1
     assert matches[0].allergen == "gluten_cross_contact"
     assert matches[0].ingredient_name == "rolled oats"

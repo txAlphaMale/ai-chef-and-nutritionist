@@ -1,6 +1,7 @@
 """Kitchen/equipment profiles -- lets the meal planner adapt to a home
 kitchen, a camping trip, an RV, or a short-term rental with limited gear.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import JSON, Boolean, String, Text

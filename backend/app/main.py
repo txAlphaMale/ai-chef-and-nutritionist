@@ -15,6 +15,7 @@ gate rather than a per-router dependency sprinkled onto each endpoint --
 see auth_gate's own docstring for why that specific mistake (checked on
 only a subset of endpoints) is the one this design avoids.
 """
+
 import contextlib
 import os
 from contextlib import asynccontextmanager
@@ -89,6 +90,7 @@ def get_configured_cors_origins() -> list[str]:
     except Exception:
         pass  # unmigrated or unreachable DB -- env/empty is a safe answer
     return [origin.strip() for origin in raw.replace("\n", ",").split(",") if origin.strip()]
+
 
 # CORS: no cross-origin credentialed access by default.
 #

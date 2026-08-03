@@ -10,6 +10,7 @@ for using plain httpx rather than a heavier SDK: it's a handful of
 REST calls, easy to fake precisely in a test the same way they're made
 in the real client.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,7 +47,9 @@ def _reset_module_state():
 def _configure_client(db_session):
     settings_service.set_setting(db_session, "google_calendar_client_id", "client-123")
     settings_service.set_setting(db_session, "google_calendar_client_secret", "shh-secret")
-    settings_service.set_setting(db_session, "google_calendar_redirect_uri", "http://localhost:8000/api/calendar/google/callback")
+    settings_service.set_setting(
+        db_session, "google_calendar_redirect_uri", "http://localhost:8000/api/calendar/google/callback"
+    )
 
 
 def _mark_connected(db_session, calendar_id="cal-abc"):

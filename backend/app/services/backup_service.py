@@ -53,6 +53,7 @@ preference for a small, well-understood implementation over a heavier
 dependency where the surface needed is this contained (see
 calendar_export_service.py's own .ics builder for the same reasoning).
 """
+
 from __future__ import annotations
 
 import io

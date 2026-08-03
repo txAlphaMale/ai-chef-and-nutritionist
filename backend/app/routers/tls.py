@@ -10,6 +10,7 @@ Mirrors the shape of the sibling Fiduciary project's own
 `/api/tls/*` endpoints (read directly before writing this), minus the
 ACME routes -- see tls_service.py's module docstring for why ACME
 wasn't ported this pass."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -109,4 +110,7 @@ def tls_restart():
     this is only for recovering from an edge case (e.g. a cert file
     dropped in by hand outside the app)."""
     tls_service.restart_to_apply()
-    return {"ok": True, "note": "restarting now to apply the certificate configuration -- this page will briefly disconnect"}
+    return {
+        "ok": True,
+        "note": "restarting now to apply the certificate configuration -- this page will briefly disconnect",
+    }

@@ -1,4 +1,5 @@
 """Shared model mixins and the app's one timestamp type."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -63,6 +64,4 @@ class UtcDateTime(TypeDecorator):
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False
-    )
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now, nullable=False)

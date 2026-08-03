@@ -3,6 +3,7 @@ meal_plan_service's grocery-list math and inventory_service's name-based
 deduction -- the actual behavior change, not just the standalone
 conversion table (see test_unit_conversion_service.py for that).
 """
+
 from __future__ import annotations
 
 from app.models import InventoryItem

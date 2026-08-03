@@ -1,5 +1,6 @@
 """Tests for the B4.4 (via B10.2) in-app expiration digest
 (inventory_service.get_expiring_digest)."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta

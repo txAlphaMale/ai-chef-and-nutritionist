@@ -6,6 +6,7 @@ repo's test suite) since it takes no FastAPI dependency injection, only
 a plain query param. httpx.get is monkeypatched on food_data_service's
 own module reference, same "no live egress from this sandbox" pattern
 used by test_recall_service.py."""
+
 from __future__ import annotations
 
 import httpx
@@ -71,9 +72,7 @@ def test_barcode_lookup_falls_back_to_count_when_quantity_text_has_no_leading_me
     # package_text returns None, so this must fall back to the same
     # 1/"count" default the endpoint always used, not crash or guess.
     def fake_get(url, timeout=None):
-        return _FakeResponse(
-            {"status": 1, "product": {"product_name": "Assorted Crackers", "quantity": "12 pieces"}}
-        )
+        return _FakeResponse({"status": 1, "product": {"product_name": "Assorted Crackers", "quantity": "12 pieces"}})
 
     monkeypatch.setattr(food_data_service.httpx, "get", fake_get)
     result = barcode_lookup("2222222222222")

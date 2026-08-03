@@ -62,6 +62,7 @@ returns is a *range*, always presented to the household as an estimate to
 confirm, never silently written over a value they already set -- see
 `routers/inventory.py`'s `/shelf-life-suggestion` endpoint and the
 frontend's "Estimated (USDA FoodKeeper)" labeling."""
+
 from __future__ import annotations
 
 import csv
@@ -69,9 +70,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-CSV_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "data", "foodkeeper_shelf_life.csv")
-)
+CSV_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data", "foodkeeper_shelf_life.csv"))
 
 # InventoryItem.category values that have a direct FoodKeeper storage-
 # location counterpart. "produce" deliberately checks fridge first (most
@@ -101,8 +100,21 @@ MIN_MATCH_SCORE = 50
 # (e.g. "leftover food item" would falsely match Surimi seafood).
 # Excluded from keyword scoring entirely, regardless of length.
 _GENERIC_KEYWORD_STOPLIST = {
-    "food", "foods", "sea", "meat", "fresh", "dried", "raw", "cooked",
-    "whole", "item", "items", "product", "products", "general", "other",
+    "food",
+    "foods",
+    "sea",
+    "meat",
+    "fresh",
+    "dried",
+    "raw",
+    "cooked",
+    "whole",
+    "item",
+    "items",
+    "product",
+    "products",
+    "general",
+    "other",
 }
 
 

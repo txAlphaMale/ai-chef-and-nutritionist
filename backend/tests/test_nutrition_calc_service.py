@@ -7,6 +7,7 @@ no DB session needed. A transient (never-`db.add`ed) ORM object can still
 have its `ingredients` relationship assigned a plain list directly, which
 is all `compute_recipe_nutrition` reads; nothing here touches the DB.
 """
+
 from __future__ import annotations
 
 from app.models import Recipe, RecipeIngredient

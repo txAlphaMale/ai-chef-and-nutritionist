@@ -3,6 +3,7 @@
 extract_jsonld_recipe) and the file-upload re-import path
 (recipe_service.extract_jsonld_recipe_from_json), including a genuine
 round trip through both directions against a real Recipe row."""
+
 from __future__ import annotations
 
 import json

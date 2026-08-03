@@ -4,6 +4,7 @@ search_nearby_restaurants (the one function that makes an HTTP call) is
 exercised only indirectly via its two pure halves tested here, same
 standing constraint as every other external-network feature in this
 project."""
+
 from __future__ import annotations
 
 from typing import ClassVar

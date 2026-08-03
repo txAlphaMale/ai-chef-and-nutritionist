@@ -22,6 +22,7 @@ than a parallel action-execution layer duplicating those endpoints.
 Route ordering matters -- the static /sessions path is declared before
 the dynamic /sessions/{session_id} route.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -57,10 +58,7 @@ def list_sessions(db: Session = Depends(get_db)):
     summaries = []
     for session_id, message_count, last_message_at in rows:
         last_message = (
-            db.query(ChatMessage)
-            .filter_by(session_id=session_id)
-            .order_by(ChatMessage.created_at.desc())
-            .first()
+            db.query(ChatMessage).filter_by(session_id=session_id).order_by(ChatMessage.created_at.desc()).first()
         )
         preview = (last_message.content[:PREVIEW_LENGTH] if last_message else "") or ""
         summaries.append(
@@ -84,11 +82,7 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
 @router.get("/messages", response_model=list[ChatMessageRead])
 def list_messages(session_id: str = "default", limit: int = 200, db: Session = Depends(get_db)):
     return (
-        db.query(ChatMessage)
-        .filter_by(session_id=session_id)
-        .order_by(ChatMessage.created_at.asc())
-        .limit(limit)
-        .all()
+        db.query(ChatMessage).filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).limit(limit).all()
     )
 
 
@@ -134,10 +128,7 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             # Ollama -- this is what makes the chat "remember" earlier
             # turns, not just the latest message.
             history = (
-                job_db.query(ChatMessage)
-                .filter_by(session_id=session_id)
-                .order_by(ChatMessage.created_at.asc())
-                .all()
+                job_db.query(ChatMessage).filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).all()
             )
             base_prompt = ollama_client.get_active_prompt(job_db, "main_chef") or ""
             # The user's own message doubles as the knowledge-retrieval
@@ -154,7 +145,9 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             # action contract live, so chat degraded into ignoring its own
             # instructions as a household accumulated data.
             system_prompt, truncated = ollama_client.fit_prompt(
-                job_db, system_prompt, response_tokens=chat_service.CHAT_RESPONSE_TOKENS + _history_token_estimate(history)
+                job_db,
+                system_prompt,
+                response_tokens=chat_service.CHAT_RESPONSE_TOKENS + _history_token_estimate(history),
             )
             if truncated:
                 print(
@@ -194,9 +187,9 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             job_db.commit()
             job_db.refresh(assistant_message)
 
-            return ChatSendResponse(
-                user_message=user_message_dict, assistant_message=assistant_message
-            ).model_dump(mode="json")
+            return ChatSendResponse(user_message=user_message_dict, assistant_message=assistant_message).model_dump(
+                mode="json"
+            )
         finally:
             job_db.close()
 

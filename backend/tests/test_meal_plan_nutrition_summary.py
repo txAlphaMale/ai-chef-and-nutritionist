@@ -5,6 +5,7 @@ Pure function over in-memory MealPlan/MealPlanEntry/Recipe objects --
 same "transient ORM object, relationship assigned directly, no db.add
 needed" pattern as test_nutrition_calc_service.py.
 """
+
 from __future__ import annotations
 
 from app.models import MealPlan, MealPlanEntry, Recipe
@@ -44,7 +45,12 @@ def test_single_entry_contributes_its_recipe_nutrition_unscaled_by_servings():
     plan = _plan([_entry(0, recipe)])
     summary = meal_plan_service.compute_nutrition_summary(plan)
     assert summary["days"] == [
-        {"day_of_week": 0, "entry_count": 1, "contributing_entry_count": 1, "totals": {"calories": 500, "protein_g": 30}}
+        {
+            "day_of_week": 0,
+            "entry_count": 1,
+            "contributing_entry_count": 1,
+            "totals": {"calories": 500, "protein_g": 30},
+        }
     ]
     assert summary["week_totals"] == {"calories": 500, "protein_g": 30}
 

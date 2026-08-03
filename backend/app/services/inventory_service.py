@@ -2,6 +2,7 @@
 planner prioritize using up), vision-photo-intake response parsing, and
 a deduction primitive for when a meal gets confirmed as made (wired up
 by Phase 5/7, which own the meal-plan/chat flows that call it)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -344,9 +345,7 @@ def deduct_by_name(
             )
         blocked_note = ""
         if resolution.blocked:
-            blocked_note = (
-                f" ({resolution.blocked[0].name!r} was excluded: {resolution.blocked[0].blocked_by})"
-            )
+            blocked_note = f" ({resolution.blocked[0].name!r} was excluded: {resolution.blocked[0].blocked_by})"
         return DeductionOutcome(
             status=DEDUCT_NO_MATCH,
             message=f"Nothing in inventory matches {ingredient_name!r}{blocked_note}",
@@ -372,8 +371,7 @@ def deduct_item(
         units_differ = (
             unit
             and item.unit
-            and unit_conversion_service.normalize_unit(unit)
-            != unit_conversion_service.normalize_unit(item.unit)
+            and unit_conversion_service.normalize_unit(unit) != unit_conversion_service.normalize_unit(item.unit)
         )
         if units_differ:
             converted = unit_conversion_service.convert(quantity, unit, item.unit)

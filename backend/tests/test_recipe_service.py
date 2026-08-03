@@ -10,6 +10,7 @@ test_ai_json_extraction.py for the underlying fix this exercises
 end-to-end), and the new get_recipe_import_prompt/get_recipe_modify_prompt
 DB-override-with-fallback getters.
 """
+
 from __future__ import annotations
 
 from app.models import SystemPrompt
@@ -129,7 +130,7 @@ def test_apply_display_unit_system_preserves_other_keys():
 
 def test_parse_recipe_response_survives_an_inline_thinking_trace_with_a_scratch_json_draft():
     raw = (
-        "<think>\nLet me structure this: { \"title\": \"WRONG DRAFT\" } -- "
+        '<think>\nLet me structure this: { "title": "WRONG DRAFT" } -- '
         "actually let me re-read the ingredients section first.\n</think>\n"
         '{"title": "Pumpkin Chiffon Pie", "ingredients": '
         '[{"ingredient_name": "graham crackers", "quantity": 12, "unit": null, "prep_note": null}], '

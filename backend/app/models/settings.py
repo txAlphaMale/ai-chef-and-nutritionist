@@ -2,6 +2,7 @@
 knowledge files -- the project brief calls for all of these to be
 user-customizable without a container rebuild, so they live in the DB
 rather than only in .env."""
+
 from __future__ import annotations
 
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
@@ -64,9 +65,7 @@ class KnowledgeFile(Base, TimestampMixin):
     # that can make a previously-good index stale.
     indexed_embed_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    chunks: Mapped[list[KnowledgeChunk]] = relationship(
-        back_populates="knowledge_file", cascade="all, delete-orphan"
-    )
+    chunks: Mapped[list[KnowledgeChunk]] = relationship(back_populates="knowledge_file", cascade="all, delete-orphan")
 
 
 class KnowledgeChunk(Base, TimestampMixin):

@@ -9,6 +9,7 @@ Route ordering matters -- the static /trends path is declared before
 the dynamic /{entry_id} routes so FastAPI's route-matching order
 doesn't swallow it.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile

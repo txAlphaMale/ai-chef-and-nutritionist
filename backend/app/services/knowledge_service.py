@@ -55,6 +55,7 @@ per-file-row upload model rather than Fiduciary's watched-folder one:
   deployment's knowledge base and embed latency make that noticeably
   slow.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -250,12 +251,7 @@ def search_knowledge(db: Session, query: str, k: int = 4) -> list[dict]:
     if not query:
         return []
     embed_model = settings_service.get_setting(db, "ollama_embed_model")
-    rows = (
-        db.query(KnowledgeChunk)
-        .join(KnowledgeFile)
-        .filter(KnowledgeFile.is_active.is_(True))
-        .all()
-    )
+    rows = db.query(KnowledgeChunk).join(KnowledgeFile).filter(KnowledgeFile.is_active.is_(True)).all()
     if not rows:
         return []
     try:
@@ -269,6 +265,5 @@ def search_knowledge(db: Session, query: str, k: int = 4) -> list[dict]:
         key=lambda pair: -pair[0],
     )
     return [
-        {"source": row.knowledge_file.filename, "score": score, "text": row.text}
-        for score, row in scored[: max(1, k)]
+        {"source": row.knowledge_file.filename, "score": score, "text": row.text} for score, row in scored[: max(1, k)]
     ]

@@ -5,6 +5,7 @@ As in inventory.py, static paths (/import) are declared before the
 dynamic /{recipe_id} routes so FastAPI's route-matching order doesn't
 swallow them.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -640,9 +641,7 @@ def export_all_recipes_jsonld(request: Request, db: Session = Depends(get_db)):
     recipes = db.query(Recipe).all()
     doc = {
         "@context": "https://schema.org",
-        "@graph": [
-            recipe_service.recipe_to_jsonld(r, image_url=_recipe_image_url(request, r)) for r in recipes
-        ],
+        "@graph": [recipe_service.recipe_to_jsonld(r, image_url=_recipe_image_url(request, r)) for r in recipes],
     }
     return Response(
         content=json.dumps(doc, indent=2),

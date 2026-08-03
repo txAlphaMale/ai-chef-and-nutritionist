@@ -41,6 +41,7 @@ AppSetting table Chef already has, under key names never registered in
 SETTING_SPECS -- settings_service.is_known_key() correctly refuses them,
 so they can never appear in GET /api/system/settings or be written via
 its PATCH."""
+
 from __future__ import annotations
 
 import time

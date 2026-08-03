@@ -7,6 +7,7 @@ substantially longer. Mocks `ollama.Client` (never a real network call,
 same standing constraint as every other Ollama-touching test in this
 project) to verify the actual call arguments, not just that no exception
 is raised."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -145,9 +146,7 @@ def test_chat_merges_extra_options_with_num_ctx(db_session):
     mock_client = MagicMock()
     mock_client.chat.return_value = {"message": {"content": "ok"}}
     with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
-        ollama_client.chat(
-            db_session, [{"role": "user", "content": "hi"}], extra_options={"temperature": 0.1}
-        )
+        ollama_client.chat(db_session, [{"role": "user", "content": "hi"}], extra_options={"temperature": 0.1})
     _, kwargs = mock_client.chat.call_args
     assert kwargs["options"] == {"num_ctx": 8192, "temperature": 0.1}
 
@@ -156,9 +155,7 @@ def test_describe_image_merges_extra_options_with_num_ctx(db_session):
     mock_client = MagicMock()
     mock_client.chat.return_value = {"message": {"content": "ok"}}
     with patch("app.services.ollama_client.ollama.Client", return_value=mock_client):
-        ollama_client.describe_image(
-            db_session, b"fake-bytes", "describe this", extra_options={"temperature": 0.1}
-        )
+        ollama_client.describe_image(db_session, b"fake-bytes", "describe this", extra_options={"temperature": 0.1})
     _, kwargs = mock_client.chat.call_args
     assert kwargs["options"] == {"num_ctx": 8192, "temperature": 0.1}
 

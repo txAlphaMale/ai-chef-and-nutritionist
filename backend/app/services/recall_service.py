@@ -57,6 +57,7 @@ that doesn't, doesn't get checked until it's opened again. Documented
 here and in PROJECT-PLAN.md as a known, deliberate simplification, not
 silently passed off as a real cron job.
 """
+
 from __future__ import annotations
 
 import re
@@ -171,10 +172,9 @@ def _openfda_search(product_name: str, api_key: str | None) -> list[dict]:
         alerts.append(
             {
                 "source": "openfda",
-                "external_id": str(row.get("recall_number") or row.get("event_id") or row["product_description"])[
-                    :100
-                ],
-                "title": str(row.get("recalling_firm") or "").strip() + ": "
+                "external_id": str(row.get("recall_number") or row.get("event_id") or row["product_description"])[:100],
+                "title": str(row.get("recalling_firm") or "").strip()
+                + ": "
                 + str(row["product_description"]).strip()[:150],
                 "reason": row.get("reason_for_recall") or None,
                 "classification": row.get("classification") or None,
@@ -266,11 +266,7 @@ def check_inventory_for_recalls(db: Session, force: bool = False) -> dict:
     new_alert_count = 0
     for name in names:
         for match in check_item_against_recalls(db, name):
-            existing = (
-                db.query(RecallAlert)
-                .filter_by(source=match["source"], external_id=match["external_id"])
-                .first()
-            )
+            existing = db.query(RecallAlert).filter_by(source=match["source"], external_id=match["external_id"]).first()
             if existing is not None:
                 continue
             db.add(

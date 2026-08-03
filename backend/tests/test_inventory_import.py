@@ -14,6 +14,7 @@ covered elsewhere, exercised once more here specifically against a
 RECEIPT-shaped fixture, since that's the exact function this new intake
 source reuses unchanged.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -133,6 +134,7 @@ def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quanti
     assert "6 count" in rendered
     assert "never" in rendered
 
+
 def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():
     rendered = _render("irrelevant").lower()
     assert "never merge" in rendered
@@ -199,13 +201,9 @@ def test_receipt_text_extraction_uses_the_active_db_override_when_present(db_ses
     # get_receipt_import_prompt (DB override if set), not the hardcoded
     # module constant directly -- this is what makes the Settings-page
     # edit actually take effect on the next request.
-    db_session.add(
-        SystemPrompt(prompt_key="receipt_import", content="CUSTOM {content} {today}", is_active=True)
-    )
+    db_session.add(SystemPrompt(prompt_key="receipt_import", content="CUSTOM {content} {today}", is_active=True))
     db_session.commit()
-    with patch(
-        "app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}'
-    ) as mock_chat:
+    with patch("app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}') as mock_chat:
         _receipt_text_extraction(db_session, "some receipt text")
     sent_prompt = mock_chat.call_args[0][1][0]["content"]
     assert sent_prompt.startswith("CUSTOM some receipt text")
@@ -224,9 +222,7 @@ def test_receipt_text_extraction_uses_constrained_decoding(db_session):
     structure partway through a long list -- the exact "4 of 8 items"
     symptom it was added to fix. `chat_json` applies temperature 0 and no
     penalties; see ollama_client.EXTRACTION_OPTIONS."""
-    with patch(
-        "app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}'
-    ) as mock_chat_json:
+    with patch("app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}') as mock_chat_json:
         _receipt_text_extraction(db_session, "some receipt text")
     _, kwargs = mock_chat_json.call_args
     assert kwargs["schema"] is INVENTORY_SCHEMA
@@ -331,7 +327,7 @@ def test_receipt_text_extraction_logs_content_length_and_budget(db_session, caps
     out = capsys.readouterr().out
     assert "extracted_content_chars=" in out
     assert "budget_chars=" in out
-    assert 'raw_output_chars=13' in out  # len('{"items": []}')
+    assert "raw_output_chars=13" in out  # len('{"items": []}')
 
 
 def test_inventory_import_job_logs_raw_output_length_vs_detected_count(db_session):
@@ -354,9 +350,7 @@ def test_inventory_import_job_logs_zero_detected_items_when_response_is_empty(db
     assert "raw_output_chars=0 detected_items=0" in out
 
 
-def test_inventory_import_job_logs_head_and_tail_when_a_non_empty_response_parses_to_zero(
-    db_session, capsys
-):
+def test_inventory_import_job_logs_head_and_tail_when_a_non_empty_response_parses_to_zero(db_session, capsys):
     # Second reported shape of the same symptom (2026-08-02): the "Show
     # raw AI response" link IS rendered (the frontend only renders it
     # when raw_model_output is truthy -- InventoryPage.jsx), so the model
@@ -410,8 +404,7 @@ def test_extract_json_array_survives_a_lead_in_containing_brackets():
 
 def test_extract_json_array_survives_a_second_array_later_in_the_response():
     raw = (
-        '[{"name": "Eggs", "category": "fridge"}]\n'
-        'For reference, the lines I excluded were: [{"name": "Lint roller"}]'
+        '[{"name": "Eggs", "category": "fridge"}]\nFor reference, the lines I excluded were: [{"name": "Lint roller"}]'
     )
     items = inventory_service.parse_vision_response(raw)
     assert [i["name"] for i in items] == ["Eggs"]

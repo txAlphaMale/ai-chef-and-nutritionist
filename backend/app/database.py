@@ -30,6 +30,7 @@ for how this app actually runs:
   consistent. FULL costs an fsync per commit, which is real overhead on
   this deployment's hardware for no benefit a household app needs.
 """
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 

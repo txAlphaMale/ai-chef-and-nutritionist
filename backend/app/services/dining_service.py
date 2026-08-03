@@ -34,6 +34,7 @@ Tavily enrichment (menu pages, recent reviews) is not built: the
 deterministic OSM check is the safety-relevant half, and a second source
 would only add confidence this module deliberately declines to express.
 """
+
 from __future__ import annotations
 
 import math
@@ -381,12 +382,12 @@ def evaluate_restrictions(place: dict, restricted_allergens: list[str], gluten_o
 # have. So everything is returned, ordered so that what the household can
 # actually eat is at the top.
 _VERDICT_RANK = {
-    "only": 0,      # entire menu fits the restriction
-    "yes": 1,       # options available
-    "limited": 2,   # contested tag value, but a real signal
-    "unknown": 3,   # no tag on this venue -- not a judgement either way
-    "no_data": 4,   # OSM has no tag for this allergen at all
-    "no": 5,        # explicitly not available
+    "only": 0,  # entire menu fits the restriction
+    "yes": 1,  # options available
+    "limited": 2,  # contested tag value, but a real signal
+    "unknown": 3,  # no tag on this venue -- not a judgement either way
+    "no_data": 4,  # OSM has no tag for this allergen at all
+    "no": 5,  # explicitly not available
 }
 
 

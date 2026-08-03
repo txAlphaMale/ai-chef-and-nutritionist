@@ -5,6 +5,7 @@ frontend polls GET /api/jobs/{job_id} for a JobRead until status is
 "done" or "error", then reads `result` -- the exact same JSON shape that
 endpoint used to return synchronously, so existing frontend state-
 population code barely needs to change, only *how* it gets there."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel

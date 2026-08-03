@@ -5,6 +5,7 @@ match's own category always wins over a guess -- see
 test_unit_conversion_wiring.py for the two pre-existing subtract_inventory
 tests updated alongside this feature).
 """
+
 from __future__ import annotations
 
 from app.models import InventoryItem

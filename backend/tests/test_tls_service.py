@@ -14,6 +14,7 @@ run itself if left real. Self-signed and manual-CSR/import are pure
 `cryptography` operations with no network calls, exactly like
 Fiduciary's own tls.py, so this suite covers them for real rather than
 mocking around them."""
+
 from __future__ import annotations
 
 import datetime as dt

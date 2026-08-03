@@ -20,6 +20,7 @@ Deliberately does NOT touch anything that calls Ollama/Tavily/USDA/OSM --
 this is a smoke test for the deterministic CRUD/business-logic backbone,
 not a live-network integration test (no route reaches this sandbox
 anyway, a standing constraint documented throughout this project)."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta

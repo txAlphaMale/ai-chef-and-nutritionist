@@ -34,6 +34,7 @@ and inventory rows use inconsistent free-text spellings ("tbsp", "Tbsp",
 "tablespoon", "tablespoons") because they come from AI extraction, manual
 entry, and imports written by different sources at different times.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -156,7 +157,7 @@ def normalize_unit(unit: str | None) -> str | None:
 
 
 def unit_family(unit: str | None) -> str:
-    """"volume" | "mass" | "count" (anything not recognized as either --
+    """ "volume" | "mass" | "count" (anything not recognized as either --
     count-based units are the norm for this app's free-text ingredient
     data, e.g. "2 eggs" or "1 can beans", and are valid, not an error)."""
     normalized = normalize_unit(unit)

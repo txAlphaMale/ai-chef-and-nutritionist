@@ -1,4 +1,5 @@
 """Pydantic request/response models for the recipe API."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -179,7 +180,7 @@ class RecipeFolderImportResponse(BaseModel):
     items: list[RecipeFolderScanItem]
     skipped: list[list[str]] = Field(
         default_factory=list,
-        description='[[path, reason], ...] -- files found but not attempted (too large, or over the file-count cap)',
+        description="[[path, reason], ...] -- files found but not attempted (too large, or over the file-count cap)",
     )
     truncated: bool = False
     scanned_folder: str

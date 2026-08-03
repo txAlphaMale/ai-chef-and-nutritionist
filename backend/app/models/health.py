@@ -1,5 +1,6 @@
 """Trend tracking for weight, cholesterol, and other diet-influenced
 bloodwork metrics, tied to a household member."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -15,9 +16,7 @@ class HealthMetricEntry(Base, TimestampMixin):
     __tablename__ = "health_metric_entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    household_member_id: Mapped[int | None] = mapped_column(
-        ForeignKey("household_members.id"), nullable=True
-    )
+    household_member_id: Mapped[int | None] = mapped_column(ForeignKey("household_members.id"), nullable=True)
     entry_date: Mapped[date] = mapped_column(Date, index=True)
 
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)

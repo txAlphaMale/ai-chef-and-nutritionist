@@ -7,6 +7,7 @@ behavior (strict serialization, a job body's exception never taking the
 worker thread down), so exercising the actual thread is the honest test,
 not a mock standing in for it.
 """
+
 from __future__ import annotations
 
 import time

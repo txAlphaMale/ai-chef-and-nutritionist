@@ -5,6 +5,7 @@ rollups built on top of it. Needs a real db_session since price
 resolution queries InventoryItem directly (same reason
 test_meal_plan_leftovers.py/test_pantry_staples.py's DB-backed tests do).
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -199,7 +200,9 @@ def test_grocery_list_cost_end_to_end_via_compute_grocery_list_context(db_sessio
     # test subtract_inventory's own coverage logic, not this wiring.
     db_session.add(_priced_item("chicken breast", 0.1, "lb", 3.00))
     recipe = _recipe([("chicken breast", 1, "lb")], default_servings=2)
-    db_session.add(MealPlan(week_start_date=date(2026, 8, 10), entries=[MealPlanEntry(day_of_week=0, servings=2, recipe=recipe)]))
+    db_session.add(
+        MealPlan(week_start_date=date(2026, 8, 10), entries=[MealPlanEntry(day_of_week=0, servings=2, recipe=recipe)])
+    )
     db_session.commit()
 
     from app.services import meal_plan_service

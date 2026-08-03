@@ -33,6 +33,7 @@ Two things this has to survive, which is why it is not just json.loads:
 Both array and object shapes are handled here so every JSON-consuming
 call site shares one defense, rather than half the app having it.
 """
+
 from __future__ import annotations
 
 import json

@@ -4,6 +4,7 @@ compute_bmr_mifflin_st_jeor/compute_daily_targets are pure functions, no
 DB needed. get_latest_weight_kg/compute_member_daily_targets touch the
 DB (a member's latest HealthMetricEntry), so those use db_session.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -34,15 +35,21 @@ def test_bmr_unspecified_sex_uses_midpoint_offset():
 
 
 def test_compute_daily_targets_returns_none_without_weight():
-    assert dri.compute_daily_targets(weight_kg=None, height_cm=170, age=40, sex="male", activity_level="sedentary") is None
+    assert (
+        dri.compute_daily_targets(weight_kg=None, height_cm=170, age=40, sex="male", activity_level="sedentary") is None
+    )
 
 
 def test_compute_daily_targets_returns_none_without_height():
-    assert dri.compute_daily_targets(weight_kg=80, height_cm=None, age=40, sex="male", activity_level="sedentary") is None
+    assert (
+        dri.compute_daily_targets(weight_kg=80, height_cm=None, age=40, sex="male", activity_level="sedentary") is None
+    )
 
 
 def test_compute_daily_targets_returns_none_without_age():
-    assert dri.compute_daily_targets(weight_kg=80, height_cm=170, age=None, sex="male", activity_level="sedentary") is None
+    assert (
+        dri.compute_daily_targets(weight_kg=80, height_cm=170, age=None, sex="male", activity_level="sedentary") is None
+    )
 
 
 def test_compute_daily_targets_sedentary_male_hand_checked():
@@ -61,7 +68,9 @@ def test_compute_daily_targets_sedentary_male_hand_checked():
 
 
 def test_compute_daily_targets_unknown_activity_level_falls_back_to_sedentary():
-    with_sedentary = dri.compute_daily_targets(weight_kg=80, height_cm=180, age=30, sex="male", activity_level="sedentary")
+    with_sedentary = dri.compute_daily_targets(
+        weight_kg=80, height_cm=180, age=30, sex="male", activity_level="sedentary"
+    )
     with_unknown = dri.compute_daily_targets(weight_kg=80, height_cm=180, age=30, sex="male", activity_level="bogus")
     assert with_sedentary["calories"] == with_unknown["calories"]
 
@@ -124,7 +133,9 @@ def test_get_latest_weight_kg_skips_entries_with_no_weight(db_session):
     member = HouseholdMember(name="Jason")
     db_session.add(member)
     db_session.commit()
-    db_session.add(HealthMetricEntry(household_member_id=member.id, entry_date=date(2026, 6, 1), weight_kg=None, ldl_mg_dl=110))
+    db_session.add(
+        HealthMetricEntry(household_member_id=member.id, entry_date=date(2026, 6, 1), weight_kg=None, ldl_mg_dl=110)
+    )
     db_session.commit()
     assert dri.get_latest_weight_kg(db_session, member.id) is None
 

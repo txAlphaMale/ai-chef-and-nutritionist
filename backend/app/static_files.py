@@ -32,6 +32,7 @@ Do not reintroduce a proxy in front of this without a concrete reason
 that is written down. "Separation of concerns" is not one for a
 single-household app whose two halves always ship together.
 """
+
 from __future__ import annotations
 
 import os

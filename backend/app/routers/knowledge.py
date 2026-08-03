@@ -7,6 +7,7 @@ full extracted text is never returned by these endpoints -- only a short
 excerpt for a sanity-check preview -- since it can be large and isn't
 meant for display.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
@@ -44,9 +45,7 @@ def list_knowledge_files(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=KnowledgeFileRead, status_code=201)
-async def upload_knowledge_file(
-    file: UploadFile, description: str | None = Form(None), db: Session = Depends(get_db)
-):
+async def upload_knowledge_file(file: UploadFile, description: str | None = Form(None), db: Session = Depends(get_db)):
     """Backlog B11.1 (2026-08-01): the embedding-indexing step
     (knowledge_service.ensure_indexed -- one blocking Ollama embed() call
     PER CHUNK, potentially dozens to hundreds in a row for a large file)

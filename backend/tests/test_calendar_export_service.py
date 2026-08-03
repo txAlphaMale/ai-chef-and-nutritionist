@@ -6,6 +6,7 @@ in-memory MealPlan/MealPlanEntry/Recipe objects, same pattern as
 test_meal_plan_nutrition_summary.py -- no DB needed since this module
 only reads attributes off objects it's handed.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -103,7 +104,11 @@ def test_long_description_is_folded_with_continuation_space():
     # Every raw physical line (split on the real CRLF used for folding)
     # must be within the 75-octet content-line limit -- the folded
     # continuation lines start with a single space per RFC 5545 3.1.
-    description_block = [line for line in ics.split("\r\n") if line.startswith("DESCRIPTION:") or (line.startswith(" ") and "x" * 10 in line)]
+    description_block = [
+        line
+        for line in ics.split("\r\n")
+        if line.startswith("DESCRIPTION:") or (line.startswith(" ") and "x" * 10 in line)
+    ]
     assert len(description_block) > 1  # actually folded into multiple physical lines
     for line in ics.split("\r\n"):
         assert len(line.encode("utf-8")) <= 75

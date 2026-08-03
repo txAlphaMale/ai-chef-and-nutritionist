@@ -7,6 +7,7 @@ and dismiss. httpx.get is monkeypatched rather than hitting the real
 network, same "no live egress from this sandbox" constraint every other
 external-API service in this repo already works around (food_data_
 service.py, tavily_client.py)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -225,9 +226,7 @@ def test_check_inventory_for_recalls_creates_alerts_and_dedups_item_names(monkey
 def test_check_inventory_for_recalls_does_not_duplicate_existing_alert(monkeypatch, db_session):
     db_session.add(InventoryItem(name="Spinach", category="produce"))
     db_session.commit()
-    monkeypatch.setattr(
-        rs, "check_item_against_recalls", lambda db, name: [_fake_match(external_id="SPINACH-1")]
-    )
+    monkeypatch.setattr(rs, "check_item_against_recalls", lambda db, name: [_fake_match(external_id="SPINACH-1")])
 
     rs.check_inventory_for_recalls(db_session, force=True)
     first_count = db_session.query(RecallAlert).count()
@@ -310,9 +309,7 @@ def test_get_check_state_creates_singleton_row(db_session):
 def test_list_active_alerts_excludes_dismissed(db_session):
     db_session.add_all(
         [
-            RecallAlert(
-                source="fsis", external_id="A1", matched_item_name="x", title="Active one", is_dismissed=False
-            ),
+            RecallAlert(source="fsis", external_id="A1", matched_item_name="x", title="Active one", is_dismissed=False),
             RecallAlert(
                 source="fsis", external_id="A2", matched_item_name="x", title="Dismissed one", is_dismissed=True
             ),

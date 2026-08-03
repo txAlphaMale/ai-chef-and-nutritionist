@@ -7,6 +7,7 @@ only plain query params, no FastAPI dependency injection.
 Exercises the real shipped CSV (backend/app/data/foodkeeper_shelf_life.csv)
 rather than a fixture -- this data IS the feature; a test against a fake
 CSV wouldn't catch a real parsing bug against the actual file shape."""
+
 from __future__ import annotations
 
 from datetime import date

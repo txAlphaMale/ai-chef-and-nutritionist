@@ -9,6 +9,7 @@ format_member_health_line, _format_knowledge_excerpts) are kept separate
 from the DB-touching wrappers around them, same pattern as inventory_
 service.py, recipe_service.py, and meal_plan_service.py.
 """
+
 from __future__ import annotations
 
 from datetime import timedelta

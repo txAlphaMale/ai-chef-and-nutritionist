@@ -5,6 +5,7 @@ short-term rental with limited equipment) so meal-plan generation
 "active" at a time; setting one active clears the flag on the others,
 same singleton-ish pattern used for HouseholdPreferences.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException

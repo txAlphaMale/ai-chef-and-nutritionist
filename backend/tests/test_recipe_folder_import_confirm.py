@@ -5,6 +5,7 @@ function directly against a real (temp-file SQLite) db_session, same
 pattern this repo already avoids TestClient for (see
 test_barcode_lookup.py) -- confirm_folder_import takes no FastAPI
 dependency injection beyond a plain Session, so no app/client needed."""
+
 from __future__ import annotations
 
 from app.models import Recipe

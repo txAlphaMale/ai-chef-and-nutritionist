@@ -8,6 +8,7 @@ like each API's documented response schema. The pure parsing functions
 (`_parse_usda_nutrients`, `_parse_off_nutrients`) are exercised directly
 against representative nutrient data with no network involved at all.
 """
+
 from __future__ import annotations
 
 import httpx

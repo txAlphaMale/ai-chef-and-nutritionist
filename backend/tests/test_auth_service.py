@@ -2,6 +2,7 @@
 (auth_service.py). Pure service-layer logic against a real (test) DB
 session -- no HTTP/session-cookie machinery here, that's covered by a
 live end-to-end curl pass instead (see PROJECT-PLAN.md's B10.2 notes)."""
+
 from __future__ import annotations
 
 import pytest

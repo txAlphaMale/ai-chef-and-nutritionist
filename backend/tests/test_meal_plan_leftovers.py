@@ -8,6 +8,7 @@ fine here since these tests are only about which entries CONTRIBUTE
 ingredients in the first place, not the subtraction math itself (already
 covered by test_unit_conversion_wiring.py).
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -24,7 +25,9 @@ def _recipe(ingredients: list[tuple[str, float, str]]) -> Recipe:
     return recipe
 
 
-def _entry(day_of_week: int, recipe: Recipe, servings: int = 2, leftover_of_entry_id: int | None = None) -> MealPlanEntry:
+def _entry(
+    day_of_week: int, recipe: Recipe, servings: int = 2, leftover_of_entry_id: int | None = None
+) -> MealPlanEntry:
     entry = MealPlanEntry(day_of_week=day_of_week, servings=servings, leftover_of_entry_id=leftover_of_entry_id)
     entry.recipe = recipe
     return entry

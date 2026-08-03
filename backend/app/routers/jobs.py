@@ -2,6 +2,7 @@
 background job queue (job_queue.py). No auth-exempt special-casing needed
 here beyond whatever the standing auth_gate middleware already applies
 uniformly to every /api/* route."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

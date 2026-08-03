@@ -58,6 +58,7 @@ quality estimate," never as "your certified Healthy Eating Index score."
 string saying exactly that, so the caveat travels with the number instead
 of living only in this docstring.
 """
+
 from __future__ import annotations
 
 import re
@@ -84,46 +85,174 @@ from app.services import food_data_service
 FOOD_GROUP_KEYWORDS: dict[str, list[str]] = {
     "fruit_juice": [r"fruit juice", r"orange juice", r"apple juice", r"grape juice", r"juice"],
     "fruit_whole": [
-        r"apple", r"banana", r"berry", r"berries", r"orange", r"grape\b", r"melon", r"peach",
-        r"pear\b", r"pineapple", r"mango", r"plum", r"cherry", r"cherries", r"kiwi", r"fruit",
-        r"raisin", r"\bdate\b", r"dates\b", r"\bfig\b", r"figs\b", r"apricot", r"nectarine",
-        r"pomegranate", r"tangerine", r"clementine", r"watermelon", r"cantaloupe", r"papaya",
+        r"apple",
+        r"banana",
+        r"berry",
+        r"berries",
+        r"orange",
+        r"grape\b",
+        r"melon",
+        r"peach",
+        r"pear\b",
+        r"pineapple",
+        r"mango",
+        r"plum",
+        r"cherry",
+        r"cherries",
+        r"kiwi",
+        r"fruit",
+        r"raisin",
+        r"\bdate\b",
+        r"dates\b",
+        r"\bfig\b",
+        r"figs\b",
+        r"apricot",
+        r"nectarine",
+        r"pomegranate",
+        r"tangerine",
+        r"clementine",
+        r"watermelon",
+        r"cantaloupe",
+        r"papaya",
         r"avocado",
     ],
     "vegetable_dark_green_or_legume": [
-        r"spinach", r"kale", r"broccoli", r"collard", r"chard", r"romaine", r"arugula",
-        r"lentil", r"\bbean\b", r"beans\b", r"chickpea", r"garbanzo", r"black bean",
-        r"kidney bean", r"pinto", r"edamame", r"soybean", r"split pea", r"lima bean",
+        r"spinach",
+        r"kale",
+        r"broccoli",
+        r"collard",
+        r"chard",
+        r"romaine",
+        r"arugula",
+        r"lentil",
+        r"\bbean\b",
+        r"beans\b",
+        r"chickpea",
+        r"garbanzo",
+        r"black bean",
+        r"kidney bean",
+        r"pinto",
+        r"edamame",
+        r"soybean",
+        r"split pea",
+        r"lima bean",
     ],
     "vegetable_other": [
-        r"carrot", r"tomato", r"pepper", r"onion", r"potato", r"vegetable", r"zucchini",
-        r"squash", r"cucumber", r"lettuce", r"cabbage", r"mushroom", r"\bcorn\b", r"celery",
-        r"eggplant", r"asparagus", r"cauliflower", r"beet", r"radish", r"turnip", r"leek",
-        r"scallion", r"green onion", r"artichoke", r"brussels sprout",
+        r"carrot",
+        r"tomato",
+        r"pepper",
+        r"onion",
+        r"potato",
+        r"vegetable",
+        r"zucchini",
+        r"squash",
+        r"cucumber",
+        r"lettuce",
+        r"cabbage",
+        r"mushroom",
+        r"\bcorn\b",
+        r"celery",
+        r"eggplant",
+        r"asparagus",
+        r"cauliflower",
+        r"beet",
+        r"radish",
+        r"turnip",
+        r"leek",
+        r"scallion",
+        r"green onion",
+        r"artichoke",
+        r"brussels sprout",
     ],
     "grain_whole": [
-        r"whole wheat", r"whole grain", r"\boats?\b", r"oatmeal", r"brown rice", r"quinoa",
-        r"\bbarley\b", r"bulgur", r"farro", r"whole grain bread", r"wild rice", r"buckwheat",
-        r"whole wheat flour", r"whole wheat pasta",
+        r"whole wheat",
+        r"whole grain",
+        r"\boats?\b",
+        r"oatmeal",
+        r"brown rice",
+        r"quinoa",
+        r"\bbarley\b",
+        r"bulgur",
+        r"farro",
+        r"whole grain bread",
+        r"wild rice",
+        r"buckwheat",
+        r"whole wheat flour",
+        r"whole wheat pasta",
     ],
     "grain_refined": [
-        r"white rice", r"white flour", r"\bpasta\b", r"\bbread\b", r"bagel", r"cracker",
-        r"white bread", r"tortilla", r"cereal", r"\bnoodle", r"\bmacaroni\b", r"\bflour\b",
+        r"white rice",
+        r"white flour",
+        r"\bpasta\b",
+        r"\bbread\b",
+        r"bagel",
+        r"cracker",
+        r"white bread",
+        r"tortilla",
+        r"cereal",
+        r"\bnoodle",
+        r"\bmacaroni\b",
+        r"\bflour\b",
         r"\brice\b",
     ],
     "dairy": [
-        r"\bmilk\b", r"yogurt", r"yoghurt", r"cheese", r"cottage cheese", r"\bcream\b", r"kefir",
-        r"buttermilk", r"ricotta", r"mozzarella", r"cheddar", r"parmesan",
+        r"\bmilk\b",
+        r"yogurt",
+        r"yoghurt",
+        r"cheese",
+        r"cottage cheese",
+        r"\bcream\b",
+        r"kefir",
+        r"buttermilk",
+        r"ricotta",
+        r"mozzarella",
+        r"cheddar",
+        r"parmesan",
     ],
     "protein_seafood_or_plant": [
-        r"\bfish\b", r"salmon", r"tuna", r"shrimp", r"seafood", r"cod\b", r"tilapia", r"trout",
-        r"crab", r"scallop", r"\btofu\b", r"tempeh", r"\bnuts?\b", r"almond", r"walnut", r"peanut",
-        r"cashew", r"\bseeds?\b", r"pistachio", r"pecan", r"lentil", r"\bbean\b", r"beans\b",
-        r"chickpea", r"garbanzo", r"soy\b", r"edamame",
+        r"\bfish\b",
+        r"salmon",
+        r"tuna",
+        r"shrimp",
+        r"seafood",
+        r"cod\b",
+        r"tilapia",
+        r"trout",
+        r"crab",
+        r"scallop",
+        r"\btofu\b",
+        r"tempeh",
+        r"\bnuts?\b",
+        r"almond",
+        r"walnut",
+        r"peanut",
+        r"cashew",
+        r"\bseeds?\b",
+        r"pistachio",
+        r"pecan",
+        r"lentil",
+        r"\bbean\b",
+        r"beans\b",
+        r"chickpea",
+        r"garbanzo",
+        r"soy\b",
+        r"edamame",
     ],
     "protein_other": [
-        r"chicken", r"\bbeef\b", r"\bpork\b", r"turkey", r"\begg\b", r"eggs\b", r"\bmeat\b",
-        r"sausage", r"bacon", r"\blamb\b", r"poultry", r"steak", r"ground beef", r"ham\b",
+        r"chicken",
+        r"\bbeef\b",
+        r"\bpork\b",
+        r"turkey",
+        r"\begg\b",
+        r"eggs\b",
+        r"\bmeat\b",
+        r"sausage",
+        r"bacon",
+        r"\blamb\b",
+        r"poultry",
+        r"steak",
+        r"ground beef",
+        r"ham\b",
     ],
 }
 
@@ -179,64 +308,129 @@ _PROTEIN_OZ_G = 28.0
 # their real max_points, instead of silently pretending they don't exist.
 HEI_COMPONENTS: dict[str, dict] = {
     "total_fruits": {
-        "label": "Total Fruits", "max_points": 5, "unit": "cup-eq per 1,000 kcal",
-        "good": 0.8, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Total Fruits",
+        "max_points": 5,
+        "unit": "cup-eq per 1,000 kcal",
+        "good": 0.8,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "whole_fruits": {
-        "label": "Whole Fruits", "max_points": 5, "unit": "cup-eq per 1,000 kcal",
-        "good": 0.4, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Whole Fruits",
+        "max_points": 5,
+        "unit": "cup-eq per 1,000 kcal",
+        "good": 0.4,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "total_vegetables": {
-        "label": "Total Vegetables", "max_points": 5, "unit": "cup-eq per 1,000 kcal",
-        "good": 1.1, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Total Vegetables",
+        "max_points": 5,
+        "unit": "cup-eq per 1,000 kcal",
+        "good": 1.1,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "greens_and_beans": {
-        "label": "Greens and Beans", "max_points": 5, "unit": "cup-eq per 1,000 kcal",
-        "good": 0.2, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Greens and Beans",
+        "max_points": 5,
+        "unit": "cup-eq per 1,000 kcal",
+        "good": 0.2,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "whole_grains": {
-        "label": "Whole Grains", "max_points": 10, "unit": "oz-eq per 1,000 kcal",
-        "good": 1.5, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Whole Grains",
+        "max_points": 10,
+        "unit": "oz-eq per 1,000 kcal",
+        "good": 1.5,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "dairy": {
-        "label": "Dairy", "max_points": 10, "unit": "cup-eq per 1,000 kcal",
-        "good": 1.3, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Dairy",
+        "max_points": 10,
+        "unit": "cup-eq per 1,000 kcal",
+        "good": 1.3,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "total_protein_foods": {
-        "label": "Total Protein Foods", "max_points": 5, "unit": "oz-eq per 1,000 kcal",
-        "good": 2.5, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Total Protein Foods",
+        "max_points": 5,
+        "unit": "oz-eq per 1,000 kcal",
+        "good": 2.5,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "seafood_and_plant_proteins": {
-        "label": "Seafood and Plant Proteins", "max_points": 5, "unit": "oz-eq per 1,000 kcal",
-        "good": 0.8, "zero": 0.0, "higher_is_better": True, "computable": True,
+        "label": "Seafood and Plant Proteins",
+        "max_points": 5,
+        "unit": "oz-eq per 1,000 kcal",
+        "good": 0.8,
+        "zero": 0.0,
+        "higher_is_better": True,
+        "computable": True,
     },
     "fatty_acids": {
-        "label": "Fatty Acids (unsaturated : saturated ratio)", "max_points": 10, "unit": "ratio",
-        "good": 2.5, "zero": 1.2, "higher_is_better": True, "computable": True,
+        "label": "Fatty Acids (unsaturated : saturated ratio)",
+        "max_points": 10,
+        "unit": "ratio",
+        "good": 2.5,
+        "zero": 1.2,
+        "higher_is_better": True,
+        "computable": True,
     },
     "refined_grains": {
-        "label": "Refined Grains", "max_points": 10, "unit": "oz-eq per 1,000 kcal",
-        "good": 1.8, "zero": 4.3, "higher_is_better": False, "computable": False,
+        "label": "Refined Grains",
+        "max_points": 10,
+        "unit": "oz-eq per 1,000 kcal",
+        "good": 1.8,
+        "zero": 4.3,
+        "higher_is_better": False,
+        "computable": False,
         "why_not_computable": (
             "Requires distinguishing whole- from refined-grain content per ingredient, "
             "which this app's food-database resolution does not classify."
         ),
     },
     "sodium": {
-        "label": "Sodium", "max_points": 10, "unit": "g per 1,000 kcal",
-        "good": 1.1, "zero": 2.0, "higher_is_better": False, "computable": True,
+        "label": "Sodium",
+        "max_points": 10,
+        "unit": "g per 1,000 kcal",
+        "good": 1.1,
+        "zero": 2.0,
+        "higher_is_better": False,
+        "computable": True,
     },
     "added_sugars": {
-        "label": "Added Sugars", "max_points": 10, "unit": "% of energy",
-        "good": 6.5, "zero": 26.0, "higher_is_better": False, "computable": False,
+        "label": "Added Sugars",
+        "max_points": 10,
+        "unit": "% of energy",
+        "good": 6.5,
+        "zero": 26.0,
+        "higher_is_better": False,
+        "computable": False,
         "why_not_computable": (
             "Requires added sugars distinguished from naturally-occurring sugars; this "
             "app only tracks total sugars (see backlog B1.3's notes in PROJECT-PLAN.md)."
         ),
     },
     "saturated_fat": {
-        "label": "Saturated Fat", "max_points": 10, "unit": "% of energy",
-        "good": 8.0, "zero": 16.0, "higher_is_better": False, "computable": True,
+        "label": "Saturated Fat",
+        "max_points": 10,
+        "unit": "% of energy",
+        "good": 8.0,
+        "zero": 16.0,
+        "higher_is_better": False,
+        "computable": True,
     },
 }
 
@@ -356,34 +550,64 @@ def compute_diet_quality_score(meal_plan: MealPlan) -> dict:
 
     for key, spec in HEI_COMPONENTS.items():
         if not spec["computable"]:
-            unscored_components.append({"key": key, "label": spec["label"], "max_points": spec["max_points"],
-                                          "reason": spec["why_not_computable"]})
-            components_out.append({
-                "key": key, "label": spec["label"], "max_points": spec["max_points"],
-                "points": None, "value": None, "unit": spec["unit"], "computable": False,
-            })
+            unscored_components.append(
+                {
+                    "key": key,
+                    "label": spec["label"],
+                    "max_points": spec["max_points"],
+                    "reason": spec["why_not_computable"],
+                }
+            )
+            components_out.append(
+                {
+                    "key": key,
+                    "label": spec["label"],
+                    "max_points": spec["max_points"],
+                    "points": None,
+                    "value": None,
+                    "unit": spec["unit"],
+                    "computable": False,
+                }
+            )
             continue
 
         value = raw_values[key]
         if key == "fatty_acids" and not fatty_acids_scorable:
-            components_out.append({
-                "key": key, "label": spec["label"], "max_points": spec["max_points"],
-                "points": None, "value": None, "unit": spec["unit"], "computable": False,
-            })
-            unscored_components.append({
-                "key": key, "label": spec["label"], "max_points": spec["max_points"],
-                "reason": "No fat data available from this plan's contributing recipes.",
-            })
+            components_out.append(
+                {
+                    "key": key,
+                    "label": spec["label"],
+                    "max_points": spec["max_points"],
+                    "points": None,
+                    "value": None,
+                    "unit": spec["unit"],
+                    "computable": False,
+                }
+            )
+            unscored_components.append(
+                {
+                    "key": key,
+                    "label": spec["label"],
+                    "max_points": spec["max_points"],
+                    "reason": "No fat data available from this plan's contributing recipes.",
+                }
+            )
             continue
 
         display_value = value if value != float("inf") else None
         points = _linear_score(value, spec["good"], spec["zero"], spec["max_points"], spec["higher_is_better"])
         total_points += points
-        components_out.append({
-            "key": key, "label": spec["label"], "max_points": spec["max_points"],
-            "points": round(points, 1), "value": round(display_value, 3) if display_value is not None else None,
-            "unit": spec["unit"], "computable": True,
-        })
+        components_out.append(
+            {
+                "key": key,
+                "label": spec["label"],
+                "max_points": spec["max_points"],
+                "points": round(points, 1),
+                "value": round(display_value, 3) if display_value is not None else None,
+                "unit": spec["unit"],
+                "computable": True,
+            }
+        )
 
     max_points_scored = sum(c["max_points"] for c in components_out if c["computable"])
 

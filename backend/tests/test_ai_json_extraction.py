@@ -18,6 +18,7 @@ an existing array test, checked against the same real-world response
 shapes a local thinking-capable model (the household's configured
 `qwen3.6:27b`) actually produces.
 """
+
 from __future__ import annotations
 
 from app.services.ai_json_extraction import extract_json_array, extract_json_object, strip_reasoning
@@ -26,7 +27,7 @@ from app.services.ai_json_extraction import extract_json_array, extract_json_obj
 
 
 def test_strip_reasoning_removes_a_complete_think_block():
-    raw = "<think>scratch notes about { and } and [brackets]</think>{\"title\": \"Pie\"}"
+    raw = '<think>scratch notes about { and } and [brackets]</think>{"title": "Pie"}'
     assert strip_reasoning(raw).strip() == '{"title": "Pie"}'
 
 
@@ -56,7 +57,7 @@ def test_extract_json_object_ignores_an_inline_thinking_trace_containing_scratch
     # real answer's last "}", producing unparseable garbage and silently
     # returning {} -- indistinguishable from "the model found no recipe."
     raw = (
-        "<think>\nLet me structure this: { \"title\": \"WRONG DRAFT\" } "
+        '<think>\nLet me structure this: { "title": "WRONG DRAFT" } '
         "but I should double check the ingredients first.\n</think>\n"
         '{"title": "Pumpkin Chiffon Pie", "ingredients": []}'
     )
@@ -65,10 +66,7 @@ def test_extract_json_object_ignores_an_inline_thinking_trace_containing_scratch
 
 
 def test_extract_json_object_survives_trailing_commentary_containing_braces():
-    raw = (
-        '{"title": "Pumpkin Chiffon Pie"}\n\n'
-        'Note: I skipped the ad content, e.g. { "type": "advertisement" }.'
-    )
+    raw = '{"title": "Pumpkin Chiffon Pie"}\n\nNote: I skipped the ad content, e.g. { "type": "advertisement" }.'
     result = extract_json_object(raw)
     assert result["title"] == "Pumpkin Chiffon Pie"
 

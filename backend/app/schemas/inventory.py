@@ -1,4 +1,5 @@
 """Pydantic request/response models for the inventory API."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -288,7 +289,8 @@ class OrderImportPreviewResponse(BaseModel):
     detected_items: list[VisionDetectedItem]
     row_count: int
     skipped_row_count: int = Field(
-        ..., description="Rows with no usable name under the given mapping -- blank/footer/subtotal-style rows, most likely"
+        ...,
+        description="Rows with no usable name under the given mapping -- blank/footer/subtotal-style rows, most likely",
     )
 
 

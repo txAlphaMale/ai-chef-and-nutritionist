@@ -1,5 +1,6 @@
 """Persistent chat history so the Chef chat can retain context and keep
 running in the background while the user navigates the rest of the app."""
+
 from __future__ import annotations
 
 from datetime import datetime

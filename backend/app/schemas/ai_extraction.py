@@ -38,6 +38,7 @@ schemas. A recipe as the model is asked to produce it and a recipe as the
 API accepts it are different contracts, and coupling them means a future
 API field change silently alters what the model is constrained to emit.
 """
+
 from __future__ import annotations
 
 from typing import Literal

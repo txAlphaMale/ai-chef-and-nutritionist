@@ -1,5 +1,6 @@
 """Import every model so Base.metadata (and Alembic autogenerate) sees
 the full schema, and so relationship() string references resolve."""
+
 from app.models.chat import ChatMessage
 from app.models.health import HealthMetricEntry
 from app.models.household import HouseholdMember, HouseholdPreferences
