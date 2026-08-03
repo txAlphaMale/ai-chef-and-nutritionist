@@ -14,6 +14,12 @@ class RecipeIngredientBase(BaseModel):
     quantity: float | None = None
     unit: str | None = None
     prep_note: str | None = None
+    # The source's own section heading for multi-component dishes
+    # ("Crust", "Filling and Assembly"); None for a single-component
+    # recipe. Accepted on create/update because it is authored data, not
+    # a derived field -- unlike the resolution columns below. The UI
+    # groups by this only when at least one line carries a label.
+    component: str | None = None
 
 
 class RecipeIngredientRead(RecipeIngredientBase):

@@ -1298,6 +1298,82 @@ and name the wrong behaviour it replaced, so a future session can tell
 whether a change is reintroducing something already understood. Two
 existing tests were rewritten because they asserted the buggy behaviour.
 
+## Multi-component recipes: ingredients tagged with the part they belong to (2026-08-03)
+
+A recipe could not represent a dish made of named parts. `RecipeIngredient`
+had no component column, so a crust's sugar and a filling's sugar were
+indistinguishable rows and the import prompt was left keeping them apart
+by wording alone.
+
+**It could not.** Importing Bon Appetit's Pumpkin Chiffon Pie, the crust's
+`2 Tbsp. sugar` came back as `0.5 cup`, the filling's `3/4 cup plus
+2 Tbsp.` collapsed to `1.75 cup`, and a `graham cracker crumbs, 2 Tbsp`
+row appeared that is in neither ingredient list -- it exists only in the
+preparation text.
+
+**Two facts about the real source, verified against the actual PDF under
+the pinned pypdf 5.0.1 and now pinned by
+`tests/fixtures/pumpkin_chiffon_pie_pypdf.txt`:**
+
+1. The preparation text extracts **before** the ingredient list. A model
+   reading linearly meets `a scant 1/2 cup sugar` in the crust's method
+   before it ever reaches `2 Tbsp. sugar` in the crust's ingredient list.
+   The 0.5 cup was not an overwrite, it was a first write.
+2. Section headings appear **twice** -- once over prep, once over
+   ingredients -- so a heading name alone cannot identify the list.
+
+One correction to the original diagnosis: the stray `scant` prep-note was
+not leakage from a method step. The ingredient line genuinely reads
+`3/4 (scant) cup plus 2 Tbsp. sugar, divided`, so recording `scant` is
+correct provenance.
+
+**Shipped:** a nullable `component` on `RecipeIngredient` (migration
+`a3e7b1c05d94`, nothing backfilled -- an older row honestly has no
+component), the same field on `ExtractedIngredient` so the constrained-
+decoding grammar can actually emit one, and a rewritten
+`RECIPE_IMPORT_PROMPT` whose rule 1 discriminates ingredient lines from
+method sentences **by line shape, not by position or heading name** --
+because of facts 1 and 2 above. Its worked example is deliberately a
+synthetic two-part dish: the previous example was the exact pie that was
+failing, and it still failed.
+
+**No quantity math changed.** `scale_ingredients` and
+`apply_display_unit_system` are component-transparent (both `dict(ing)`-
+copy and touch only quantity/unit); `aggregate_ingredients` rebuilds each
+dict with only name/quantity/unit, so grocery lines and inventory
+deduction already merge ACROSS components, which is correct -- the
+household buys sugar once. That was only *accidentally* correct, so
+`test_grocery_merges_across_components` now pins it.
+
+**Named fallback, if component labels underdeliver: a full ordered
+`RecipeComponent` table.** `RecipeComponent(id, recipe_id, name,
+sort_order)` with `RecipeIngredient.component_id` as an FK and
+instructions grouped per component row. This is the heavier option and
+was not chosen first because it forces a join and a UI concept onto the
+overwhelming majority of recipes that have exactly one component, and
+because a free-text label is what the *source* actually provides -- an
+ordered table asserts a structure the recipe may not have. Reach for it
+if labels prove unstable across sources (the same part named "Filling"
+in one recipe and "Filling and Assembly" in another, defeating grouping),
+or if per-component ordering, per-component nutrition or per-component
+scaling is ever needed. The migration path is additive: labels become
+seed data for the table's `name` column.
+
+**Still open:** grouped `instructions` (`[{component, steps}]`) is NOT
+implemented -- `Recipe.instructions` remains a flat list of strings, so
+section headers are still discarded from the method text. Ingredients
+carrying `component` is what fixes the quantity corruption; grouping the
+instructions is presentation and is staged next. When it lands, prefer a
+single grouped shape in `ExtractedRecipe` over a `list[str] | list[...]`
+union -- a union becomes an `anyOf` in the Ollama grammar, and this model
+is not the one to hand a branching array schema to.
+
+**Verification gap to close:** the end-to-end import against a live
+Ollama has not been run. Everything above is verified by 689 passing
+backend tests, a clean migration from empty to head, and the checked-in
+fixture -- but the prompt rewrite itself can only be proven by running
+the real import.
+
 ## Session log
 
 - **2026-08-03 (architecture: reverse proxy removed, two containers become one)**: The author asked whether the reverse proxy was necessary at all. It was not. Chef now ships as ONE image and ONE container that serves both its API and its frontend. The problem the proxy addressed was genuine -- two origins and two TLS certificates for every device on the LAN -- but four facts made it the wrong shape: the app uses HashRouter so no history fallback is needed, the backend already terminates TLS, Fiduciary already serves its own frontend from `portfolio-api/static/`, and the proxy cost ~520 lines across two Node servers, a supervisor loop, a second image, a shared TLS volume and two cert poll loops -- inside which a fatal crash-loop hid for weeks (P0-8). Replaced by `app/static_files.py`: a root mount registered after every router, with an explicit cache policy (immutable for fingerprinted assets, no-cache for the unhashed entry files, since Starlette sets no Cache-Control at all by default). Deleted both Node servers, both old Dockerfiles and entrypoints, `frontend/runtime-deps/`, the frontend Compose service, the dead `/config.js` script tag, and the proxy timeouts and healthcheck added earlier the same day. Added a root multi-stage Dockerfile that FAILS THE BUILD if the app cannot import or the frontend build is missing, and a `docker build` job in CI -- the two checks whose absence let P0-8 ship. Ports are now APP_PORT/APP_HTTPS_PORT defaulting to 5173/5174, preserving existing bookmarks and firewall rules. Verified by actually running the consolidated app and curling it, not by reading the code: `/` serves the SPA, all 103 API routes stay reachable behind the root mount, cache headers are correct, and a cross-origin request gets no Access-Control-Allow-Origin. 684 backend tests pass, ruff and eslint clean.

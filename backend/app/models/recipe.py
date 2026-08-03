@@ -121,6 +121,24 @@ class RecipeIngredient(Base):
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     prep_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
+    # Which part of a multi-component dish this line belongs to -- the
+    # source's own heading, verbatim ("Crust", "Filling and Assembly").
+    # None means the recipe has no components, which is most of them.
+    #
+    # This is an identity field, not a quantity field: two lines sharing a
+    # name across different components are two real purchases of the same
+    # thing, so every consumer that does quantity math must aggregate
+    # ACROSS components, never group by them. aggregate_ingredients()
+    # (meal_plan_service) gets that right by rebuilding each dict with
+    # only name/quantity/unit -- test_grocery_merges_across_components
+    # pins it, because otherwise it is only accidentally correct and a
+    # later refactor that "helpfully" preserves keys would split one
+    # shopping line into two.
+    #
+    # Scaling and unit display are component-transparent by construction
+    # (both dict(ing)-copy and touch only quantity/unit).
+    component: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Food-database resolution (backlog B1.1) -- see
     # app/services/food_data_service.py's module docstring for the full
     # design. Populated once, on demand (not automatically on save), by

@@ -54,6 +54,14 @@ class ExtractedIngredient(BaseModel):
     quantity: float | None = Field(default=None)
     unit: str | None = Field(default=None)
     prep_note: str | None = Field(default=None)
+    # Verbatim section heading this line sat under in the source, or None
+    # when the source has no sections. Stating it in the schema as well as
+    # the prompt gives the constraint two chances to hold -- the same
+    # reasoning as ExtractedInventoryItem.estimated_quantity below. The
+    # grammar cannot make the model pick the RIGHT heading, but it does
+    # make "emit a component at all" structurally available, which a
+    # prompt-only instruction does not.
+    component: str | None = Field(default=None)
 
 
 class ExtractedNutrition(BaseModel):
