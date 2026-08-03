@@ -13,9 +13,15 @@ from app.models import GroceryListItem, InventoryItem, MealPlan, MealPlanEntry, 
 from app.services import cost_service
 
 
-def _priced_item(name, quantity, unit, unit_price, purchased_date=None):
+def _priced_item(name, quantity, unit, unit_price, purchased_date=None, purchased_quantity=None):
     return InventoryItem(
-        name=name, quantity=quantity, unit=unit, unit_price=unit_price, purchased_date=purchased_date, category="pantry"
+        name=name,
+        quantity=quantity,
+        unit=unit,
+        unit_price=unit_price,
+        purchased_date=purchased_date,
+        purchased_quantity=purchased_quantity,
+        category="pantry",
     )
 
 
@@ -88,6 +94,32 @@ def test_zero_quantity_matched_item_is_unresolved(db_session):
     line = cost_service.compute_ingredient_line_cost(db_session, "flour", 1, "lb")
     assert line["resolved"] is False
     assert "quantity is zero" in line["note"]
+
+
+def test_uses_purchased_quantity_not_depleted_on_hand_quantity(db_session):
+    # Bug fix (2026-08-02, author-flagged design concern): $6.00 paid for
+    # 2 lb of chicken breast, purchased_quantity=2 (the immutable
+    # snapshot). Half has since been used, so `quantity` (on hand) has
+    # dropped to 1 lb -- the unit cost must still be $3.00/lb (6.00/2),
+    # NOT $6.00/lb (6.00/1), which is what dividing by the live,
+    # depleted `quantity` used to produce.
+    db_session.add(_priced_item("chicken breast", 1, "lb", 6.00, purchased_quantity=2))
+    db_session.commit()
+    line = cost_service.compute_ingredient_line_cost(db_session, "chicken breast", 1, "lb")
+    assert line["resolved"] is True
+    assert line["unit_cost"] == 3.0
+    assert line["line_cost"] == 3.0
+
+
+def test_falls_back_to_quantity_when_purchased_quantity_is_unset(db_session):
+    # Rows created before purchased_quantity existed (or from an intake
+    # source with no purchase concept) have no better signal -- must
+    # keep behaving exactly as before this fix, not fail or return None.
+    db_session.add(_priced_item("chicken breast", 2, "lb", 6.00, purchased_quantity=None))
+    db_session.commit()
+    line = cost_service.compute_ingredient_line_cost(db_session, "chicken breast", 1, "lb")
+    assert line["resolved"] is True
+    assert line["unit_cost"] == 3.0
 
 
 # --- compute_recipe_cost ----------------------------------------------------

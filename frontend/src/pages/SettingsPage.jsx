@@ -55,6 +55,14 @@ const GOOGLE_CALENDAR_CONFIG_KEYS = [
 
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/api/calendar/google/callback";
 
+// Backlog B12.2 -- same "written automatically, excluded from the
+// generic loop" treatment as GOOGLE_CALENDAR_MANAGED_KEYS above, minus
+// account_email/refresh_token (iCloud's app-specific-password auth has
+// neither -- see icloud_calendar_service.py's module docstring for why
+// this needed no OAuth token dance at all).
+const ICLOUD_CALENDAR_MANAGED_KEYS = ["icloud_calendar_calendar_href", "icloud_calendar_sync_enabled"];
+const ICLOUD_CALENDAR_CONFIG_KEYS = ["icloud_calendar_username", "icloud_calendar_app_password"];
+
 // Backlog B14 -- which generic (label/description/options-driven) setting
 // keys render in which sub-tab. Anything not listed here still renders
 // (a new setting added to settings_service.py without a bucket entry
@@ -73,6 +81,8 @@ const INTEGRATION_SETTING_KEYS = [
   "google_calendar_client_id",
   "google_calendar_client_secret",
   "google_calendar_redirect_uri",
+  "icloud_calendar_username",
+  "icloud_calendar_app_password",
   "recipe_import_folder_path",
 ];
 const PREFERENCE_SETTING_KEYS = ["default_unit_system", "household_timezone"];
@@ -360,7 +370,9 @@ export default function SettingsPage() {
   // renders for every other key -- so it's read out of `settings`
   // directly instead of duplicated in its own state.
   const currentTheme = settings.find((s) => s.key === "ui_theme")?.value || "default";
-  const otherSettings = settings.filter((s) => s.key !== "ui_theme" && !GOOGLE_CALENDAR_MANAGED_KEYS.includes(s.key));
+  const otherSettings = settings.filter(
+    (s) => s.key !== "ui_theme" && !GOOGLE_CALENDAR_MANAGED_KEYS.includes(s.key) && !ICLOUD_CALENDAR_MANAGED_KEYS.includes(s.key)
+  );
   const settingsByTab = useMemo(() => {
     const groups = { ai: [], integrations: [], preferences: [] };
     for (const spec of otherSettings) {
@@ -481,6 +493,82 @@ export default function SettingsPage() {
     const result = await promise;
     setGcalStatus(result);
     return result;
+  }
+
+  // Backlog B12.2 -- iCloud Calendar status + connect/disconnect/sync-
+  // toggle/resync. Simpler than the Google block above: no OAuth
+  // redirect/callback dance, no return-address bookkeeping -- "Connect"
+  // just validates the Apple ID/app-specific password already saved via
+  // the generic Integrations rows above by running real CalDAV
+  // discovery (routers/icloud_calendar.py's /connect).
+  const [icloudStatus, setIcloudStatus] = useState(null);
+  const [icloudBusy, setIcloudBusy] = useState(false);
+  const [icloudError, setIcloudError] = useState(null);
+
+  async function refreshIcloudStatus() {
+    try {
+      setIcloudStatus(await api.get("/calendar/icloud/status"));
+    } catch (e) {
+      setIcloudError(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refreshIcloudStatus();
+  }, []);
+
+  async function refreshIcloudAfter(promise) {
+    const result = await promise;
+    setIcloudStatus(result);
+    return result;
+  }
+
+  async function connectIcloudCalendar() {
+    setIcloudBusy(true);
+    setIcloudError(null);
+    try {
+      await refreshIcloudAfter(api.post("/calendar/icloud/connect", {}));
+    } catch (e) {
+      setIcloudError(e.message);
+    } finally {
+      setIcloudBusy(false);
+    }
+  }
+
+  async function disconnectIcloudCalendar() {
+    setIcloudBusy(true);
+    setIcloudError(null);
+    try {
+      await refreshIcloudAfter(api.post("/calendar/icloud/disconnect", {}));
+    } catch (e) {
+      setIcloudError(e.message);
+    } finally {
+      setIcloudBusy(false);
+    }
+  }
+
+  async function toggleIcloudSync(enabled) {
+    setIcloudBusy(true);
+    setIcloudError(null);
+    try {
+      await refreshIcloudAfter(api.patch("/calendar/icloud/sync-enabled", { enabled }));
+    } catch (e) {
+      setIcloudError(e.message);
+    } finally {
+      setIcloudBusy(false);
+    }
+  }
+
+  async function resyncIcloudCalendar() {
+    setIcloudBusy(true);
+    setIcloudError(null);
+    try {
+      await api.post("/calendar/icloud/resync", {});
+    } catch (e) {
+      setIcloudError(e.message);
+    } finally {
+      setIcloudBusy(false);
+    }
   }
   const themeGroups = useMemo(() => {
     const groups = [];
@@ -613,6 +701,9 @@ export default function SettingsPage() {
       // the same "configured" flag.
       if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key)) {
         refreshGcalStatus();
+      }
+      if (ICLOUD_CALENDAR_CONFIG_KEYS.includes(spec.key)) {
+        refreshIcloudStatus();
       }
       if (GOOGLE_CALENDAR_CONFIG_KEYS.includes(spec.key) || spec.key === "recipe_import_folder_path") {
         refreshStatus();
@@ -967,6 +1058,66 @@ export default function SettingsPage() {
                     disabled={!gcalStatus.configured || gcalBusy}
                   >
                     {gcalBusy ? "Connecting..." : "Connect Google Calendar"}
+                  </button>
+                </>
+              )
+            ) : (
+              <p className="hint">Loading...</p>
+            )}
+          </div>
+
+          <div className="card">
+            <h3>iCloud Calendar</h3>
+            <p className="hint">
+              Backlog B12.2 -- the same one-way push sync as Google Calendar above, into a dedicated "Chef Meal
+              Plan" calendar in your iCloud account. Needs an app-specific password (NOT your normal Apple ID
+              password) generated at{" "}
+              <a href="https://appleid.apple.com" target="_blank" rel="noreferrer">
+                appleid.apple.com
+              </a>{" "}
+              (Sign-In and Security -&gt; App-Specific Passwords) -- enter your Apple ID and that password above,
+              then Connect.
+            </p>
+
+            {icloudError && <p className="error-text">{icloudError}</p>}
+
+            {icloudStatus ? (
+              icloudStatus.connected ? (
+                <>
+                  <p>
+                    Connected as <strong>{icloudStatus.username || "(unknown account)"}</strong>.
+                  </p>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={icloudStatus.sync_enabled}
+                      disabled={icloudBusy}
+                      onChange={(e) => toggleIcloudSync(e.target.checked)}
+                    />
+                    Sync meal-plan changes to iCloud Calendar
+                  </label>
+                  <div className="form-actions">
+                    <button className="btn btn-secondary btn-sm" onClick={resyncIcloudCalendar} disabled={icloudBusy}>
+                      Force resync
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={disconnectIcloudCalendar} disabled={icloudBusy}>
+                      Disconnect
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="hint">
+                    {icloudStatus.configured
+                      ? "Apple ID and app-specific password are set -- click Connect to verify them and finish linking."
+                      : "Enter your iCloud Apple ID and an app-specific password above first, then Connect."}
+                  </p>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={connectIcloudCalendar}
+                    disabled={!icloudStatus.configured || icloudBusy}
+                  >
+                    {icloudBusy ? "Connecting..." : "Connect iCloud Calendar"}
                   </button>
                 </>
               )

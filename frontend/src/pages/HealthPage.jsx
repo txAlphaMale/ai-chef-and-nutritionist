@@ -69,6 +69,22 @@ export default function HealthPage() {
   const [bloodworkConfirming, setBloodworkConfirming] = useState(false);
   const bloodworkImporting = bloodworkJob.busy;
 
+  // Backlog B8.2 -- wearable/health-platform import (weight + daily step
+  // count), same preview-then-confirm shape as bloodwork import above,
+  // confirming through the same POST /health/metrics endpoint. An Apple
+  // Health export (.xml or the .zip the Health app produces) is parsed
+  // deterministically server-side; any other file (a Health Connect
+  // export, a Withings CSV, etc.) goes through the same AI-extraction
+  // pipeline bloodwork import uses -- see health_service.py's module
+  // comment for why Health Connect has no dedicated parser here.
+  const [showWearableImport, setShowWearableImport] = useState(false);
+  const [wearableFile, setWearableFile] = useState(null);
+  const wearableJob = useBackgroundJob("chef.job.wearable_import");
+  const [wearableEnqueueError, setWearableEnqueueError] = useState(null);
+  const [wearablePreview, setWearablePreview] = useState([]); // [{ _key, entry_date, weight_lbs, steps, member_id }]
+  const [wearableConfirming, setWearableConfirming] = useState(false);
+  const wearableImporting = wearableJob.busy;
+
   async function refresh() {
     setLoading(true);
     setError(null);
@@ -314,6 +330,79 @@ export default function HealthPage() {
       // rows in sequence: keeps error attribution to one row at a time
       // rather than racing several POSTs against the same member's log.
       await confirmBloodworkRow(row);
+    }
+  }
+
+  // Backlog B8.2 -- wearable import handlers, same shape as bloodwork's above.
+  useEffect(() => {
+    if (!wearableJob.result) return;
+    const entries = wearableJob.result.entries || [];
+    setWearablePreview(
+      entries.map((e, i) => ({
+        _key: `${Date.now()}-${i}`,
+        entry_date: e.entry_date || todayIso(),
+        weight_lbs: e.weight_kg != null ? kgToLbs(e.weight_kg) : "",
+        steps: e.steps ?? "",
+        member_id: selectedMemberId ?? "",
+      }))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wearableJob.result]);
+
+  async function handleWearableSubmit(e) {
+    e.preventDefault();
+    setWearableEnqueueError(null);
+    wearableJob.clear();
+    setWearablePreview([]);
+    if (!wearableFile) {
+      setWearableEnqueueError("Upload an Apple Health export (.xml or .zip) or another export file.");
+      return;
+    }
+    try {
+      const form = new FormData();
+      form.append("file", wearableFile);
+      const enqueued = await api.post("/health/import-wearable", form);
+      wearableJob.poll(enqueued.job_id);
+    } catch (err) {
+      setWearableEnqueueError(err.message);
+    }
+  }
+
+  function updateWearableRow(key, field, value) {
+    setWearablePreview((rows) => rows.map((r) => (r._key === key ? { ...r, [field]: value } : r)));
+  }
+
+  function discardWearableRow(key) {
+    setWearablePreview((rows) => rows.filter((r) => r._key !== key));
+  }
+
+  async function confirmWearableRow(row) {
+    if (!row.member_id) {
+      setError("Choose a household member for this entry before confirming.");
+      return;
+    }
+    setWearableConfirming(true);
+    try {
+      await api.post("/health/metrics", {
+        household_member_id: Number(row.member_id),
+        entry_date: row.entry_date,
+        weight_kg: row.weight_lbs === "" ? null : lbsToKg(row.weight_lbs),
+        steps: row.steps === "" ? null : Number(row.steps),
+        source: "import",
+      });
+      discardWearableRow(row._key);
+      if (Number(row.member_id) === selectedMemberId) await refreshMemberData(selectedMemberId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWearableConfirming(false);
+    }
+  }
+
+  async function confirmAllWearableRows() {
+    for (const row of wearablePreview) {
+      // eslint-disable-next-line no-await-in-loop -- deliberately serial, same reasoning as bloodwork's own loop above.
+      await confirmWearableRow(row);
     }
   }
 
@@ -812,12 +901,136 @@ export default function HealthPage() {
             </div>
           )}
 
+          <button type="button" className="btn-link" onClick={() => setShowWearableImport((v) => !v)}>
+            {showWearableImport ? "Hide" : "Show"} wearable/health-app import (backlog B8.2)
+          </button>
+          {showWearableImport && (
+            <div className="bloodwork-import">
+              <p className="hint">
+                Upload an Apple Health export (Health app -&gt; profile picture -&gt; Export All Health Data --
+                either the <code>.zip</code> it produces or the <code>export.xml</code> inside it) for weight and
+                step counts, parsed directly with no AI step. Any other export (a Health Connect file, a
+                Withings CSV, etc.) is read by the same AI extraction bloodwork import above uses -- Android
+                Health Connect has no documented, stable export format to parse deterministically against, so a
+                third-party Health Connect export tool's CSV/text output is the more reliable path there.
+              </p>
+              <form onSubmit={handleWearableSubmit}>
+                <div className="form-row">
+                  <label>
+                    File (Apple Health .xml/.zip, or another export)
+                    <input
+                      type="file"
+                      accept=".xml,.zip,.csv,.txt,.json"
+                      onChange={(e) => setWearableFile(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                </div>
+                <div className="form-actions">
+                  <button className="btn btn-secondary" type="submit" disabled={wearableImporting}>
+                    {wearableImporting && <span className="busy-spinner" aria-hidden="true" />}
+                    {wearableJob.status === "queued" ? "Queued..." : wearableImporting ? "Reading..." : "Extract"}
+                  </button>
+                </div>
+                {(wearableEnqueueError || wearableJob.error) && (
+                  <p className="error-text">{wearableEnqueueError || wearableJob.error}</p>
+                )}
+              </form>
+
+              {wearablePreview.length > 0 && (
+                <>
+                  <p className="hint">{wearablePreview.length} day(s) found -- review before adding to the log.</p>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th>Date</th>
+                        <th>Weight (lbs)</th>
+                        <th>Steps</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {wearablePreview.map((row) => (
+                        <tr key={row._key}>
+                          <td data-label="Member">
+                            <select
+                              value={row.member_id}
+                              onChange={(e) => updateWearableRow(row._key, "member_id", e.target.value)}
+                            >
+                              <option value="">-- choose --</option>
+                              {members.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td data-label="Date">
+                            <input
+                              type="date"
+                              value={row.entry_date}
+                              onChange={(e) => updateWearableRow(row._key, "entry_date", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Weight (lbs)">
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.weight_lbs}
+                              onChange={(e) => updateWearableRow(row._key, "weight_lbs", e.target.value)}
+                            />
+                          </td>
+                          <td data-label="Steps">
+                            <input
+                              type="number"
+                              value={row.steps}
+                              onChange={(e) => updateWearableRow(row._key, "steps", e.target.value)}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-link"
+                              disabled={wearableConfirming}
+                              onClick={() => confirmWearableRow(row)}
+                            >
+                              Add
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-link btn-link-danger"
+                              disabled={wearableConfirming}
+                              onClick={() => discardWearableRow(row._key)}
+                            >
+                              Discard
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="form-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      disabled={wearableConfirming}
+                      onClick={confirmAllWearableRows}
+                    >
+                      {wearableConfirming ? "Adding..." : "Add all to log"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {metrics.length > 0 && (
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Weight</th>
+                  <th>Steps</th>
                   <th>BMI</th>
                   <th>LDL / HDL</th>
                   <th>BP</th>
@@ -829,6 +1042,7 @@ export default function HealthPage() {
                   <tr key={m.id}>
                     <td>{m.entry_date}</td>
                     <td>{m.weight_kg != null ? `${kgToLbs(m.weight_kg)} lbs` : "—"}</td>
+                    <td>{m.steps != null ? m.steps.toLocaleString() : "—"}</td>
                     <td>{m.bmi ?? "—"}</td>
                     <td>
                       {m.ldl_mg_dl ?? "—"} / {m.hdl_mg_dl ?? "—"}

@@ -9,8 +9,30 @@ from pydantic import BaseModel, ConfigDict, Field
 class InventoryItemBase(BaseModel):
     name: str
     category: str = "pantry"  # pantry|fridge|freezer|produce|spice|other
+    # Quantity model redesign (2026-08-02, author-requested) -- see
+    # app/models/inventory.py's InventoryItem docstring for the full
+    # rationale. `quantity` is CURRENT ON-HAND, in `unit`; `unit` should
+    # be a real convertible measurement unit (oz/lb/g/kg/ml/l/cup/tbsp/
+    # tsp/count), not a compound "8 oz bag"-style string. `unit` is kept
+    # a free string (not a hard enum) at the API layer, same soft-
+    # validation posture `category` already has -- the frontend offers a
+    # curated dropdown, but this layer doesn't hard-reject anything, so a
+    # household with an unusual unit isn't locked out.
     quantity: float = 1.0
     unit: str | None = None
+    # Immutable purchase-time snapshot of `quantity` -- "volume at time
+    # of purchase" vs. `quantity`'s "volume on hand". Optional here: the
+    # create endpoint defaults it to the row's own `quantity` when the
+    # caller doesn't supply one, since at creation time on-hand IS what
+    # was just purchased. See cost_service.py for why this exists (it's
+    # the stable denominator for $/unit math, instead of the live,
+    # depleting `quantity`).
+    purchased_quantity: float | None = None
+    # Purely descriptive package metadata -- never read by deduction or
+    # cost math. See app/services/package_parsing.py.
+    package_quantity: float | None = None
+    package_count: float | None = None
+    package_descriptor: str | None = None
     location: str | None = None
     purchased_date: date | None = None
     expiration_date: date | None = None
@@ -37,6 +59,10 @@ class InventoryItemUpdate(BaseModel):
     category: str | None = None
     quantity: float | None = None
     unit: str | None = None
+    purchased_quantity: float | None = None
+    package_quantity: float | None = None
+    package_count: float | None = None
+    package_descriptor: str | None = None
     location: str | None = None
     purchased_date: date | None = None
     expiration_date: date | None = None
@@ -143,14 +169,29 @@ class BarcodeLookupResponse(BaseModel):
     name: str | None = None
     brand: str | None = None
     # Open Food Facts' own free-text package-size field (e.g. "500 g",
-    # "12 x 355 ml") -- shown for reference only, never parsed into
-    # estimated_quantity/unit below. A package-size string doesn't
-    # reliably decompose into "how many of this do you have" (a "500 g"
-    # bag is 1 item, not 500) -- this app's own "never invent a
-    # conversion" rule (see food_data_service.py) applies here too.
+    # "12 x 355 ml") -- kept verbatim for reference/display alongside the
+    # structured fields below.
+    #
+    # Revised 2026-08-02 (superseding this field's prior "never parsed"
+    # docstring): this string IS now parsed, via
+    # app/services/package_parsing.py -- what changed is not the "never
+    # invent a conversion" discipline (still true: no unit-family
+    # crossing, no density guessing happens here), but this app's own
+    # data model. `quantity`/`unit` used to mean "1 of this package";
+    # they now mean "how much, in a real measurement unit, is on hand"
+    # (see InventoryItem's own docstring) -- so extracting "500" and "g"
+    # out of "500 g" is a plain number+unit read, not a conversion, and
+    # is exactly what the new model wants. `estimated_quantity`/`unit`
+    # below reflect that parse when it succeeds (falling back to the
+    # prior 1/"count" default when OFF's text doesn't contain a
+    # recognizable leading measurement, e.g. a blank field or "12
+    # pieces").
     quantity_text: str | None = None
     estimated_quantity: float = 1
     unit: str = "count"
+    package_quantity: float | None = None
+    package_count: float | None = None
+    package_descriptor: str | None = None
     category: str | None = None
     image_url: str | None = None
     confidence_note: str | None = None
@@ -163,6 +204,16 @@ class VisionDetectedItem(BaseModel):
     name: str
     estimated_quantity: float | None = None
     unit: str | None = None
+    # Package/measurement split (2026-08-02) -- populated whenever
+    # inventory_service.parse_vision_response (or order_import_service.
+    # apply_mapping) could split the source's unit text via
+    # package_parsing.parse_package_text; null whenever it couldn't, in
+    # which case `unit`/`estimated_quantity` behave exactly as before
+    # this field existed (freeform unit text, quantity = how many
+    # purchased). See InventoryItem's own docstring for the full model.
+    package_quantity: float | None = None
+    package_count: float | None = None
+    package_descriptor: str | None = None
     category: str = "other"
     expiration_date: date | None = None
     confidence_note: str | None = None

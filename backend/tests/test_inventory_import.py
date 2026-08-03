@@ -178,8 +178,19 @@ def test_parse_vision_response_extracts_unit_price_and_purchased_date():
     assert len(items) == 1
     assert items[0]["unit_price"] == 6.96
     assert items[0]["purchased_date"].isoformat() == "2026-07-30"
-    assert items[0]["unit"] == "14 oz can"
-    assert items[0]["estimated_quantity"] == 2
+    # Package/measurement split (2026-08-02): "14 oz can" (the model's
+    # RECEIPT_IMPORT_PROMPT-instructed compound unit string -- that
+    # prompt was deliberately NOT rewritten this session, see the
+    # module comment above parse_vision_response) is now split
+    # post-hoc into a real unit ("oz"), a package size (14), and a
+    # descriptor ("can"). estimated_quantity becomes the actual on-hand
+    # total (2 cans * 14 oz = 28 oz), not the raw "how many purchased"
+    # number the old assertion checked.
+    assert items[0]["unit"] == "oz"
+    assert items[0]["estimated_quantity"] == 28
+    assert items[0]["package_quantity"] == 14
+    assert items[0]["package_count"] == 2
+    assert items[0]["package_descriptor"] == "can"
 
 
 def test_parse_vision_response_handles_missing_or_malformed_price_and_date():

@@ -22,6 +22,16 @@ class HealthMetricEntry(Base, TimestampMixin):
 
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
     bmi: Mapped[float | None] = mapped_column(Float, nullable=True)  # computed at write time
+    # Backlog B8.2 (2026-08-02): the "activity" half of "weight and
+    # activity" wearable import. Deliberately just a daily step total,
+    # not a fuller activity model (active minutes, workout sessions,
+    # heart rate) -- this table's grain is one row per (member,
+    # entry_date), built for occasional point readings (see B8.3's own
+    # already-written note on this), and a single daily integer fits
+    # that shape without pretending to be a real time-series store.
+    # Denser wearable signals (a CGM feed, minute-by-minute heart rate)
+    # remain B8.3's explicitly deferred, larger schema question.
+    steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ldl_mg_dl: Mapped[float | None] = mapped_column(Float, nullable=True)
     hdl_mg_dl: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_cholesterol_mg_dl: Mapped[float | None] = mapped_column(Float, nullable=True)

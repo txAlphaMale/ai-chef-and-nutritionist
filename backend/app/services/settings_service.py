@@ -303,6 +303,53 @@ SETTING_SPECS: list[SettingSpec] = [
             "connect; toggle off any time to pause pushing without disconnecting."
         ),
     ),
+    # ---- Backlog B12.2 (2026-08-02): iCloud Calendar push sync, the same
+    # one-way-push architecture as B12.1 above but authenticated with an
+    # app-specific password instead of OAuth -- see
+    # icloud_calendar_service.py's module docstring for the full
+    # rationale. `icloud_calendar_calendar_href` is written automatically
+    # (the discovered/created "Chef Meal Plan" CalDAV collection URL),
+    # same "never hand-typed" treatment google_calendar_calendar_id gets.
+    SettingSpec(
+        key="icloud_calendar_username",
+        label="iCloud Apple ID",
+        is_secret=False,
+        default="",
+        description="The Apple ID (email address) that owns the iCloud calendar to sync into.",
+    ),
+    SettingSpec(
+        key="icloud_calendar_app_password",
+        label="iCloud app-specific password",
+        is_secret=True,
+        default="",
+        description=(
+            "An app-specific password generated at appleid.apple.com (Sign-In and Security -> "
+            "App-Specific Passwords) -- NOT your normal Apple ID password, which iCloud's CalDAV "
+            "server will reject outright for a third-party client. See the in-app WIKI's iCloud "
+            "Calendar setup guide."
+        ),
+    ),
+    SettingSpec(
+        key="icloud_calendar_calendar_href",
+        label="iCloud Calendar dedicated calendar URL",
+        is_secret=False,
+        default="",
+        description=(
+            "The 'Chef Meal Plan' CalDAV collection icloud_calendar_service discovers/creates "
+            "automatically on first connect. Written automatically."
+        ),
+    ),
+    SettingSpec(
+        key="icloud_calendar_sync_enabled",
+        label="iCloud Calendar sync enabled",
+        is_secret=False,
+        default="false",
+        description=(
+            "\"true\"/\"false\". Whether meal-plan changes push to the connected iCloud "
+            "Calendar. Turned on automatically on first successful connect; toggle off any time "
+            "to pause pushing without disconnecting."
+        ),
+    ),
 ]
 
 _SPECS_BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SETTING_SPECS}

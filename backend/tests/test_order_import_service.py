@@ -201,6 +201,37 @@ def test_apply_mapping_leaves_date_none_when_unparseable():
     assert items[0].purchased_date is None
 
 
+def test_apply_mapping_splits_compound_unit_column_text():
+    # Package/measurement split (2026-08-02): a spreadsheet's own "unit"
+    # column is exactly as likely to say "8 oz" or "500g" as a receipt
+    # line is. Qty=2 (how many purchased) * the parsed 8 oz package size
+    # = 16 oz actually on hand.
+    headers = ["Item Name", "Qty", "Unit"]
+    rows = [{"Item Name": "Cheese", "Qty": "2", "Unit": "8 oz"}]
+    mapping = ColumnMapping(name_column="Item Name", quantity_column="Qty", unit_column="Unit")
+    items, _ = svc.apply_mapping(headers, rows, mapping)
+    item = items[0]
+    assert item.unit == "oz"
+    assert item.package_quantity == 8
+    assert item.package_count == 2
+    assert item.estimated_quantity == 16
+
+
+def test_apply_mapping_leaves_plain_unit_column_text_unsplit():
+    # A clean unit with no leading number (e.g. "lb", already canonical)
+    # has nothing to split -- package_quantity stays unset and
+    # estimated_quantity is exactly the mapped quantity column value,
+    # same as this importer's pre-existing behavior.
+    headers = ["Item Name", "Qty", "Unit"]
+    rows = [{"Item Name": "Rice", "Qty": "3", "Unit": "lb"}]
+    mapping = ColumnMapping(name_column="Item Name", quantity_column="Qty", unit_column="Unit")
+    items, _ = svc.apply_mapping(headers, rows, mapping)
+    item = items[0]
+    assert item.unit == "lb"
+    assert item.package_quantity is None
+    assert item.estimated_quantity == 3.0
+
+
 def test_apply_mapping_parses_alternate_date_formats():
     mapping = ColumnMapping(name_column="Item Name", date_column="Order Date")
     for raw, expected in [

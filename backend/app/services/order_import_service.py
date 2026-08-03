@@ -29,6 +29,7 @@ from datetime import date, datetime
 import openpyxl
 
 from app.schemas.inventory import ColumnMapping, VisionDetectedItem
+from app.services import package_parsing
 
 # Checked in priority order per field -- the FIRST header (from the ones
 # not already claimed by an earlier field) whose text exactly matches or
@@ -188,7 +189,29 @@ def apply_mapping(
         if mapping.quantity_column is None:
             qty_note = "no quantity column mapped, defaulted to 1"
 
-        unit = (row.get(mapping.unit_column) or None) if mapping.unit_column else None
+        raw_unit = (row.get(mapping.unit_column) or None) if mapping.unit_column else None
+
+        # Package/measurement split (2026-08-02) -- a spreadsheet's own
+        # "unit" column is exactly as likely to contain a compound size
+        # string ("8 oz", "500g") as a receipt line is, so it gets the
+        # same best-effort split. `quantity` from the mapped quantity
+        # column is treated as "how many purchased" (package_count);
+        # when the unit column also yields a package size, the final
+        # on-hand quantity is their product, same convention
+        # inventory_service.parse_vision_response uses for the AI import
+        # paths -- see package_parsing.py's module docstring.
+        unit = raw_unit
+        package_quantity = None
+        package_count = quantity
+        package_descriptor = None
+        final_quantity = quantity
+        parsed_package = package_parsing.parse_package_text(raw_unit)
+        if parsed_package is not None:
+            unit = parsed_package.unit
+            package_quantity = parsed_package.package_quantity
+            package_descriptor = parsed_package.package_descriptor
+            package_count = quantity * parsed_package.package_count
+            final_quantity = package_count * package_quantity
 
         raw_price = row.get(mapping.price_column) if mapping.price_column else None
         price, price_note = _parse_price(raw_price)
@@ -200,8 +223,11 @@ def apply_mapping(
         items.append(
             VisionDetectedItem(
                 name=name,
-                estimated_quantity=quantity,
+                estimated_quantity=final_quantity,
                 unit=unit,
+                package_quantity=package_quantity,
+                package_count=package_count,
+                package_descriptor=package_descriptor,
                 category="other",
                 confidence_note="; ".join(notes) or None,
                 unit_price=price,

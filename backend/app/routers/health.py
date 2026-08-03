@@ -22,6 +22,7 @@ from app.schemas.health import (
     HealthMetricEntryRead,
     HealthMetricEntryUpdate,
     HealthTrendsResponse,
+    HealthWearableImportResponse,
     MetricTrend,
 )
 from app.schemas.jobs import JobEnqueuedResponse
@@ -102,6 +103,55 @@ async def import_bloodwork(file: UploadFile | None = None, text: str | None = Fo
             db.close()
 
     job_id, created = job_queue.enqueue("bloodwork_import", "Bloodwork import", _run)
+    return JobEnqueuedResponse(job_id=job_id, created=created)
+
+
+@router.post("/import-wearable", response_model=JobEnqueuedResponse, status_code=202)
+async def import_wearable(file: UploadFile):
+    """Backlog B8.2 -- accepts an Apple Health export (`export.xml` or
+    the `export.zip` the Health app produces) for a deterministic,
+    no-AI parse, or any other file (a Health Connect export, a Withings
+    CSV, etc.) for the same free-text Ollama extraction pipeline
+    bloodwork import uses. See health_service.py's module comment above
+    parse_apple_health_export for why Health Connect specifically has no
+    dedicated deterministic path here.
+
+    Runs through the shared background job queue (B11.1) even for the
+    Apple Health path, which makes no Ollama call at all -- a real
+    multi-year export.xml can take real wall-clock time to stream-parse,
+    and this app's own standing rule is "anything that isn't instant
+    gets a visible busy indicator," not just "anything that calls
+    Ollama."
+    """
+    raw_bytes = await file.read()
+    filename = (file.filename or "").lower()
+    content_type = file.content_type or ""
+    is_apple_health = filename.endswith(".xml") or filename.endswith(".zip") or raw_bytes[:2] == b"PK"
+
+    def _run() -> dict:
+        if is_apple_health:
+            try:
+                entries = health_service.parse_apple_health_export(raw_bytes, filename)
+            except ValueError as e:
+                raise RuntimeError(str(e))
+            return HealthWearableImportResponse(
+                entries=entries, source_detail="apple_health", raw_model_output=None
+            ).model_dump()
+
+        db = SessionLocal()
+        try:
+            content = health_service.extract_wearable_text(raw_bytes, filename, content_type)
+            if not content.strip():
+                raise RuntimeError("Could not read any text from that file")
+            raw_output = health_service.run_wearable_extraction(db, content)
+            entries = health_service.parse_wearable_ai_response(raw_output)
+            return HealthWearableImportResponse(
+                entries=entries, source_detail="ai_extracted", raw_model_output=raw_output
+            ).model_dump()
+        finally:
+            db.close()
+
+    job_id, created = job_queue.enqueue("wearable_import", "Wearable data import", _run)
     return JobEnqueuedResponse(job_id=job_id, created=created)
 
 

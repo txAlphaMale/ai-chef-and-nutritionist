@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem
-from app.services import unit_conversion_service
+from app.services import package_parsing, unit_conversion_service
 
 # --- Urgency scoring -------------------------------------------------
 #
@@ -146,11 +146,48 @@ def parse_vision_response(raw_text: str, today: date | None = None) -> list[dict
         if isinstance(days, (int, float)):
             expiration_date = today + timedelta(days=int(days))
 
+        # Package/measurement split (2026-08-02, author-requested): the
+        # model still returns `unit` as whatever freeform text the
+        # source printed (RECEIPT_IMPORT_PROMPT/VISION_PROMPT were
+        # deliberately NOT rewritten this session -- both were only just
+        # stabilized against the author's real Ollama container, and
+        # touching either prompt's wording risks re-triggering that same
+        # regression; see PROJECT-PLAN.md's session log). Instead, this
+        # is a pure post-processing step on whatever text comes back:
+        # package_parsing.parse_package_text splits "8 oz bag" into a
+        # canonical unit ("oz"), a package size (8), and a leftover
+        # descriptor ("bag") whenever it can, and returns None (leaving
+        # `unit`/`estimated_quantity` exactly as before) when it can't.
+        # This fixes the SAME underlying bug (a compound, unconvertible
+        # `unit` string breaking deduction and cost math) without
+        # touching either prompt at all.
+        raw_unit = entry.get("unit") or None
+        raw_quantity = _safe_float(entry.get("estimated_quantity"))
+        package_count = raw_quantity if raw_quantity is not None else 1.0
+        unit = raw_unit
+        package_quantity = None
+        package_descriptor = None
+        final_quantity = raw_quantity
+        parsed_package = package_parsing.parse_package_text(raw_unit)
+        if parsed_package is not None:
+            unit = parsed_package.unit
+            package_quantity = parsed_package.package_quantity
+            package_descriptor = parsed_package.package_descriptor
+            # A leading multipack pattern in the unit text itself (e.g.
+            # OFF-style "12 x 355 ml") multiplies the source's own
+            # purchased-count; the common receipt/vision case has no
+            # such pattern and parsed_package.package_count stays 1.0.
+            package_count = package_count * parsed_package.package_count
+            final_quantity = package_count * package_quantity
+
         items.append(
             {
                 "name": str(entry["name"]).strip(),
-                "estimated_quantity": _safe_float(entry.get("estimated_quantity")),
-                "unit": entry.get("unit") or None,
+                "estimated_quantity": final_quantity,
+                "unit": unit,
+                "package_quantity": package_quantity,
+                "package_count": package_count,
+                "package_descriptor": package_descriptor,
                 "category": category,
                 "expiration_date": expiration_date,
                 # Bug fix (2026-08-02, author-reported): these two keys
@@ -414,6 +451,9 @@ def deduct_by_name(
 UPDATABLE_FIELDS_BY_NAME = {
     "quantity",
     "unit",
+    "package_quantity",
+    "package_count",
+    "package_descriptor",
     "category",
     "expiration_date",
     "is_priority",

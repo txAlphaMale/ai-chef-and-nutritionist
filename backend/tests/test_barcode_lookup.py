@@ -55,8 +55,31 @@ def test_barcode_lookup_returns_prefilled_preview_on_match(monkeypatch):
     # spice keyword lists, so this exercises the "or 'other'" fallback,
     # not a hardcoded assumption that every product guesses cleanly.
     assert result.category in {"pantry", "other"}
+    # Package/measurement split (2026-08-02): "32 oz" now parses into a
+    # real on-hand quantity/unit instead of the old hardcoded 1/"count"
+    # default -- see BarcodeLookupResponse's own docstring for why this
+    # is a number+unit read, not a guessed conversion.
+    assert result.estimated_quantity == 32
+    assert result.unit == "oz"
+    assert result.package_quantity == 32
+    assert result.package_count == 1
+    assert result.package_descriptor is None
+
+
+def test_barcode_lookup_falls_back_to_count_when_quantity_text_has_no_leading_measure(monkeypatch):
+    # "12 pieces" has no recognized unit word to anchor on -- parse_
+    # package_text returns None, so this must fall back to the same
+    # 1/"count" default the endpoint always used, not crash or guess.
+    def fake_get(url, timeout=None):
+        return _FakeResponse(
+            {"status": 1, "product": {"product_name": "Assorted Crackers", "quantity": "12 pieces"}}
+        )
+
+    monkeypatch.setattr(food_data_service.httpx, "get", fake_get)
+    result = barcode_lookup("2222222222222")
     assert result.estimated_quantity == 1
     assert result.unit == "count"
+    assert result.package_quantity is None
 
 
 def test_barcode_lookup_returns_not_found_when_off_has_no_match(monkeypatch):

@@ -33,6 +33,7 @@ from app.routers import (
     google_calendar,
     health,
     household,
+    icloud_calendar,
     inventory,
     jobs,
     kitchen,
@@ -166,6 +167,7 @@ app.include_router(health.router)
 app.include_router(knowledge.router)
 app.include_router(chat.router)
 app.include_router(google_calendar.router)
+app.include_router(icloud_calendar.router)
 app.include_router(tls.router)
 
 

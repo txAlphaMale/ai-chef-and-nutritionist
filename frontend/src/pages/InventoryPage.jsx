@@ -17,6 +17,24 @@ function urgencyClass(score) {
   return "";
 }
 
+// Quantity model redesign (2026-08-02) -- trims trailing float noise
+// (e.g. 15.999999999999998 from a repeated deduct_by_name subtraction)
+// for display only; the real stored value is untouched.
+function formatQuantity(value) {
+  if (value == null) return "";
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? rounded : rounded.toFixed(2);
+}
+
+// "On hand" vs. "at time of purchase" (the author's own stated
+// distinction this redesign exists to capture) -- shown as a percentage
+// so a glance at the table answers "how much of this do I actually have
+// left" without doing the division themselves.
+function onHandPercent(item) {
+  if (!item.purchased_quantity) return null;
+  return Math.round((item.quantity / item.purchased_quantity) * 100);
+}
+
 export default function InventoryPage() {
   const [items, setItems] = useState([]);
   const [urgencyByItemId, setUrgencyByItemId] = useState({});
@@ -156,6 +174,15 @@ export default function InventoryPage() {
         category: d.category || "other",
         quantity: d.estimated_quantity ?? 1,
         unit: d.unit || "",
+        // Package/measurement split (2026-08-02) -- carried through so
+        // the created InventoryItem gets real package_quantity/
+        // package_count/package_descriptor, not just the flattened
+        // on-hand total. Not surfaced as its own review-table column
+        // (already 8 columns wide); still editable afterward via the
+        // item's own Edit form.
+        package_quantity: d.package_quantity ?? null,
+        package_count: d.package_count ?? null,
+        package_descriptor: d.package_descriptor ?? null,
         expiration_date: d.expiration_date || "",
         purchased_date: d.purchased_date || "",
         unit_price: d.unit_price ?? "",
@@ -271,6 +298,9 @@ export default function InventoryPage() {
       category: d.category || "other",
       quantity: d.estimated_quantity ?? 1,
       unit: d.unit || null,
+      package_quantity: d.package_quantity ?? null,
+      package_count: d.package_count ?? null,
+      package_descriptor: d.package_descriptor ?? null,
       expiration_date: d.expiration_date || null,
       source: "vision",
     }));
@@ -339,6 +369,9 @@ export default function InventoryPage() {
         category: r.category || "other",
         quantity: Number(r.quantity) || 1,
         unit: r.unit || null,
+        package_quantity: r.package_quantity ?? null,
+        package_count: r.package_count ?? null,
+        package_descriptor: r.package_descriptor ?? null,
         expiration_date: r.expiration_date || null,
         purchased_date: r.purchased_date || null,
         unit_price: r.unit_price === "" || r.unit_price == null ? null : Number(r.unit_price),
@@ -417,6 +450,9 @@ export default function InventoryPage() {
           category: d.category || "other",
           quantity: d.estimated_quantity ?? 1,
           unit: d.unit || "",
+          package_quantity: d.package_quantity ?? null,
+          package_count: d.package_count ?? null,
+          package_descriptor: d.package_descriptor ?? null,
           expiration_date: d.expiration_date || "",
           purchased_date: d.purchased_date || "",
           unit_price: d.unit_price ?? "",
@@ -597,6 +633,9 @@ export default function InventoryPage() {
               category: barcodeResult.category || "pantry",
               quantity: barcodeResult.estimated_quantity ?? 1,
               unit: barcodeResult.unit || "count",
+              package_quantity: barcodeResult.package_quantity ?? "",
+              package_count: barcodeResult.package_count ?? 1,
+              package_descriptor: barcodeResult.package_descriptor ?? "",
               source: "barcode",
             }}
             onSubmit={confirmBarcodeItem}
@@ -954,7 +993,16 @@ export default function InventoryPage() {
                   <td data-label="Name">{item.name}</td>
                   <td data-label="Category">{item.category}</td>
                   <td data-label="Qty">
-                    {item.quantity} {item.unit || ""}
+                    {formatQuantity(item.quantity)} {item.unit || ""}
+                    {item.package_count && item.package_quantity && (
+                      <div className="hint">
+                        ({item.package_count} {item.package_descriptor || "pkg"} of {formatQuantity(item.package_quantity)}{" "}
+                        {item.unit || ""} each)
+                      </div>
+                    )}
+                    {item.purchased_quantity ? (
+                      <div className="hint">{onHandPercent(item)}% on hand</div>
+                    ) : null}
                   </td>
                   <td data-label="Price">{item.unit_price != null ? `$${item.unit_price.toFixed(2)}` : "—"}</td>
                   <td data-label="Expires">{item.expiration_date || "—"}</td>

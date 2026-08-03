@@ -17,8 +17,73 @@ class InventoryItem(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), index=True)
     # pantry | fridge | freezer | produce | spice | other
     category: Mapped[str] = mapped_column(String(50), default="pantry")
+
+    # --- Quantity model (redesigned 2026-08-02, author-requested) ------
+    #
+    # `quantity` is the CURRENT ON-HAND amount, expressed in `unit` --
+    # this is the number every deduction (recipe-confirm via
+    # inventory_service.deduct_by_name) and every urgency/priority
+    # calculation actually reads and mutates. `unit` is meant to be a
+    # real, convertible measurement unit going forward (one of
+    # unit_conversion_service's canonical units -- oz/lb/g/kg/ml/l/cup/
+    # tbsp/tsp -- or the literal string "count" for items with no
+    # meaningful sub-unit, e.g. "3 apples") -- NOT a compound string like
+    # "8 oz bag" mixing a measurement with a container description.
+    #
+    # Before this session, `unit` WAS that compound string (see git
+    # history / RECEIPT_IMPORT_PROMPT's prior rule 5), because there was
+    # nowhere else to put the container word. That silently broke two
+    # things this app already had, author-reported and confirmed by
+    # re-reading the actual code paths: (1) unit_conversion_service.
+    # normalize_unit("8 oz bag") doesn't recognize the string as a real
+    # unit, so a recipe asking for "4 oz bacon" against a row whose old
+    # `unit` was "24 oz pack" couldn't convert -- deduct_by_name fell back
+    # to subtracting 4 raw from `quantity`=1 (one PACKAGE), zeroing the
+    # whole pack after using a quarter of it; (2) cost_service divided a
+    # purchase price by the CURRENT, depleting `quantity` rather than a
+    # stable purchase-time snapshot, so cost-per-serving would silently
+    # drift upward as a package got used up even though nothing about the
+    # price paid had changed. Both are now fixed by the fields below.
     quantity: Mapped[float] = mapped_column(Float, default=1.0)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Immutable snapshot of `quantity` (in `unit`) at the moment this row
+    # was created/purchased -- i.e. "volume at time of purchase", never
+    # decremented by usage the way `quantity` ("volume on hand") is.
+    # This is what cost_service now divides a recorded `unit_price` by,
+    # instead of the live, shrinking `quantity` -- so cost-per-serving
+    # stays correct as a package gets used up rather than silently
+    # rising. Nullable for two reasons: (a) rows created before this
+    # column existed have no honest value to backfill beyond "assume
+    # nothing has been used yet" (see this session's migration for
+    # exactly what it does and doesn't assume), and (b) intake sources
+    # with no real "purchase" concept (a bare pantry-snapshot vision
+    # photo) can legitimately leave it unset. `routers/inventory.py`'s
+    # create endpoint defaults it to the row's own initial `quantity`
+    # whenever the caller doesn't supply one explicitly.
+    purchased_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Purely descriptive package/container metadata -- NEVER read by any
+    # arithmetic (deduction, cost, unit conversion). Exists so a
+    # household can still see "2 x 14 oz cans" on the item without that
+    # text ever being the thing `unit`/`quantity` have to encode.
+    # `package_quantity` is how much of `unit` is in ONE package (e.g. 8
+    # for an "8 oz bag"); `package_count` is how many packages this row
+    # represents (e.g. 2 for "2 cans"); on creation, when both are
+    # known, the frontend computes the initial `quantity` as their
+    # product, then the household can still hand-adjust it (e.g. adding
+    # an already-opened item). `package_descriptor` is the leftover
+    # container word ("bag", "can", "bottle", ...), free text, shown for
+    # reference only. All three nullable -- an item with no package
+    # concept at all (loose produce weighed at checkout) simply leaves
+    # them unset and behaves exactly as `quantity`/`unit` alone always
+    # did. See app/services/package_parsing.py for the shared best-
+    # effort parser that fills these in from freeform text (Open Food
+    # Facts' quantity field, a spreadsheet's unit column) when possible.
+    package_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    package_count: Mapped[float | None] = mapped_column(Float, nullable=True)
+    package_descriptor: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     location: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     purchased_date: Mapped[date | None] = mapped_column(Date, nullable=True)

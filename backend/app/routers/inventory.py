@@ -68,6 +68,7 @@ from app.services import (
     meal_plan_service,
     ollama_client,
     order_import_service,
+    package_parsing,
     recall_service,
     recipe_service,
 )
@@ -277,12 +278,33 @@ def barcode_lookup(barcode: str):
     image_url = product.get("image_front_url") or product.get("image_url") or None
     category = meal_plan_service.guess_grocery_category(name) if name else None
 
+    # Package/measurement split (2026-08-02) -- see BarcodeLookupResponse's
+    # own docstring for why this now parses quantity_text instead of
+    # leaving it display-only.
+    estimated_quantity = 1.0
+    unit = "count"
+    package_quantity = None
+    package_count = None
+    package_descriptor = None
+    parsed_package = package_parsing.parse_package_text(quantity_text)
+    if parsed_package is not None:
+        unit = parsed_package.unit
+        package_quantity = parsed_package.package_quantity
+        package_count = parsed_package.package_count
+        package_descriptor = parsed_package.package_descriptor
+        estimated_quantity = package_count * package_quantity
+
     return BarcodeLookupResponse(
         barcode=barcode,
         found=True,
         name=name,
         brand=brand,
         quantity_text=quantity_text,
+        estimated_quantity=estimated_quantity,
+        unit=unit,
+        package_quantity=package_quantity,
+        package_count=package_count,
+        package_descriptor=package_descriptor,
         category=category or "other",
         image_url=image_url,
         confidence_note=None if name else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
@@ -757,7 +779,18 @@ def get_inventory_item(item_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=InventoryItemRead, status_code=201)
 def create_inventory_item(payload: InventoryItemCreate, db: Session = Depends(get_db)):
-    item = InventoryItem(**payload.model_dump())
+    data = payload.model_dump()
+    # Quantity model redesign (2026-08-02): `purchased_quantity` is the
+    # immutable "on hand at purchase time" snapshot cost_service divides
+    # by -- see InventoryItem's own docstring. At creation time, on-hand
+    # IS whatever was just purchased, so default it to the row's own
+    # initial `quantity` whenever the caller didn't explicitly supply a
+    # different value (every existing caller -- the manual add form, the
+    # barcode/vision/receipt/order-import confirm flows -- can keep
+    # sending a plain InventoryItemCreate with no changes needed).
+    if data.get("purchased_quantity") is None:
+        data["purchased_quantity"] = data.get("quantity")
+    item = InventoryItem(**data)
     db.add(item)
     db.commit()
     db.refresh(item)

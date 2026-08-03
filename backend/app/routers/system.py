@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.system import PromptUpdate, SettingUpdate
-from app.services import backup_service, google_calendar_service, ollama_client, settings_service, tavily_client
+from app.services import backup_service, google_calendar_service, icloud_calendar_service, ollama_client, settings_service, tavily_client
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -77,6 +77,7 @@ def status(db: Session = Depends(get_db)):
     -- the frontend should treat `None` as "not applicable", not "not
     connected"."""
     gcal = google_calendar_service.connection_status(db)
+    icloud = icloud_calendar_service.connection_status(db)
     folder_path = settings_service.get_setting(db, "recipe_import_folder_path")
     return {
         "ollama_reachable": ollama_client.ping(db),
@@ -88,6 +89,13 @@ def status(db: Session = Depends(get_db)):
                 "configured": gcal["configured"],
                 "connected": gcal["connected"],
                 "detail": gcal["account_email"],
+            },
+            {
+                "key": "icloud_calendar",
+                "label": "iCloud Calendar",
+                "configured": icloud["configured"],
+                "connected": icloud["connected"],
+                "detail": icloud["username"],
             },
             {
                 "key": "recipe_folder_import",

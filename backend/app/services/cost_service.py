@@ -12,7 +12,7 @@ computed/partial/ai_estimated split already established for this app.
 Price source and its exact semantics matter here: `InventoryItem.unit_price`
 is "price paid for THIS ROW'S WHOLE QUANTITY as purchased" (see the
 model's own docstring), not a normalized per-single-unit price -- so the
-actual $/unit signal this module needs is `unit_price / quantity`,
+actual $/unit signal this module needs is `unit_price / purchased_quantity`,
 converted into the ingredient's requested unit via
 `unit_conversion_service` when the two differ (same convention already
 used by `inventory_service.deduct_by_name`/`meal_plan_service.subtract_inventory`).
@@ -20,6 +20,21 @@ When a household has bought the same ingredient more than once at
 different prices, the most recently purchased PRICED row is used -- a
 recent real price is a better cost signal than an old one, and never
 averaged or otherwise invented.
+
+Bug fix (2026-08-02, author-flagged as a design concern, confirmed real
+by re-reading this module): this used to divide by the row's live
+`quantity` instead of `purchased_quantity`. `quantity` is "on hand" and
+shrinks as `inventory_service.deduct_by_name` decrements it every time a
+recipe using that ingredient gets confirmed -- so a $6.00-for-2-lb
+chicken breast row priced at $3.00/lb when purchased would have silently
+recomputed to $6.00/lb once 1 lb had been used (unit_price / remaining
+quantity = 6.00 / 1), even though nothing about what was actually PAID
+changed. `purchased_quantity` is the immutable snapshot this needed --
+see InventoryItem's own docstring. Falls back to `quantity` when
+`purchased_quantity` is unset (rows created before that column existed,
+or an intake source with no real "purchase" concept) -- same value this
+module always used, so pre-existing behavior is preserved for exactly
+the rows that have no better signal available, never a hard failure.
 
 Matching itself reuses the exact same case-insensitive
 exact-then-substring convention as `inventory_service.find_by_name`,
@@ -87,10 +102,11 @@ def compute_ingredient_line_cost(
     match = _find_priced_inventory_match(db, ingredient_name)
     if match is None:
         return {**base, "note": "no priced inventory purchase on record for this ingredient"}
-    if not match.quantity:
+    denominator = match.purchased_quantity or match.quantity
+    if not denominator:
         return {**base, "note": f"matched {match.name!r} but its own quantity is zero/unknown"}
 
-    price_per_match_unit = match.unit_price / match.quantity
+    price_per_match_unit = match.unit_price / denominator
 
     if quantity is None:
         return {

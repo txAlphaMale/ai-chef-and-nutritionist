@@ -12,6 +12,10 @@ from pydantic import BaseModel, ConfigDict
 class HealthMetricEntryBase(BaseModel):
     entry_date: date
     weight_kg: float | None = None
+    # Backlog B8.2 -- daily step total; see HealthMetricEntry's own
+    # docstring comment for why this stays a single integer, not a
+    # fuller activity model.
+    steps: int | None = None
     ldl_mg_dl: float | None = None
     hdl_mg_dl: float | None = None
     total_cholesterol_mg_dl: float | None = None
@@ -31,6 +35,7 @@ class HealthMetricEntryUpdate(BaseModel):
     entry_date: date | None = None
     household_member_id: int | None = None
     weight_kg: float | None = None
+    steps: int | None = None
     ldl_mg_dl: float | None = None
     hdl_mg_dl: float | None = None
     total_cholesterol_mg_dl: float | None = None
@@ -93,3 +98,28 @@ class HealthBloodworkEntryPreview(BaseModel):
 class HealthBloodworkImportResponse(BaseModel):
     entries: list[HealthBloodworkEntryPreview]
     raw_model_output: str
+
+
+# --- Wearable/health-platform import (backlog B8.2) ------------------------
+
+
+class HealthWearableEntryPreview(BaseModel):
+    """One extracted-but-unconfirmed daily row from an Apple Health /
+    Health Connect / other wearable export -- same preview-then-confirm
+    discipline as HealthBloodworkEntryPreview above (and reuses the same
+    POST /api/health/metrics confirm endpoint), just a narrower field
+    set (weight + steps, not lab values)."""
+
+    entry_date: str | None = None
+    weight_kg: float | None = None
+    steps: int | None = None
+
+
+class HealthWearableImportResponse(BaseModel):
+    entries: list[HealthWearableEntryPreview]
+    # "apple_health" (deterministic XML parse) | "ai_extracted" (any
+    # other file, extracted via the same free-text Ollama pipeline
+    # bloodwork import uses) -- see health_service.py's module comment
+    # for why Health Connect specifically has no native path here.
+    source_detail: str
+    raw_model_output: str | None = None
