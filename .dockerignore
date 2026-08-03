@@ -1,0 +1,41 @@
+# Build context is the repo root now that one image builds both halves.
+#
+# Without this, `COPY frontend/ ./` in the build stage copies the HOST's
+# frontend/node_modules straight over the one `npm ci` just produced in
+# the image -- linking the build against whatever binaries happen to be
+# on the developer's machine. Non-reproducible builds, and a plausible
+# cause of "the fix didn't show up after redeploying".
+**/node_modules
+
+# Build output. Never an input.
+frontend/dist
+frontend/dist.*
+
+# Vite writes a config timestamp file per dev-server start; dozens
+# accumulate and there is no reason for any to enter the image.
+frontend/vite.config.js.timestamp-*.mjs
+
+# Python bytecode and test/lint caches. The image compiles its own.
+**/__pycache__
+**/*.pyc
+backend/.pytest_cache
+backend/.ruff_cache
+
+# The live database and TLS material live on named volumes, never baked
+# into the image.
+backend/data
+data
+tls
+
+.git
+.gitignore
+.github
+.trash
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Documentation is not a build input. PROJECT-PLAN.md alone is >500 KB.
+*.md

@@ -1,167 +1,88 @@
 # Chef -- AI meal planning, inventory, and recipe management
 #
+# ONE service. The app serves its own frontend (app/static_files.py), so
+# there is one container, one port pair, and one TLS certificate.
+#
+# It used to be two: a second container ran a Node static server that
+# also reverse-proxied /api back here. That existed to solve a real
+# problem -- the browser previously had to reach two origins and trust
+# two certificates -- but serving the built files from the API that
+# already exists solves it without a second runtime, and the proxy's
+# ~520 lines were where a fatal, silent crash-loop lived. Do not split
+# this back apart without writing down a concrete reason.
+#
 # Assumes Ollama runs on the host (or elsewhere on your network) --
 # point OLLAMA_BASE_URL in .env, or edit it later from the app's
-# Settings page, to wherever it's reachable. If you'd rather run Ollama
-# as part of this stack (with NVIDIA GPU passthrough), see
-# docker-compose.ollama.yml -- an opt-in override, not enabled by
-# default:
+# Settings page, to wherever it's reachable. To run Ollama as part of
+# this stack (with NVIDIA GPU passthrough), see docker-compose.ollama.yml
+# -- an opt-in override, not enabled by default:
 #   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up --build
 
 services:
-  backend:
-    build: ./backend
-    container_name: chef-backend
+  chef:
+    build:
+      # Repo root: one image builds the frontend (node stage) and the
+      # backend (python stage). See ./Dockerfile.
+      context: .
+      dockerfile: Dockerfile
+    container_name: chef
     restart: unless-stopped
     env_file:
       # `required: false` so a fresh clone starts with `docker compose up
       # --build` and no manual step. Every value in .env has a working
       # default here or in settings_service's SETTING_SPECS, and the
-      # runtime-configurable ones (Ollama URL/models, Tavily key) are meant
-      # to be set from the Settings page anyway -- .env is bootstrap
-      # convenience, not a requirement. Previously this was mandatory, so a
-      # clone without a hand-copied .env failed to start at all, which is
-      # the opposite of the README's stated goal. Needs Docker Compose
-      # v2.24 or newer for the `required` key.
+      # runtime-configurable ones (Ollama URL/models, Tavily key) are
+      # meant to be set from the Settings page anyway. Needs Docker
+      # Compose v2.24 or newer for the `required` key.
       - path: .env
         required: false
     ports:
-      # Author-reported 2026-08-03: as of frontend/server.js, a browser
-      # never needs to reach these directly anymore -- the frontend
-      # container reverse-proxies /api/* and /health to this service over
-      # Docker's own internal network (see BACKEND_INTERNAL_HOST in
-      # .env.example). These host-port mappings are kept only for
-      # OPTIONAL direct access -- hitting the API with curl/a script, or
-      # debugging -- and can be commented out entirely for a deployment
-      # that wants the backend unreachable from the LAN outside its own
-      # container. Not required for normal app use on any device.
+      # This is the app. Both sides of each mapping use the SAME env var
+      # deliberately: run_server.py binds whatever APP_PORT/APP_HTTPS_PORT
+      # say at runtime, so a customised port would otherwise be published
+      # on one side and bound on the other, and silently unreachable.
       #
-      # Both sides of each mapping deliberately use the SAME env var --
-      # fixed 2026-08-02 after an author-reported live bug: B15.1's new
-      # run_server.py binds the container's OWN internal uvicorn listener
-      # to whatever BACKEND_PORT/BACKEND_HTTPS_PORT says (see
-      # backend/app/run_server.py's HTTP_PORT/HTTPS_PORT), replacing the
-      # old Dockerfile CMD that always hardcoded --port 8095 regardless
-      # of the env var. Before this fix, the right-hand (container-side)
-      # port here was still hardcoded to the literal default (8095/8446),
-      # so anyone who had customized BACKEND_PORT away from 8095 (e.g.
-      # because 8095 was already taken on their host -- a real, previously
-      # -fixed scenario, see the 2026-07-31 session-log entry) got a
-      # container listening on their custom port with NOTHING mapped to
-      # it on the host side: Docker forwarded host:<custom port> to a
-      # now-empty container:8095, so every single API request failed as
-      # a browser-level "Failed to fetch" with zero trace in the
-      # container's own logs (the request never reached the app at all).
-      # Confirmed live against the author's own docker compose logs
-      # before applying this fix, not guessed.
-      - "${BACKEND_PORT:-8095}:${BACKEND_PORT:-8095}"
-      # Backlog B15.1 (2026-08-01) -- only actually listening once a
-      # certificate is generated/imported under Settings > Security >
-      # Certificate (see app/services/tls_service.py). Until then the
-      # backend serves plain HTTP on BACKEND_PORT above, same as always;
-      # once a cert exists, BACKEND_PORT switches to a redirect-only
-      # listener and this becomes the real one. Note this is now purely
-      # optional too (see above) -- the frontend proxy always talks to
-      # this container over plain HTTP on the internal Docker network,
-      # regardless of whether HTTPS is active here.
-      - "${BACKEND_HTTPS_PORT:-8446}:${BACKEND_HTTPS_PORT:-8446}"
+      # Plain HTTP. Serves the app when no certificate is installed;
+      # 307-redirects to the HTTPS port once one is.
+      - "${APP_PORT:-5173}:${APP_PORT:-5173}"
+      # HTTPS, active once a certificate exists. Needed for more than
+      # privacy: the camera (barcode scanning) and geolocation (Dining
+      # Out) are gated behind a Secure Context by the browser, so they do
+      # not work at all over plain HTTP.
+      - "${APP_HTTPS_PORT:-5174}:${APP_HTTPS_PORT:-5174}"
     volumes:
+      # SQLite database, uploaded images, knowledge files.
       - chef-data:/app/data
-      # Backlog B15.1 -- where the backend writes the active TLS
-      # certificate/key (self-signed or imported). Shared read-only with
-      # the frontend container below so both can serve the SAME
-      # certificate -- a browser's camera/geolocation Secure Context
-      # check is about the origin the PAGE itself loaded from, not just
-      # the API it calls, so the frontend needs HTTPS too, not only the
-      # backend. See tls_service.py's module docstring for the full
-      # architecture writeup.
+      # The active TLS certificate/key, self-signed or imported. Still its
+      # own volume rather than a subdirectory of chef-data: it has a
+      # different lifecycle (regenerated/replaced independently of the
+      # data) and keeping it separate means a data restore never silently
+      # swaps the certificate out too.
       - chef-tls:/app/tls
-      # Backlog B13.1 (optional) -- batch recipe import from a folder on
-      # this host (e.g. a OneDrive/Dropbox/Google Drive folder that
-      # already syncs here as a normal directory). Uncomment and point
-      # the left side at your real folder, then set
-      # RECIPE_IMPORT_FOLDER_PATH=/app/data/recipe_import in .env (or in
-      # Settings > Integrations > "Recipe import folder path") to match
-      # the right side below. Mounted read-only (:ro) -- Chef only ever
-      # reads from this folder, never writes to or deletes from it. See
-      # the in-app WIKI's "Recipe folder import" entry for the full
-      # walkthrough.
+      # Optional -- batch recipe import from a folder on this host (e.g. a
+      # OneDrive/Dropbox/Google Drive folder that already syncs here as a
+      # normal directory). Uncomment and point the left side at your real
+      # folder, then set RECIPE_IMPORT_FOLDER_PATH=/app/data/recipe_import
+      # in .env (or in Settings > Integrations) to match the right side.
+      # Mounted read-only -- Chef only ever reads from this folder.
       # - /path/on/this/host/to/your/recipes:/app/data/recipe_import:ro
-    # Uses Python rather than curl/wget: the slim base image ships neither,
-    # and adding one just for a healthcheck is a package for nothing.
+    # Probes whichever port the app actually binds: HTTPS when a
+    # certificate is present, plain HTTP otherwise. Python rather than
+    # curl/wget because the slim base image ships neither, and adding a
+    # package just for a healthcheck is a package for nothing.
+    # Certificate verification is off because it is self-signed by design
+    # and this request never leaves the container.
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('BACKEND_PORT','8095')+'/health', timeout=3).status==200 else 1)"
+        - "import os,ssl,sys,urllib.request; tls=os.path.isfile('/app/tls/cert.pem'); port=os.environ.get('APP_HTTPS_PORT','5174') if tls else os.environ.get('APP_PORT','5173'); scheme='https' if tls else 'http'; ctx=ssl._create_unverified_context() if tls else None; sys.exit(0 if urllib.request.urlopen(f'{scheme}://127.0.0.1:{port}/health', timeout=3, context=ctx).status==200 else 1)"
       interval: 10s
       timeout: 5s
       # Generous: the first start runs migrations and seeding before the
       # server binds, and this hardware is not fast.
       start_period: 60s
-      retries: 5
-
-  frontend:
-    build: ./frontend
-    container_name: chef-frontend
-    restart: unless-stopped
-    env_file:
-      # See the backend service's note above.
-      - path: .env
-        required: false
-    ports:
-      # Same host==container port-mapping fix as the backend above, and
-      # for the same reason: docker-entrypoint.sh's supervisor loop binds
-      # `serve` to the live FRONTEND_PORT/FRONTEND_HTTPS_PORT env vars,
-      # not a hardcoded default, so both sides of each mapping need to
-      # track the same variable or a customized port silently goes
-      # unreachable from outside the container.
-      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
-      # Backlog B15.1 -- see the matching backend port above; the
-      # frontend independently watches the same chef-tls volume and
-      # switches to serving HTTPS here once a certificate appears (see
-      # frontend/docker-entrypoint.sh). Backlog B15.1 follow-up
-      # (2026-08-02, author-requested): the frontend now ALSO runs a
-      # plain-HTTP-to-HTTPS redirect listener on FRONTEND_PORT once HTTPS
-      # is active (redirect-server.js) -- a bookmarked http://host:5173
-      # link auto-redirects to https://host:5174 instead of needing a
-      # manual update.
-      - "${FRONTEND_HTTPS_PORT:-5174}:${FRONTEND_HTTPS_PORT:-5174}"
-    volumes:
-      # Backlog B15.1 -- read-only: the frontend only ever READS the
-      # certificate the backend generated/imported, never writes one.
-      - chef-tls:/app/tls:ro
-    # `service_healthy`, not a bare `depends_on`. The backend runs Alembic
-    # migrations and the seed script before uvicorn starts, so a plain
-    # dependency lets this container begin proxying to a backend that isn't
-    # listening yet -- which surfaces to the user as a 502 on first load
-    # with no indication it is transient.
-    depends_on:
-      backend:
-        condition: service_healthy
-    # The frontend had no healthcheck, and that is the second reason its
-    # crash loop went unnoticed for as long as it did: `docker compose ps`
-    # showed "Restarting", which looks like a container mid-start rather
-    # than one that has died the same way forty times. Nothing reported a
-    # problem, so nothing was investigated.
-    #
-    # This checks the port server.js actually binds -- HTTPS when a
-    # certificate is present, plain HTTP otherwise -- using Node itself,
-    # which is guaranteed present here (curl and wget are not in
-    # node:22-slim, and installing a package purely to run a healthcheck
-    # is not worth it). `rejectUnauthorized: false` because the
-    # certificate is self-signed by design and this call never leaves the
-    # container.
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "const tls=require('fs').existsSync('/app/tls/cert.pem');const m=tls?require('https'):require('http');const p=tls?(process.env.FRONTEND_HTTPS_PORT||5174):(process.env.FRONTEND_PORT||5173);m.get({host:'127.0.0.1',port:p,path:'/',rejectUnauthorized:false,timeout:3000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      start_period: 30s
       retries: 5
 
 volumes:

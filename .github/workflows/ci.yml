@@ -70,3 +70,18 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # The frontend and backend now ship as ONE image built from the repo
+  # root. Building it in CI is the check that would have caught the
+  # crash-loop that went unnoticed for as long as it did: the old
+  # frontend image built cleanly and then failed at runtime, because
+  # nothing ever loaded its entrypoint at build time. This Dockerfile
+  # asserts that the app imports and that the frontend build landed --
+  # so a broken image is now a red build here, before it reaches a
+  # container nobody is watching.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the application image
+        run: docker build -t chef:ci .

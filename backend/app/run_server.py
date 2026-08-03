@@ -1,29 +1,33 @@
 #!/usr/bin/env python3
-"""Backlog B15.1 (2026-08-01): the backend container's actual entrypoint
-process, replacing a plain `uvicorn app.main:app` CMD. Decides plain-HTTP
-vs. HTTPS by checking whether a valid certificate/key pair currently
-exists under tls_service.TLS_DIR, then serves accordingly. Ported from
-the sibling Fiduciary project's `portfolio-api/run_server.py` -- read
-directly before writing this, adapted only for Chef's port-naming
-(BACKEND_PORT/BACKEND_HTTPS_PORT vs. Fiduciary's PORT/HTTPS_PORT) and
-its `app.main:app` import path.
+"""The container's entrypoint process.
 
-This indirection (rather than baking --ssl-certfile/--ssl-keyfile
-straight into the Dockerfile CMD) is what makes
-tls_service.restart_to_apply() work: installing a new/imported
-certificate re-execs THIS script (os.execv, same PID -- Docker's restart
-policy never sees an exit), so the HTTP-vs-HTTPS decision gets
-re-derived fresh from whatever's on disk at that moment.
+Decides plain HTTP vs. HTTPS by checking whether a valid certificate/key
+pair currently exists under `tls_service.TLS_DIR`, then serves the whole
+app -- API and frontend both, see `app/static_files.py` -- accordingly.
 
-When HTTPS is active, this ALSO serves the real app over plain HTTP on
-BACKEND_PORT, in a background daemon thread. That is what the frontend
-container's reverse proxy talks to over the private Docker network --
-see _start_internal_http_thread() below, which documents the regression
-that made this necessary and why it is a second Server in a thread
-rather than a second concurrent serve() on the same loop.
+This indirection, rather than baking `--ssl-certfile`/`--ssl-keyfile` into
+the Dockerfile CMD, is what makes `tls_service.restart_to_apply()` work:
+installing a new certificate re-execs this script (os.execv, same PID, so
+Docker's restart policy never sees an exit) and the HTTP-vs-HTTPS decision
+is re-derived from whatever is on disk at that moment.
 
-Started via `python -m app.run_server` -- see backend/Dockerfile."""
-import asyncio
+When HTTPS is active, `APP_PORT` becomes a plain-HTTP listener that
+307-redirects to the HTTPS port, so a bookmarked `http://<host>:5173`
+keeps working instead of going dead.
+
+That redirect used to be something else, and the history is worth one
+paragraph because it caused a real outage. While a separate frontend
+container reverse-proxied `/api` to this one, `APP_PORT` had to serve the
+REAL app over plain HTTP for the proxy to talk to -- a redirect there sent
+the proxy a `Location:` pointing at an internal Docker hostname no browser
+could resolve, which silently broke every API call the moment a
+certificate was installed. With the proxy gone there is no internal
+consumer left, so the plain port goes back to being a redirect, which is
+what a person typing the http:// URL actually wants.
+
+Started via `python -m app.run_server` -- see the repo-root Dockerfile.
+"""
+import http.server
 import os
 import threading
 
@@ -32,73 +36,65 @@ import uvicorn
 from app.services import tls_service
 
 HOST = "0.0.0.0"
-HTTP_PORT = os.environ.get("BACKEND_PORT", "8095")
-HTTPS_PORT = os.environ.get("BACKEND_HTTPS_PORT", "8446")
+HTTP_PORT = os.environ.get("APP_PORT", "5173")
+HTTPS_PORT = os.environ.get("APP_HTTPS_PORT", "5174")
 
 
-def _start_internal_http_thread():
-    """Serves the REAL app over plain HTTP on BACKEND_PORT, in a
-    background daemon thread, whenever HTTPS is active on
-    BACKEND_HTTPS_PORT.
+def _start_redirect_listener() -> None:
+    """Serves a 307 to the HTTPS port on APP_PORT, in a daemon thread.
 
-    This replaced a 307-redirect listener, and the reason matters.
+    Deliberately `http.server` from the standard library rather than a
+    second uvicorn: this handles a handful of redirects for people with
+    an old bookmark, and pulling a second ASGI server into the process
+    for that -- plus the signal handling two uvicorn Servers fight over
+    -- is not a trade worth making.
 
-    Since 2026-08-03 the frontend container reverse-proxies /api/* and
-    /health to `http://<backend service>:$BACKEND_PORT` over the private
-    Docker network -- the browser never talks to this container directly.
-    But the old behaviour turned BACKEND_PORT into a redirect-only
-    listener the moment a certificate was installed, so every proxied API
-    call started coming back as a 307 pointing at
-    `https://backend:8446/...` -- an internal Docker hostname no browser
-    on the LAN can resolve. Net effect: installing a certificate (which
-    B15.1 exists to make the camera and geolocation work at all) silently
-    broke every API call in the app.
+    Best-effort. If the port cannot be bound, the HTTPS listener still
+    starts; that degrades an old bookmark, not the app.
+    """
 
-    TLS now terminates once, at the edge the browser actually talks to.
-    This container keeps its own HTTPS listener for direct/scripted
-    access, and always serves the real app on plain HTTP internally.
+    https_port = HTTPS_PORT
 
-    What was given up: a bookmarked `http://<host>:8095` no longer
-    auto-redirects to the HTTPS port -- it just serves the API plainly.
-    That redirect only ever mattered for people hitting the API directly
-    in a browser, and the frontend still runs its own HTTP-to-HTTPS
-    redirect for the page origin, which is the URL people actually
-    bookmark (see frontend/redirect-server.js).
+    class _RedirectHandler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
 
-    Best-effort: if BACKEND_PORT can't be bound, the HTTPS listener still
-    starts. That degrades direct access, not the app."""
+        def _redirect(self) -> None:
+            host = (self.headers.get("Host") or "").split(":")[0]
+            target = f"https://{host}:{https_port}{self.path}"
+            # 307, not 301: preserves method and body, and is not cached
+            # permanently the way a 301 is -- which matters because this
+            # listener's behaviour flips the moment a certificate is
+            # removed.
+            self.send_response(307)
+            self.send_header("Location", target)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
-    def _run():
+        do_GET = _redirect
+        do_HEAD = _redirect
+        do_POST = _redirect
+
+        def log_message(self, *args) -> None:
+            pass  # one line per redirect is noise, not signal
+
+    def _run() -> None:
         try:
-            config = uvicorn.Config("app.main:app", host=HOST, port=int(HTTP_PORT), log_level="warning")
-            asyncio.run(uvicorn.Server(config).serve())
-        except Exception as e:
+            http.server.ThreadingHTTPServer((HOST, int(HTTP_PORT)), _RedirectHandler).serve_forever()
+        except Exception as exc:
             print(
-                f"[run_server] internal plain-HTTP listener on port {HTTP_PORT} failed to start ({e}) -- "
-                f"the frontend proxy and any direct HTTP client will not be able to reach this backend",
+                f"[run_server] HTTP->HTTPS redirect listener on port {HTTP_PORT} failed to start "
+                f"({exc}) -- the app is still served on HTTPS port {HTTPS_PORT}",
                 flush=True,
             )
 
-    # A non-main thread is required, not just convenient: uvicorn.Server
-    # installs SIGTERM/SIGINT handlers via signal.signal() when it runs on
-    # the main thread, and two Servers doing that in one process stomp on
-    # each other -- only the last one registered actually handles a
-    # graceful shutdown. Running from a non-main thread makes uvicorn skip
-    # signal handling entirely, which is what is wanted here: a daemon
-    # thread and its socket are torn down automatically when the process
-    # exits or os.execv replaces it.
-    threading.Thread(target=_run, daemon=True, name="internal-http").start()
+    threading.Thread(target=_run, daemon=True, name="http-redirect").start()
 
 
-def main():
+def main() -> None:
     if tls_service.has_active_cert():
-        print(f"[run_server] starting HTTPS on port {HTTPS_PORT} (cert: {tls_service.CERT_PATH})", flush=True)
-        print(
-            f"[run_server] also serving the app over plain HTTP on port {HTTP_PORT} for the "
-            f"frontend container's internal reverse proxy (see _start_internal_http_thread)",
-            flush=True,
-        )
-        _start_internal_http_thread()
+        print(f"[run_server] serving HTTPS on port {HTTPS_PORT} (cert: {tls_service.CERT_PATH})", flush=True)
+        print(f"[run_server] redirecting plain HTTP on port {HTTP_PORT} -> HTTPS {HTTPS_PORT}", flush=True)
+        _start_redirect_listener()
         config = uvicorn.Config(
             "app.main:app",
             host=HOST,
@@ -108,7 +104,7 @@ def main():
         )
     else:
         print(
-            f"[run_server] starting plain HTTP on port {HTTP_PORT} (no active certificate -- set "
+            f"[run_server] serving plain HTTP on port {HTTP_PORT} (no active certificate -- set "
             f"one up under Settings > Security > Certificate)",
             flush=True,
         )

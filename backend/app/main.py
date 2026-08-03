@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import static_files
 from app.database import SessionLocal, get_db
 from app.models import HouseholdPreferences
 from app.routers import (
@@ -91,25 +92,22 @@ def get_configured_cors_origins() -> list[str]:
 
 # CORS: no cross-origin credentialed access by default.
 #
-# The browser never talks to this origin. `frontend/server.js` reverse-
-# proxies /api/* and /health over the internal Docker network, so every
-# request the browser makes is same-origin with the frontend -- and CORS
-# does not apply to same-origin requests at all. Allowing any origin on
-# the internet to make credentialed requests to this API bought nothing
-# and said, literally, that it was fine for them to do so.
+# This app serves its own frontend (see static_files.mount_frontend at the
+# bottom of this file), so the page and the API it calls are the same
+# origin by construction -- and CORS does not apply to same-origin
+# requests at all. This used to allow any origin on the internet to make
+# credentialed requests, which granted nothing useful and stated
+# something untrue.
 #
 # Non-browser clients (curl, scripts, an HTTP client in another language)
-# are unaffected: CORS is a browser policy, enforced by the browser. A
-# script hitting the backend port directly never sends an Origin header
-# and never has one checked.
+# are unaffected either way: CORS is a browser policy, enforced by the
+# browser. A script never sends an Origin header and never has one checked.
 #
-# The empty default is therefore correct for the normal deployment. The
-# setting exists for the case where a browser page served from some OTHER
-# origin genuinely needs to call this API -- e.g. reaching the host by a
-# new name (`chef.lan`) while the frontend still knows itself by IP, or a
-# separately-hosted dashboard. Adding an origin is a Settings edit, not a
-# rebuild, because a household adding a local DNS name should not have to
-# rebuild an image to keep working.
+# The empty default is therefore correct. The setting exists for the case
+# where a page served from some OTHER origin genuinely needs to call this
+# API -- e.g. reaching the host by a new name (`chef.lan`) while a device
+# still has the IP bookmarked, or a separately-hosted dashboard. Adding an
+# origin is a Settings edit, not a rebuild.
 _extra_origins = get_configured_cors_origins()
 app.add_middleware(
     CORSMiddleware,
@@ -223,3 +221,13 @@ def health_check(db: Session = Depends(get_db)):
         "status": "ok",
         "household_size": prefs.household_size if prefs else None,
     }
+
+
+# LAST, deliberately, and it must stay last.
+#
+# This mounts the built frontend at "/". A Starlette mount at the root
+# matches greedily, so every `include_router` and every route above has
+# to be registered before it or the API disappears behind the SPA. There
+# is no ordering subtlety beyond that -- see app/static_files.py for why
+# the app serves its own frontend instead of a second container doing it.
+static_files.mount_frontend(app)

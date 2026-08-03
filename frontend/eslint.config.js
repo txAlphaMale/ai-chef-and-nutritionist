@@ -87,19 +87,16 @@ export default [
     rules: { ...js.configs.recommended.rules },
   },
 
-  // Node: the container's static server, the redirect listener, and the
-  // Vite config.
+  // Node-side config files. There used to be a container static server
+  // and a redirect listener here too; both went when the app started
+  // serving its own frontend (see backend/app/static_files.py).
   {
-    files: ["server.js", "redirect-server.js", "vite.config.js"],
+    files: ["vite.config.js", "eslint.config.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "commonjs",
+      sourceType: "module",
       globals: { ...globals.node },
     },
     rules: { ...js.configs.recommended.rules },
-  },
-  {
-    files: ["vite.config.js", "eslint.config.js"],
-    languageOptions: { sourceType: "module", globals: { ...globals.node } },
   },
 ];

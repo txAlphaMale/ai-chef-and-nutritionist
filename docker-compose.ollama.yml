@@ -55,7 +55,11 @@ services:
               count: all
               capabilities: [gpu]
 
-  backend:
+  # Renamed from `backend` when the two containers were consolidated into
+  # one -- see docker-compose.yml. An override for a service name that no
+  # longer exists is silently ignored by Compose, so this would have kept
+  # "working" while never actually ordering the startup.
+  chef:
     depends_on:
       - ollama
 
