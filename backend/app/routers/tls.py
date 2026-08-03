@@ -13,6 +13,7 @@ wasn't ported this pass."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 from app.schemas.tls import CsrRequest, ImportCertRequest, SelfSignedRequest
 from app.services import tls_service
@@ -23,6 +24,24 @@ router = APIRouter(prefix="/api/tls", tags=["tls"])
 @router.get("/status")
 def tls_status():
     return tls_service.status()
+
+
+@router.get("/mobileconfig")
+def tls_mobileconfig():
+    """Author-reported 2026-08-03: downloads the active certificate as an
+    Apple Configuration Profile, so iOS/iPadOS can install it as a
+    trusted root instead of relying only on the per-origin browser
+    click-through. See tls_service.build_mobileconfig()'s own docstring
+    for why this is additive, not a replacement for that existing flow."""
+    try:
+        content = tls_service.build_mobileconfig()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return Response(
+        content=content,
+        media_type="application/x-apple-aspen-config",
+        headers={"Content-Disposition": 'attachment; filename="chef-ca.mobileconfig"'},
+    )
 
 
 @router.post("/self-signed")

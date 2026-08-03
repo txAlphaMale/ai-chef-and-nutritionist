@@ -35,12 +35,29 @@ export default function BarcodeScanner({ onDetected, onClose }) {
   const [manualBarcode, setManualBarcode] = useState("");
 
   useEffect(() => {
-    if (!navigator.mediaDevices?.getUserMedia) {
+    // Author-reported 2026-08-03: on a real iPad, over plain HTTP, the
+    // camera never engaged and NO error was shown -- not "camera denied",
+    // not "needs HTTPS", nothing. Root cause: this check used to test
+    // `!navigator.mediaDevices?.getUserMedia` FIRST and only fell back to
+    // checking `window.isSecureContext` as the reason why that was
+    // missing. But WebKit (Safari, and every iOS browser -- they're all
+    // WebKit under the hood) keeps `navigator.mediaDevices` and its
+    // `getUserMedia` function reference PRESENT even on an insecure
+    // origin; it just silently refuses to ever resolve or reject calls
+    // made through it. That meant this guard's `if` was false (the API
+    // "existed"), so execution fell through into ZXing's own device
+    // listing, which called into that same never-settling API and hung
+    // forever with no visible error -- exactly the reported symptom.
+    // Checking `window.isSecureContext` FIRST, unconditionally, catches
+    // this before ever touching ZXing/getUserMedia at all.
+    if (window.isSecureContext === false) {
       setError(
-        window.isSecureContext === false
-          ? "Camera access needs HTTPS (or localhost) -- this page was loaded over a plain, non-secure connection. Type the barcode number below instead."
-          : "This browser doesn't support camera access. Type the barcode number below instead."
+        "Camera access needs HTTPS (or localhost) -- this page was loaded over a plain, non-secure connection. Type the barcode number below instead."
       );
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("This browser doesn't support camera access. Type the barcode number below instead.");
       return;
     }
 

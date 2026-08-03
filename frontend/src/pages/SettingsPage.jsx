@@ -1268,6 +1268,20 @@ export default function SettingsPage() {
                 certificate is active. The frontend (this page) has its own matching HTTP/HTTPS ports -- see the{" "}
                 <a href="#/wiki?entry=https-setup">WIKI's HTTPS entry</a> for the exact addresses.
               </p>
+              {tlsStatus.active && !tlsStatus.error && (
+                <p className="hint">
+                  <strong>iOS/iPadOS:</strong> if Safari won't offer to let you through the "not trusted" warning
+                  at all, or you want the warning gone everywhere on the device (including a Chef PWA installed to
+                  the home screen, which can't show that warning itself) rather than clicking through it per
+                  browser tab, install this certificate as a trusted profile instead: {" "}
+                  <a className="btn btn-secondary btn-sm" href={`${backendOrigin}/api/tls/mobileconfig`}>
+                    Download certificate for iOS/iPadOS
+                  </a>{" "}
+                  -- see the <a href="#/wiki?entry=https-setup">WIKI's HTTPS entry</a> for the exact install steps
+                  (it ends with a toggle in Settings &gt; General &gt; About &gt; Certificate Trust Settings,
+                  which stays empty until a profile like this one has actually been installed).
+                </p>
+              )}
             </>
           ) : (
             <p className="hint">Loading...</p>

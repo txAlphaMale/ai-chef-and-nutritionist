@@ -340,6 +340,49 @@ export const WIKI_ENTRIES = [
       {
         type: "p",
         text:
+          "**iOS/iPadOS: when the per-origin click-through isn't enough.** Author-reported 2026-08-03, from a " +
+          "real iPad: Safari sometimes doesn't offer a \"visit this website anyway\" option at all for a " +
+          "self-signed certificate, and even when it does, that per-tab trust doesn't extend to a Chef PWA " +
+          "installed to the home screen (see the PWA entry) -- a standalone installed app has no browser chrome " +
+          "to show that warning in, so it needs the device to already trust the certificate before it's ever " +
+          "opened. If you've gone looking for that trust toggle yourself and found **Settings > General > About > " +
+          "Certificate Trust Settings** completely empty -- no toggle, just a version number -- that's expected: " +
+          "that screen only ever shows anything once a certificate has actually been installed as a system " +
+          "profile, which the per-tab click-through never does. It's not broken; there was just nothing to " +
+          "install yet.",
+      },
+      {
+        type: "steps",
+        items: [
+          "On the iPad or iPhone itself, open **Settings > Security** in Chef and, under **Certificate " +
+            "(HTTPS)**, tap **Download certificate for iOS/iPadOS**.",
+          "Safari will ask whether to allow a configuration profile download -- allow it. It downloads " +
+            "immediately but does nothing on its own yet; nothing is trusted at this point.",
+          "Open the **Settings** app. A **Profile Downloaded** banner appears near the top (under your Apple " +
+            "ID row) -- tap it, then tap **Install** in the top-right corner, enter your device passcode, and " +
+            "tap **Install** twice more to confirm (once on a warning screen that the profile is unsigned, which " +
+            "a self-signed certificate for your own LAN always is).",
+          "This step alone is NOT enough -- go to **Settings > General > About > Certificate Trust Settings** " +
+            "(near the bottom of the About page). You should now see the Chef certificate listed with a toggle, " +
+            "off by default. Turn it **on**. This is the toggle that was missing before -- it only appears for a " +
+            "certificate that's been installed as a profile, which step 3 just did.",
+          "Reload Chef. The warning should be gone in Safari, and a home-screen-installed Chef PWA will now work " +
+            "with the camera and location features too.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "This profile-install path and the per-origin \"click through the warning\" path both work and can be " +
+          "used together or separately -- installing the profile on one device doesn't affect any other device, " +
+          "same as the click-through approach. If you ever remove or replace the certificate (Settings > " +
+          "Security > **Remove certificate**, or generating a new one), the old installed profile on each iOS " +
+          "device stops matching and should be removed too, from **Settings > General > VPN & Device " +
+          "Management**, then reinstalled against the new certificate the same way.",
+      },
+      {
+        type: "p",
+        text:
           "**Advanced: certificates from your own Certificate Authority.** If your household already runs an " +
           "internal CA (or you'd rather avoid the per-device trust-warning step by installing your CA's root " +
           "certificate on each device once, which makes every cert it issues automatically trusted with no " +

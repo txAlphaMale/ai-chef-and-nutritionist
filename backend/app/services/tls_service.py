@@ -86,9 +86,11 @@ import datetime as _dt
 import ipaddress
 import json
 import os
+import plistlib
 import sys
 import threading
 import time
+import uuid
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -250,6 +252,96 @@ def status() -> dict:
     except Exception as e:  # noqa: BLE001 -- a corrupt/unreadable cert file shouldn't 500 this endpoint
         out["error"] = f"could not read the installed certificate: {e}"
     return out
+
+
+# ---------------------------------------------------------------------
+# iOS/iPadOS trusted-profile export (author-reported 2026-08-03)
+# ---------------------------------------------------------------------
+def build_mobileconfig() -> bytes:
+    """Packages the currently active certificate as an Apple Configuration
+    Profile (.mobileconfig) so iOS/iPadOS can install it as a trusted
+    root, instead of relying solely on the per-origin "click through the
+    warning in Safari" flow this feature originally shipped with.
+
+    Why this exists: clicking through Safari's own self-signed warning
+    (Settings > Security's documented flow, and the WIKI's https-setup
+    entry) is sufficient in ordinary Safari tabs, per-origin, and needs
+    no profile at all. But the author hit two real problems on a real
+    iPad that per-origin trust doesn't solve: (1) Safari's certificate
+    warning can be easy to miss or dismiss without realizing a
+    "continue anyway" option was even there, leaving the household stuck
+    looking at Settings > General > About > Certificate Trust Settings
+    for a toggle that will never appear there unless a certificate was
+    actually installed as a system profile -- that screen is empty by
+    design until one is; and (2) a PWA installed to the home screen (see
+    B7.3) runs in standalone mode, which cannot show a per-origin
+    "visit this website anyway" prompt at all -- for the installed app
+    to work, the certificate has to already be trusted at the OS level
+    before the PWA is ever opened. A system-trusted profile is the only
+    thing that solves both.
+
+    This does NOT replace the existing per-origin flow -- it's an
+    additional, more thorough option for households that want the
+    warning gone everywhere (Safari, the PWA, and any other app on the
+    device) rather than once per browser tab. Format follows Apple's own
+    published Configuration Profile Reference for a certificate payload:
+    a `com.apple.security.root` PayloadType is what makes Settings >
+    General > About > Certificate Trust Settings actually show a toggle
+    for this cert after the profile is installed -- installing the
+    profile alone only trusts it for chain validation, NOT for the
+    "this is a trusted root" purpose Safari/WebKit needs; the household
+    still has to flip that toggle by hand, which Apple deliberately
+    requires (root-trust cannot be granted silently by a profile) and
+    which the WIKI's iOS steps spell out.
+
+    Built with the stdlib `plistlib` module -- no new dependency, and
+    already implicitly available since the project ships on Python 3.10+
+    everywhere else. Not independently verified against a real iOS
+    device from this sandbox (no route to apple.com/icloud.com domains,
+    and no physical device reaches here either) -- the plist structure
+    and PayloadType are per Apple's own published reference, and the
+    round-trip (`plistlib.loads` on the output) is unit-tested, but the
+    actual "does iOS accept and offer to install this file" step is the
+    author's own real-device verification, same standing limitation as
+    every other iOS-facing change in this project's history.
+    """
+    if not has_active_cert():
+        raise ValueError("no active certificate to export -- generate or import one first")
+    cert = _load_cert()
+    der_bytes = cert.public_bytes(serialization.Encoding.DER)
+    cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    common_name = cn_attrs[0].value if cn_attrs else "chef"
+    cert_uuid = str(uuid.uuid4())
+    profile_uuid = str(uuid.uuid4())
+    profile = {
+        "PayloadContent": [
+            {
+                "PayloadCertificateFileName": "chef-ca.cer",
+                "PayloadContent": der_bytes,
+                "PayloadDescription": "Trusts the self-signed certificate this Chef instance is currently serving.",
+                "PayloadDisplayName": f"Chef certificate ({common_name})",
+                "PayloadIdentifier": f"local.chef.tls.cert.{cert_uuid}",
+                "PayloadType": "com.apple.security.root",
+                "PayloadUUID": cert_uuid,
+                "PayloadVersion": 1,
+            }
+        ],
+        "PayloadDescription": (
+            "Trusts the self-signed certificate this Chef instance generated for itself, so Safari "
+            "(and the Chef PWA, if installed to the home screen) stop warning about it. After "
+            "installing, go to Settings > General > About > Certificate Trust Settings and enable "
+            "full trust for this certificate -- iOS requires that as a separate, deliberate step and "
+            "will not do it automatically."
+        ),
+        "PayloadDisplayName": f"Chef self-signed certificate ({common_name})",
+        "PayloadIdentifier": f"local.chef.tls.profile.{profile_uuid}",
+        "PayloadOrganization": "Chef (self-hosted)",
+        "PayloadRemovalDisallowed": False,
+        "PayloadType": "Configuration",
+        "PayloadUUID": profile_uuid,
+        "PayloadVersion": 1,
+    }
+    return plistlib.dumps(profile, fmt=plistlib.FMT_XML)
 
 
 # ---------------------------------------------------------------------

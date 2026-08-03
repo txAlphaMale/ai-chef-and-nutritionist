@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import plistlib
 
 import pytest
 from cryptography import x509
@@ -235,3 +236,56 @@ def test_router_clear_endpoint():
 def test_router_status_endpoint_matches_service_status():
     tls_router.tls_self_signed(SelfSignedRequest(hostnames=["10.0.0.5"]))
     assert tls_router.tls_status() == ts.status()
+
+
+# --- build_mobileconfig (author-reported 2026-08-03, iOS Certificate Trust Settings) --
+
+
+def test_build_mobileconfig_requires_an_active_cert():
+    with pytest.raises(ValueError, match="no active certificate"):
+        ts.build_mobileconfig()
+
+
+def test_build_mobileconfig_is_a_valid_plist_with_the_root_cert_payload():
+    ts.generate_self_signed(["10.0.0.9", "chef.lan"])
+    raw = ts.build_mobileconfig()
+    profile = plistlib.loads(raw)
+    assert profile["PayloadType"] == "Configuration"
+    assert profile["PayloadRemovalDisallowed"] is False
+    assert len(profile["PayloadContent"]) == 1
+    cert_payload = profile["PayloadContent"][0]
+    assert cert_payload["PayloadType"] == "com.apple.security.root"
+    assert "chef.lan" in cert_payload["PayloadDisplayName"] or "10.0.0.9" in cert_payload["PayloadDisplayName"]
+
+
+def test_build_mobileconfig_embeds_the_real_active_cert_der_bytes():
+    ts.generate_self_signed(["10.0.0.9"])
+    with open(ts.CERT_PATH, "rb") as f:
+        expected_der = x509.load_pem_x509_certificate(f.read()).public_bytes(serialization.Encoding.DER)
+    profile = plistlib.loads(ts.build_mobileconfig())
+    assert profile["PayloadContent"][0]["PayloadContent"] == expected_der
+
+
+def test_build_mobileconfig_uuids_are_unique_per_call():
+    ts.generate_self_signed(["10.0.0.9"])
+    first = plistlib.loads(ts.build_mobileconfig())
+    second = plistlib.loads(ts.build_mobileconfig())
+    assert first["PayloadUUID"] != second["PayloadUUID"]
+    assert first["PayloadContent"][0]["PayloadUUID"] != second["PayloadContent"][0]["PayloadUUID"]
+
+
+def test_router_mobileconfig_endpoint_returns_installable_profile():
+    tls_router.tls_self_signed(SelfSignedRequest(hostnames=["10.0.0.9"]))
+    response = tls_router.tls_mobileconfig()
+    assert response.media_type == "application/x-apple-aspen-config"
+    assert 'filename="chef-ca.mobileconfig"' in response.headers["content-disposition"]
+    profile = plistlib.loads(response.body)
+    assert profile["PayloadContent"][0]["PayloadType"] == "com.apple.security.root"
+
+
+def test_router_mobileconfig_endpoint_400s_with_no_active_cert():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        tls_router.tls_mobileconfig()
+    assert exc_info.value.status_code == 400
