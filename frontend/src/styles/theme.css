@@ -12,32 +12,21 @@
   --color-accent: #e8b23d;
   --color-danger: #b3261e;
   --color-border: #e4ddd3;
-  /* Backlog B7.4 (accessibility pass, 2026-08-02) -- the text color to
-     put ON TOP OF a solid --color-primary/secondary/danger background
-     (buttons, banners), computed per-theme for the best WCAG contrast
-     ratio rather than hardcoded to white everywhere. A programmatic
-     audit found 26 white-on-color combinations across this app's 9
-     themes failing the AA 4.5:1 text-contrast minimum -- every dark
-     theme's bright, saturated primary/secondary/danger hues read well
-     as TEXT/links against a dark page background (that's the design
-     intent), but the SAME bright color used as a BUTTON BACKGROUND with
-     hardcoded white text badly fails contrast, since a vivid orange/
-     purple/green fill with white text is genuinely hard to read. These
-     three tokens resolve that -- see PROJECT-PLAN.md's B7.4 notes for
-     the full computed audit.
-     Default theme's own primary/secondary/danger are dark/saturated
-     enough against a light bg that white text already works here. */
+  /* Text color to put ON TOP OF a solid --color-primary/secondary/danger
+     background (buttons, banners). Set per theme rather than hardcoded to
+     white: a bright saturated hue reads well as TEXT on a dark page but
+     fails AA 4.5:1 as a BUTTON FILL under white text. Each theme sets its
+     own -- see PROJECT-PLAN.md's B7.4 notes for the measured contrast
+     table. White works for the default theme's own dark primaries. */
   --color-on-primary: #ffffff;
   --color-on-secondary: #ffffff;
   --color-on-danger: #ffffff;
 
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  /* Type scale. Added 2026-08-03 -- font sizes were previously hardcoded
-     as bare em values in ~48 places (0.85em fifteen times, 0.9em
-     fourteen), which is exactly the single-source-of-truth problem this
-     file exists to solve for colour. Relative units throughout so the
-     scale still respects the browser's own font-size setting. */
+  /* Type scale. Relative units throughout so the scale still respects
+     the browser's own font-size setting. Use these rather than bare em
+     values, for the same single-source reason as the colour tokens. */
   --font-xs: 0.75em;
   --font-sm: 0.85em;
   --font-md: 0.9em;
@@ -50,17 +39,11 @@
   --radius-sm: 4px;
   --radius-md: 8px;
 
-  /* Spacing scale.
-     `--space-*` are ALIASES of `--spacing-*`, not a second scale.
-     Both names were in use: `--spacing-*` was defined here and used
-     nearly everywhere, while a later dining-page section used
-     `--space-*`, which was never defined at all -- so seven declarations
-     (gap, margin, padding and font-size on .dining-filter-toggle,
-     .dining-contact and .dining-contact-link) were silently dropped by
-     the browser and those rules rendered with no spacing whatsoever.
-     Aliasing rather than renaming keeps both spellings correct forever,
-     which is the failure mode worth removing: the next person to write
-     either name gets working CSS. */
+  /* Spacing scale. `--space-*` are ALIASES of `--spacing-*`, not a second
+     scale. Both spellings are in use across this file, so both are
+     defined -- whichever one the next rule reaches for resolves. Keep the
+     aliases: an undefined custom property makes the browser drop the
+     whole declaration silently, with no warning anywhere. */
   --spacing-1: 4px;
   --spacing-2: 8px;
   --spacing-3: 16px;
@@ -70,42 +53,29 @@
   --space-3: var(--spacing-3);
   --space-4: var(--spacing-4);
 
-  /* A slightly recessed surface for nested panels. Previously referenced
-     once as `var(--color-surface-alt, var(--color-surface))` without ever
-     being defined, so the fallback was the only branch that ever ran.
-     Derived rather than a literal, so it recomputes correctly under all
-     nine themes with no per-theme override -- the same reasoning the
-     note above gives for using color-mix instead of rgba() literals. A
-     hardcoded light grey here would have been unreadable on the dark
-     themes. */
+  /* A slightly recessed surface for nested panels. Derived via color-mix
+     rather than a literal, so it recomputes correctly under all nine
+     themes with no per-theme override -- a hardcoded light grey would be
+     unreadable on the dark ones. */
   --color-surface-alt: color-mix(in srgb, var(--color-text) 5%, var(--color-surface));
 
-  /* Minimum interactive target, from the B7.4 accessibility pass. Was
-     repeated as a literal 1.5rem/2.75rem in individual rules. */
+  /* Minimum interactive target size (B7.4 accessibility pass). */
   --tap-target-sm: 1.5rem;
   --tap-target: 2.75rem;
 }
 
-/* Alternate themes (2026-08-01, author request) -- each overrides ONLY
-   the 10 color vars above (never spacing/radius/font-sans, matching the
-   scope of every override below), applied via a `data-theme` attribute
-   on <html>. This is the exact mechanism Fiduciary itself uses (see
-   Fiduciary's portfolio-api/static/index.html, its own :root[data-theme]
-   blocks) -- confirmed a good fit here too, since Chef's ~11 color vars
-   were already the semantic layer (no separate Tier-1/Tier-2 split
-   needed the way Fiduciary's --bg/--amber/etc. primitives required).
-   Because color-mix(in srgb, var(--color-x) N%, transparent) is used
-   throughout this file (provenance badges, restriction warnings, etc.)
-   rather than hardcoded rgba() literals, those derived tints recompute
-   live from whichever theme is active with zero extra per-theme work --
-   Fiduciary's own overlay tokens needed manual per-theme restating
-   specifically because they used rgba() literals instead. See
-   frontend/src/themes.js for the JS-side registry (picker swatches,
-   apply/persist logic) and PROJECT-PLAN.md's theming notes section for
-   the Catppuccin token-mapping rationale. "default" (no attribute) is
-   Chef's own palette defined in :root above -- there is no
-   :root[data-theme="default"] block, mirroring how Fiduciary's "amber"
-   default also has no block of its own. */
+/* Alternate themes. Each overrides ONLY the 10 color vars above -- never
+   spacing/radius/font-sans -- applied via a `data-theme` attribute on
+   <html>. "default" (no attribute) is the :root palette above and has no
+   block of its own.
+
+   Derived tints throughout this file use
+   color-mix(in srgb, var(--color-x) N%, transparent) rather than rgba()
+   literals. Keep it that way: color-mix recomputes from whichever theme
+   is active, so a new theme needs no per-theme restating of overlays.
+
+   See frontend/src/themes.js for the JS-side registry (picker swatches,
+   apply/persist logic). */
 
 /* --- Ported from Fiduciary (portfolio-api/static/index.html) --- */
 
@@ -191,20 +161,14 @@
    accent=Peach (Chef's own default --color-accent plays the same
    "warm highlight" role, so Peach is the closest Catppuccin analog). */
 
-/* Backlog B7.4 (2026-08-02) -- a programmatic contrast audit found a
-   handful of official Catppuccin swatches, used exactly as published,
-   fall slightly short of WCAG AA's 4.5:1 text-contrast minimum in
-   specific roles: Latte's Subtext0 (--color-text-muted) at 4.06-4.37:1
+/* Some official Catppuccin swatches fall short of WCAG AA 4.5:1 in
+   specific roles: Latte's Subtext0 (--color-text-muted) at 4.06-4.37:1,
    and Green (--color-secondary) at 2.96:1 against its own Base/Mantle.
-   Deliberately NOT altered here -- these are the actual official
-   Catppuccin palette values, ported "as-is" per this section's own
-   comment above, and silently darkening a named, branded palette away
-   from its published hex codes is a bigger call than an accessibility
-   pass should make unilaterally. Flagged plainly in PROJECT-PLAN.md's
-   B7.4 notes for the author to decide on. The --color-on-* additions
-   below ARE fixed unconditionally -- they're this app's own CSS choice
-   (what text color a button/banner puts on top of a Catppuccin color),
-   not a Catppuccin palette value, so there's no such tension there. */
+   Left unaltered on purpose -- these are the published palette values,
+   ported as-is, and darkening a branded palette away from its own hex
+   codes is not this file's call to make. See PROJECT-PLAN.md's B7.4
+   notes. The --color-on-* values below ARE corrected freely: those are
+   Chef's own choice of text colour, not Catppuccin values. */
 
 :root[data-theme="catppuccin-latte"] {
   --color-bg: #eff1f5;
@@ -274,23 +238,16 @@
   box-sizing: border-box;
 }
 
-/* Backlog B7.4 (accessibility pass, 2026-08-02) -- a consistent,
-   theme-aware keyboard-focus indicator on every interactive element.
-   Nothing in this file was suppressing the browser's own default focus
-   outline (no `outline: none` anywhere, confirmed by grep before writing
-   this), so keyboard focus was never literally invisible -- but a
-   default system-blue outline reads inconsistently (sometimes low-
-   contrast) against this app's own colored surfaces, especially the
-   darker themes. Uses `--color-primary`, NOT `--color-accent` --
-   verified programmatically first: --color-accent measures only 1.81:1
-   against the DEFAULT theme's own light background (and 2.64:1 for
-   catppuccin-latte), badly under the 3:1 WCAG 1.4.11 non-text-contrast
-   minimum for UI-component boundaries like a focus ring, while
-   --color-primary clears 3:1 (in fact 4.5:1+) against every theme's bg
-   with no exceptions. `:focus-visible` (not a blanket `:focus`) so this
-   only appears for keyboard/assistive-tech navigation, not on every
-   mouse click -- matches modern browser behavior most users already
-   expect. */
+/* Theme-aware keyboard-focus indicator, replacing the browser default,
+   which reads inconsistently against this app's coloured surfaces.
+
+   Uses --color-primary, NOT --color-accent: accent measures 1.81:1
+   against the default theme's background (2.64:1 on catppuccin-latte),
+   under the 3:1 WCAG 1.4.11 minimum for UI-component boundaries, while
+   primary clears 3:1 on every theme. Do not swap it to accent.
+
+   :focus-visible rather than :focus, so it appears for keyboard and
+   assistive-tech navigation but not on every mouse click. */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -375,14 +332,10 @@ body {
   border-color: var(--color-border);
 }
 
-/* Bug fix (2026-08-02, author-reported): the Inventory toolbar's four
-   panel-toggle buttons all used to switch their label to the same bare
-   "Close" text while open -- with several panels open at once, that
-   produced multiple identical, context-free "Close" buttons in a row.
-   Each toggle button now keeps its own distinctive label at all times
-   (see InventoryPage.jsx) and gets this highlighted "pressed" treatment
-   instead, so which panel a given button belongs to -- and whether it's
-   currently open -- stays visually and textually unambiguous. */
+/* Pressed state for the Inventory toolbar's panel-toggle buttons. Each
+   keeps its own distinctive label while open (see InventoryPage.jsx) and
+   shows this treatment instead of switching to a bare "Close", so with
+   several panels open it stays clear which button owns which panel. */
 .btn-toggle-active {
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -415,9 +368,8 @@ body {
   text-decoration: none;
 }
 
-/* Backlog B3.3-adjacent fix (2026-08-01): the Google Calendar redirect
-   URI field's two suggestion buttons -- keeps them from crowding the
-   input on narrow widths the way an unwrapped inline pair would. */
+/* The Google Calendar redirect URI field's two suggestion buttons --
+   wraps them so they don't crowd the input at narrow widths. */
 .settings-redirect-uri-suggestions {
   margin: var(--spacing-1) 0 var(--spacing-2);
   font-size: var(--font-md);
@@ -447,9 +399,8 @@ body {
   margin-bottom: var(--spacing-3);
 }
 
-/* Backlog B9.4/B10.2 (2026-08-01) -- the opt-in login gate, shown by
-   App.jsx in place of the whole app when auth is enabled and the
-   current session isn't authenticated yet. */
+/* The opt-in login gate (B9.4/B10.2), shown by App.jsx in place of the
+   whole app when auth is enabled and the session isn't authenticated. */
 .login-gate {
   display: flex;
   align-items: center;
@@ -467,16 +418,13 @@ body {
   margin-top: 0;
 }
 
-/* Backlog B4.4/B10.2 (2026-08-01) -- the in-app expiration digest
-   banner, mounted outside <Routes> so it's visible on every page. */
-/* Backlog B11.1 (2026-08-01) -- the persistent background-job status
-   badge (JobsBadge.jsx) and a general-purpose inline spinner
-   (.busy-spinner) for any button/label that needs to show real activity
-   instead of just changed text -- the author's own reported gap was
-   "the mouse cursor didn't change, there was no graphic indicating
-   processing." Fixed sizes/positions rather than theme-color-derived
-   everywhere, since a spinner needs to be visible against every theme
-   this app ships (see themes.js), not just the default. */
+/* The in-app expiration digest banner (B4.4/B10.2), mounted outside
+   <Routes> so it's visible on every page. */
+/* The persistent background-job status badge (JobsBadge.jsx, B11.1) and
+   a general-purpose inline spinner (.busy-spinner) for any button or
+   label that needs to show real activity rather than just changed text.
+   Sizes and positions are fixed rather than theme-derived, since a
+   spinner has to stay visible against every theme (see themes.js). */
 @keyframes chef-spin {
   to {
     transform: rotate(360deg);
@@ -539,11 +487,9 @@ body {
   margin: 0 var(--spacing-3) var(--spacing-3);
 }
 
-/* Backlog B3.3 (2026-08-01) -- recall-awareness banner, same visual
-   weight as the expiration digest banner above (both are safety-
-   relevant "the app reaches out" notices), but its own class since it
-   also renders an expandable per-alert list, not just a one-line
-   summary. */
+/* Recall-awareness banner (B3.3). Same visual weight as the expiration
+   digest above -- both are safety-relevant notices -- but its own class,
+   since it also renders an expandable per-alert list. */
 .recall-banner {
   background: color-mix(in srgb, var(--color-danger) 15%, transparent);
   border: 1px solid var(--color-danger);
@@ -574,10 +520,10 @@ body {
   font-weight: 600;
 }
 
-/* Backlog B10.1 (2026-08-01) -- the dining-out finder's result cards.
-   .dining-caution is deliberately styled as a standing notice, not a
-   subtle hint -- see dining_service.py's module docstring for why this
-   app never asserts a restaurant is "safe". */
+/* The dining-out finder's result cards (B10.1). .dining-caution is
+   deliberately a standing notice rather than a subtle hint -- see
+   dining_service.py for why this app never asserts a restaurant is
+   "safe". */
 .dining-result {
   border-top: 1px solid var(--color-border);
   padding: var(--spacing-3) 0;
@@ -640,19 +586,12 @@ body {
   color: var(--color-text);
 }
 
-/* Bug fix (2026-08-02, author-reported): "the font (grey on white) makes
-   it extremely difficult to see the content." An import that only
-   partially parses (see the ingredient-row fix above) leaves most fields
-   showing their empty-state placeholder hint rather than a real value --
-   with no explicit ::placeholder rule, the browser's own default
-   placeholder color/opacity was the only thing distinguishing "empty,
-   showing a hint" from "filled in," and on review that read as one
-   undifferentiated wash of grey text rather than a clear signal of which
-   fields still need attention. Filled values now render in full-strength
-   --color-text (explicit background above also guards against a filled
-   value inheriting a transparent/unstyled background in some browsers);
-   placeholders are explicitly muted AND italicized so a half-empty
-   import reads as "these need review," not "everything is grey." */
+/* Placeholders are explicitly muted AND italicized, and filled values
+   render in full-strength --color-text. A partially-parsed import leaves
+   many fields showing placeholder hints, and the browser's default
+   placeholder styling alone does not separate "empty, showing a hint"
+   from "filled in" clearly enough to see at a glance which fields still
+   need review. */
 .item-form input::placeholder,
 .item-form textarea::placeholder,
 .settings-row input::placeholder,
@@ -662,17 +601,9 @@ body {
   font-style: italic;
 }
 
-/* Generic, not scoped to .item-form -- backlog B10.4 found this rule had
-   accidentally only ever applied inside the two forms that happened to
-   wrap themselves in .item-form (RecipeForm/InventoryItemForm); every
-   other .form-row in the app (MealPlanPage's generate form and preview
-   rows, ChatWidget's input row, RecipeDetailPage's meta row) rendered
-   with no flex/gap at all -- functional by accident (input/select/button
-   are inline-block by default so they still sat roughly in a row) but
-   inconsistent, and impossible to cleanly collapse to a mobile column
-   below. Dropping the .item-form requirement is a pure improvement: it
-   only adds flex layout where there was none, never removes styling
-   from a row that already had it. */
+/* Generic on purpose, not scoped to .item-form -- every .form-row in the
+   app needs this, and scoping it is what makes rows elsewhere collapse
+   badly at the mobile breakpoint below. */
 .form-row {
   display: flex;
   gap: var(--spacing-3);
@@ -769,7 +700,7 @@ tr.urgency-low td {
   color: var(--color-danger);
 }
 
-/* --- Barcode scanner (backlog B4.1, 2026-08-01) --- */
+/* --- Barcode scanner (backlog B4.1) --- */
 .barcode-scanner-device {
   display: block;
   max-width: 20em;
@@ -837,30 +768,13 @@ tr.urgency-low td {
   margin-bottom: 0;
 }
 
-/* Bug fix (2026-08-02, author-reported): a recipe import's ingredient
-   rows were rendering as if half the ingredients were malformed --
-   really a layout bug, not a data bug. The 4 bare <input>s here (name/
-   qty/unit/prep_note) had no flex-basis/min-width of their own (the
-   generic ".form-row label { flex:1; min-width:140px }" rule only
-   targets <label> children, and these inputs sit in the row directly,
-   unwrapped), so each one just took its browser-default width. On a
-   desktop viewport wide enough to stay off the 640px column breakpoint
-   but too narrow to fit all 4 default-width inputs + the delete button
-   on one line, ".form-row"'s own `flex-wrap: wrap` (needed elsewhere,
-   not removed) silently wrapped the row's tail -- usually just the
-   prep_note input + the (X) button -- onto its own line. That orphaned
-   fragment then read as a whole separate, broken ingredient (an
-   ingredient-less row with only a "prep note" placeholder and a delete
-   button), which is exactly what the author's screenshot showed and
-   reported as "ingredients seem amazingly wrong." The underlying parsed
-   data was mostly fine; the form just couldn't lay it out coherently.
-   Fixed by giving each field its own sized flex-basis (name and prep
-   note get the most room, qty/unit stay compact) and forcing this
-   specific row to not wrap above the mobile breakpoint -- fields now
-   compress to fit the available width instead of wrapping mid-ingredient.
-   The existing `.form-row { flex-direction: column }` mobile override
-   still applies below 640px (that rule doesn't care about wrap), so
-   phones still get one full-width field per line as before. */
+/* nowrap, plus an explicit flex-basis on each field below. The four
+   inputs sit in the row unwrapped, so `.form-row label` does not size
+   them; without this they take browser-default widths and `.form-row`'s
+   own flex-wrap drops the row's tail onto a second line, which reads as
+   a separate malformed ingredient rather than one row that wrapped.
+   Fields compress to fit instead. The `.form-row { flex-direction:
+   column }` mobile override below 640px still applies. */
 .ingredient-row {
   flex-wrap: nowrap;
 }
@@ -1454,10 +1368,9 @@ tr.urgency-low td {
   background: var(--color-danger);
 }
 
-/* Backlog B14 (author-requested 2026-08-01) -- Settings page sub-tab bar.
-   Deliberately plain (no icons, no badges) to match the rest of the
-   app's minimal chrome; active state relies on the same accent color
-   used for active nav links elsewhere. */
+/* Settings page sub-tab bar (B14). Deliberately plain -- no icons, no
+   badges -- to match the app's minimal chrome; the active state reuses
+   the accent colour used for active nav links elsewhere. */
 .settings-tabbar {
   display: flex;
   flex-wrap: wrap;
@@ -1487,7 +1400,7 @@ tr.urgency-low td {
   font-weight: 600;
 }
 
-/* --- Appearance/theme picker (Settings page, 2026-08-01) --- */
+/* --- Appearance/theme picker (Settings page) --- */
 .theme-group-label {
   font-size: var(--font-sm);
   color: var(--color-text-muted);
@@ -1821,7 +1734,7 @@ tr.urgency-low td {
   }
 }
 
-/* --- WIKI page (backlog B12.1, 2026-08-01) --- */
+/* --- WIKI page (backlog B12.1) --- */
 .wiki-search {
   width: 100%;
   font-family: inherit;
@@ -1914,7 +1827,7 @@ tr.urgency-low td {
   color: var(--color-on-danger);
 }
 
-/* --- Dining Out geocoding (backlog B10.1 follow-up, 2026-08-02) --- */
+/* --- Dining Out geocoding (backlog B10.1) --- */
 .dining-geocode-row {
   align-items: flex-end;
   margin-bottom: var(--spacing-2);
@@ -1935,7 +1848,7 @@ tr.urgency-low td {
   border-bottom: 1px solid var(--color-border);
 }
 
-/* --- Receipt/list import feedback (bug fix, 2026-08-02) --- */
+/* --- Receipt/list import feedback --- */
 .import-result-message {
   border-left: 3px solid var(--color-secondary);
   padding: var(--spacing-2) var(--spacing-3);
@@ -2101,7 +2014,7 @@ tr.urgency-low td {
   }
 }
 
-/* --- Dining Out: filter toggle and contact links (2026-08-03 audit) ---
+/* --- Dining Out: filter toggle and contact links (audit P1-1/P1-2) ---
    Added alongside surfacing the website/phone/hours/map data that the
    Overpass search was already fetching and discarding. Uses the existing
    design tokens rather than introducing new colours, per the project's
@@ -2145,7 +2058,7 @@ tr.urgency-low td {
   display: none;
 }
 
-/* --- Ingredient match disambiguation (audit P1-5, 2026-08-03) ---
+/* --- Ingredient match disambiguation (audit P1-5) ---
    The resolver refuses to guess between near matches rather than
    silently deducting from the wrong inventory row, so these styles carry
    two things the old substring matcher never had anything to show: which
@@ -2260,8 +2173,7 @@ tr.urgency-low td {
 }
 
 /* Reconciliation provenance on a grocery line -- why it reads the way it
-   does. Both of these used to be computed and then discarded before
-   reaching a persisted row, so no user had ever seen either one. */
+   does (matched inventory row, match confidence, needs-review reason). */
 .grocery-match-note {
   display: block;
   font-size: var(--font-sm);
@@ -2319,7 +2231,7 @@ tr.urgency-low td {
   padding-left: var(--spacing-3);
 }
 
-/* --- Layout utilities and form-field widths (2026-08-03) ---
+/* --- Layout utilities and form-field widths ---
    These replace 26 inline `style={{...}}` objects scattered across the
    pages and components. Inline styles are the one place theming cannot
    reach -- they cannot be overridden by a theme, cannot respond to a
