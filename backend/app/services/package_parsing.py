@@ -3,13 +3,12 @@ a canonical measurement unit) and a free-text container descriptor out of
 a single freeform string -- "8 oz bag", "500 g", "12 x 355 ml", "10oz 6
 Count pack", "14 oz can each".
 
-Why this exists (author-reported, 2026-08-02 session): before this
-module, `InventoryItem.unit` was where BOTH a measurement ("8 oz") and a
-packaging description ("bag") were jammed together as one freeform
-string, because `RECEIPT_IMPORT_PROMPT` explicitly told the model to do
-exactly that ("put that descriptor in unit instead, e.g. '8 oz bag'").
-That string is not a real, convertible unit -- `unit_conversion_service.
-normalize_unit("8 oz bag")` doesn't recognize it, so every downstream
+Why this exists: `RECEIPT_IMPORT_PROMPT` tells the model to put a
+packaging descriptor in `unit` ("put that descriptor in unit instead,
+e.g. '8 oz bag'"), which jams a measurement and a packaging description
+into one freeform string. That string is not a real, convertible unit --
+`unit_conversion_service.normalize_unit("8 oz bag")` does not recognize
+it, so every downstream
 consumer that needs a real unit (recipe-confirm deduction via
 `inventory_service.deduct_by_name`, and B6.1's `cost_service`, which
 divides a purchase price by the matched row's quantity/unit to get a

@@ -121,11 +121,9 @@ def build_chat_context(db: Session, query: str | None = None, inventory_limit: i
     """`query` -- when given (routers/chat.py passes the user's actual
     message) -- grounds the reply in relevant knowledge-file content via
     retrieval (health_service.build_knowledge_context /
-    knowledge_service.search_knowledge), added 2026-07-31. This is the
-    more natural fit for retrieval than meal-plan generation's synthetic
-    query: a real user question IS the query. Chat previously injected no
-    knowledge-file grounding at all -- this closes that gap, not just
-    upgrades an existing mechanism."""
+    knowledge_service.search_knowledge). A better fit for retrieval than
+    meal-plan generation's synthetic query: a real user question IS the
+    query."""
     household = db.query(HouseholdPreferences).first()
     plan = get_relevant_meal_plan(db)
     inventory_items = db.query(InventoryItem).order_by(InventoryItem.name).limit(inventory_limit).all()

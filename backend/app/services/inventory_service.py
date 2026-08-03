@@ -151,21 +151,16 @@ def parse_vision_response(raw_text: str, today: date | None = None) -> list[dict
         if isinstance(days, (int, float)):
             expiration_date = today + timedelta(days=int(days))
 
-        # Package/measurement split (2026-08-02, author-requested): the
-        # model still returns `unit` as whatever freeform text the
-        # source printed (RECEIPT_IMPORT_PROMPT/VISION_PROMPT were
-        # deliberately NOT rewritten this session -- both were only just
-        # stabilized against the author's real Ollama container, and
-        # touching either prompt's wording risks re-triggering that same
-        # regression; see PROJECT-PLAN.md's session log). Instead, this
-        # is a pure post-processing step on whatever text comes back:
+        # Package/measurement split, done here as post-processing rather
+        # than by asking the model for it. The model returns `unit` as
+        # whatever freeform text the source printed;
         # package_parsing.parse_package_text splits "8 oz bag" into a
-        # canonical unit ("oz"), a package size (8), and a leftover
-        # descriptor ("bag") whenever it can, and returns None (leaving
-        # `unit`/`estimated_quantity` exactly as before) when it can't.
-        # This fixes the SAME underlying bug (a compound, unconvertible
-        # `unit` string breaking deduction and cost math) without
-        # touching either prompt at all.
+        # canonical unit ("oz"), a package size (8) and a leftover
+        # descriptor ("bag") when it can, and returns None -- leaving
+        # `unit`/`estimated_quantity` untouched -- when it cannot. A
+        # compound, unconvertible `unit` string breaks deduction and cost
+        # math, and fixing it here rather than in the prompt keeps
+        # RECEIPT_IMPORT_PROMPT/VISION_PROMPT out of it.
         raw_unit = entry.get("unit") or None
         raw_quantity = _safe_float(entry.get("estimated_quantity"))
         package_count = raw_quantity if raw_quantity is not None else 1.0
@@ -195,14 +190,10 @@ def parse_vision_response(raw_text: str, today: date | None = None) -> list[dict
                 "package_descriptor": package_descriptor,
                 "category": category,
                 "expiration_date": expiration_date,
-                # Bug fix (2026-08-02, author-reported): these two keys
-                # were never read here even though RECEIPT_IMPORT_PROMPT
-                # now asks the model for them and VisionDetectedItem has
-                # had fields for both since the B10.3 order-history
-                # importer -- they were silently dropped on the floor for
-                # every AI-driven import (receipt/photo/PDF/pasted text),
-                # even when the model dutifully returned them, because
-                # this function just never looked for them.
+                # RECEIPT_IMPORT_PROMPT asks the model for both of these
+                # and VisionDetectedItem carries fields for them, so they
+                # have to be read here or they are dropped on the floor
+                # for every AI-driven import.
                 "unit_price": _safe_float(entry.get("unit_price")),
                 "purchased_date": _safe_iso_date(entry.get("purchased_date")),
                 "confidence_note": entry.get("confidence_note") or None,

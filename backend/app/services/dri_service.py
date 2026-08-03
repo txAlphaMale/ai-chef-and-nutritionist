@@ -8,10 +8,9 @@ those numbers into something a meal-plan nutrition roll-up
 
 Values used here are sourced from published guidance, not invented, and
 are noted per-field since these figures genuinely differ across editions
-and it matters which one this app is claiming to follow (checked live,
-2026-08-01, rather than assumed from training data -- the 2025-2030
-Dietary Guidelines for Americans were released in January 2026 and are
-current as of this writing):
+and it matters which one this app is claiming to follow. The 2025-2030
+Dietary Guidelines for Americans, released January 2026, are the current
+edition:
 
 - Calories: Mifflin-St Jeor BMR x an activity-level multiplier (a
   decades-standard equation + PAL-category combination; not itself a

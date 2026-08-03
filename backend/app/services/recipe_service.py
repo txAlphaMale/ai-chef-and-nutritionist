@@ -157,38 +157,24 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # ai_json_extraction.extract_json_object (what _extract_json_object below
 # delegates to).
 #
-# REWRITTEN FROM SCRATCH (2026-08-03, author-reported "totally broken" --
-# a well-formed, plain two-page recipe PDF failed to parse at all). The
-# actual root cause traced to `_extract_json_object`'s old naive
-# greedy-regex fallback (see ai_json_extraction.py's module docstring for
-# the full investigation) and is fixed there, not by this rewrite --
-# but this prompt gets the same numbered-rules-plus-worked-example
-# redesign RECEIPT_IMPORT_PROMPT already got on 2026-08-02 (see
-# routers/inventory.py) anyway, for two reasons: consistency (one style
-# of extraction prompt across the app, not two), and defense in depth
-# (a long, flowing prose-paragraph prompt was independently confirmed
-# that session to increase a model's odds of bailing out early on a
-# capable-but-not-huge local model -- numbered rules read faster and
-# cost fewer tokens per requirement stated). Every functional requirement
-# from the prior version is preserved: unit fidelity (never convert,
-# never guess), the split-not-merged handling of an ingredient name
-# reused across sections (crust vs. filling, "divided" quantities), the
-# fixed tag vocabulary, the tips/copyright-respect rule -- reworded and
-# reorganized, not dropped.
+# Written as numbered rules plus one worked example, matching
+# RECEIPT_IMPORT_PROMPT (routers/inventory.py). Keep that shape if this
+# is edited: a long prose-paragraph prompt raises the odds of a
+# capable-but-not-huge local model bailing out early, and numbered rules
+# cost fewer tokens per requirement stated. The requirements this prompt
+# must keep expressing: unit fidelity (never convert, never guess), an
+# ingredient name reused across sections split rather than merged (crust
+# vs. filling, "divided" quantities), the fixed tag vocabulary, and the
+# tips/copyright-respect rule.
 #
-# Substitution mechanics changed too, and matters for backlog B16.1
-# (below): {content} is now filled via a plain str.replace() at each call
-# site (recipe_service._extract_via_ollama, routers/recipes.py's
+# {content} is filled via plain str.replace() at each call site
+# (recipe_service._extract_via_ollama, routers/recipes.py's
 # _run_text_extraction, and the image branch of
-# parse_recipe_file_content), NOT `.format()`. This prompt is now a
-# DB-backed, GUI-editable SystemPrompt (get_recipe_import_prompt, below)
-# -- a household member editing free text in a textarea has no reason to
-# know `.format()`'s escaping rule (a literal `{` in a JSON example has
-# to be doubled to `{{`), and a prompt containing a single stray brace
-# would raise a hard `KeyError`/`IndexError` at request time instead of
-# just behaving oddly. `.replace()` has no such footgun -- a literal `{`
-# anywhere in a custom prompt (this one's own worked example included)
-# is simply left alone.
+# parse_recipe_file_content), NOT `.format()`. That is load-bearing:
+# this is a DB-backed, GUI-editable SystemPrompt
+# (get_recipe_import_prompt, below), and `.format()` raises KeyError on
+# any stray literal brace a household types -- which a JSON worked
+# example is full of. `.replace()` has no such footgun.
 RECIPE_IMPORT_PROMPT = """\
 Task: extract a structured recipe from the following content, as a single JSON object.
 
@@ -240,9 +226,7 @@ RECIPE_EDIT_SCHEMA = schema_of(ExtractedRecipeEdit)
 
 
 def get_recipe_import_prompt(db: Session) -> str:
-    """Backlog B16.1 (author-requested 2026-08-03: expose the AI import/
-    extraction prompts as GUI-editable advanced settings) -- returns the
-    household's custom override for the `recipe_import` SystemPrompt row
+    """Backlog B16.1 -- returns the household's custom override for the `recipe_import` SystemPrompt row
     when one exists and is marked active, else this module's own
     RECIPE_IMPORT_PROMPT default. Mirrors the existing main_chef/
     dietary_onboarding pattern exactly (same SystemPrompt table, same
@@ -908,13 +892,12 @@ def _extract_via_ollama(db: Session, content: str) -> str:
     function is module-internal by convention in this codebase; this is
     recipe_service.py's own copy for its own internal use, not exported).
 
-    Bug fix (2026-08-02, author-reported follow-up): used to hard-cap
-    content at a flat `content[:8000]` -- see ollama_client.
-    content_char_budget's docstring. This function backs BOTH a single
-    photo/PDF upload and every file recipe_folder_import_service.py
-    processes -- there is no JSON-LD available for either (that's a URL-
-    only shortcut, see routers/recipes.py's import order), so this is
-    always the messier, no-structured-data path for file-based imports."""
+    Content is capped by ollama_client.content_char_budget, which scales
+    with the configured context window. This backs BOTH a single photo/PDF
+    upload and every file recipe_folder_import_service.py processes --
+    neither has JSON-LD available (that is a URL-only shortcut, see
+    routers/recipes.py's import order), so this is always the messier,
+    no-structured-data path."""
     prompt_template = get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
         db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=RECIPE_RESPONSE_TOKENS
@@ -1114,16 +1097,12 @@ def build_recipe_chat_context(recipe_read: dict) -> str:
 
 # --- Recipe-scoped chat: proposing an edit -----------------------------
 #
-# Added 2026-07-31 ("commit an AI-modified recipe" request): the
-# recipe-scoped chat was originally read-only (see build_recipe_chat_
-# context above), but a real use case -- "take this imported recipe and
-# make it gluten-free" -- needs the AI to actually propose new recipe
-# content the user can review and save, not just answer a question.
-# Every chat turn can still be a plain answer; this only adds an
-# additional, optional field to the response shape the model already
-# returns free text through, following the same preview-then-confirm
-# discipline as recipe import/vision intake/meal-plan generation:
-# nothing is ever saved by chat code itself, only proposed.
+# Lets the recipe-scoped chat propose an edit -- "take this imported
+# recipe and make it gluten-free" -- rather than only answering
+# questions. Every turn can still be a plain answer; this adds one
+# optional field to the response shape. Same preview-then-confirm
+# discipline as recipe import, vision intake and meal-plan generation:
+# nothing is ever saved by chat code, only proposed.
 
 RECIPE_MODIFY_INSTRUCTIONS = """\
 Respond with ONLY a JSON object (no other text, no markdown fences) with \
@@ -1199,16 +1178,12 @@ def _extract_json_object(raw_text: str) -> dict:
     under this name/location since health_service.py, chat_service.py,
     and meal_plan_service.py all already import `_extract_json_object`
     from THIS module (recipe_service) -- changing the import path in all
-    three would be pure churn for no behavior change. See
-    ai_json_extraction.py's module docstring for what this replaced and
-    why (2026-08-03 bug fix): the previous implementation here was a bare
-    `json.loads` followed by a GREEDY `re.search(r"\\{.*\\}")` fallback,
-    with no defense against a `<think>` reasoning trace landing inline in
-    the response -- the exact bug already found and fixed for the
-    ARRAY-shaped receipt/vision responses in inventory_service.py, just
-    never ported over here even though this function is the one EVERY
-    recipe import, recipe-chat edit, health-metric parse, and meal-plan
-    generation call in the app funnels through."""
+    three would be pure churn for no behavior change. The real work is in
+    ai_json_extraction.extract_json_object: a bare `json.loads` with a
+    greedy `re.search` fallback has no defense against a `<think>`
+    reasoning trace landing inline, and every recipe import, recipe-chat
+    edit, health-metric parse and meal-plan generation funnels through
+    here."""
     return extract_json_object(raw_text)
 
 

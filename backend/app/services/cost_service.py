@@ -21,28 +21,22 @@ different prices, the most recently purchased PRICED row is used -- a
 recent real price is a better cost signal than an old one, and never
 averaged or otherwise invented.
 
-Bug fix (2026-08-02, author-flagged as a design concern, confirmed real
-by re-reading this module): this used to divide by the row's live
-`quantity` instead of `purchased_quantity`. `quantity` is "on hand" and
-shrinks as `inventory_service.deduct_by_name` decrements it every time a
-recipe using that ingredient gets confirmed -- so a $6.00-for-2-lb
-chicken breast row priced at $3.00/lb when purchased would have silently
-recomputed to $6.00/lb once 1 lb had been used (unit_price / remaining
-quantity = 6.00 / 1), even though nothing about what was actually PAID
-changed. `purchased_quantity` is the immutable snapshot this needed --
-see InventoryItem's own docstring. Falls back to `quantity` when
+Divides by `purchased_quantity`, never the row's live `quantity`.
+`quantity` is "on hand" and shrinks as `inventory_service.deduct_by_name`
+decrements it, so dividing by it would recompute a $6.00-for-2-lb chicken
+row from $3.00/lb to $6.00/lb once 1 lb had been used, even though what
+was actually PAID never changed. `purchased_quantity` is the immutable
+snapshot -- see InventoryItem's docstring. Falls back to `quantity` when
 `purchased_quantity` is unset (rows created before that column existed,
 or an intake source with no real "purchase" concept) -- same value this
 module always used, so pre-existing behavior is preserved for exactly
 the rows that have no better signal available, never a hard failure.
 
-Matching (rewritten 2026-08-03, audit P1-5) goes through
-`ingredient_resolution_service` like every other name-to-inventory lookup
-in the app, restricted to rows that actually carry a `unit_price`. It used
-to be the same `ILIKE %name%` substring scan as everywhere else, which
-here meant a recipe's "chicken" could be priced from a carton of "chicken
-broth" -- a wrong dollar figure with a plausible-looking matched-item name
-next to it.
+Matching goes through `ingredient_resolution_service` like every other
+name-to-inventory lookup in the app, restricted to rows that carry a
+`unit_price`. Never substring: that prices a recipe's "chicken" from a
+carton of "chicken broth" -- a wrong dollar figure with a plausible
+matched-item name next to it.
 
 This is an ADVISORY call site (`THRESHOLD_ADVISORY`), a deliberately lower
 bar than inventory deduction uses: a cost estimate is read by a human

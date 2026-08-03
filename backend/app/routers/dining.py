@@ -46,8 +46,7 @@ async def geocode_location(query: str):
 
 @router.get("/geolocate-by-ip", response_model=IPGeolocationResult)
 async def geolocate_by_ip():
-    """Backlog B10.1 follow-up (author-requested 2026-08-02, second
-    round): a third location option. This is NOT the browsing device's
+    """Backlog B10.1 follow-up: a third location option. This is NOT the browsing device's
     location -- it's the backend container's own outbound IP, which for
     this app's normal self-hosted-on-the-home-network deployment shape
     is the household's real ISP-assigned address (a genuine, useful

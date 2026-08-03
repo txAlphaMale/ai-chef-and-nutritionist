@@ -1,10 +1,7 @@
 """In-process background job queue for Ollama-backed AI operations.
 
-Backlog B11.1 (2026-08-01, author-reported): a direct architectural port
-of the Fiduciary project's serial job queue (portfolio-api/app.py's
-_JOBS/_JOB_Q/_job_worker, read in full before writing anything here, per
-this project's own "read Fiduciary's actual implementation, don't assume
-its shape" discipline already applied for B10.2's auth port). Two design
+Backlog B11.1 -- an architectural port of the Fiduciary project's serial
+job queue (portfolio-api/app.py's _JOBS/_JOB_Q/_job_worker). Two design
 choices are carried over deliberately, not reinvented:
 
 - SERIAL, not parallel (exactly one job runs at a time, via a single

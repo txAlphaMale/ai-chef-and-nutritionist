@@ -265,9 +265,8 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
     (never froze the whole app's event loop the way the `async def`
     import endpoints did), but it still held one browser tab's request
     open for the full generation, lost all state on navigation, and
-    didn't share this app's one GPU budget with any other AI feature --
-    so it now goes through the same shared queue, per the 2026-08-01
-    "everything, unified" scope decision (see PROJECT-PLAN.md)."""
+    did not share this app's one GPU budget with any other AI feature.
+    It goes through the same shared queue as every other AI call."""
     meal_types = [m.strip().lower() for m in (payload.meal_types or ["dinner"]) if m.strip()]
     if not meal_types:
         meal_types = ["dinner"]

@@ -4,7 +4,7 @@ score for a saved weekly meal plan.
 **What is real here, sourced directly from USDA/HHS rather than assumed:**
 all 13 HEI-2020 component names, their maximum point values, and their
 density-based minimum/maximum scoring standards, taken verbatim from the
-official scoring-standards table (fetched live 2026-08-01 from
+official scoring-standards table (retrieved 2026-08-01 from
 `fns-prod.azureedge.us/sites/default/files/media/file/
 HEITableAge2Plus-508.pdf`, "Healthy Eating Index (HEI)-2020 components
 and scoring standards"). Scores between the minimum and maximum standard

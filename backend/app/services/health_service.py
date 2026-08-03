@@ -134,12 +134,10 @@ def build_health_context_summary(db: Session) -> str:
 
 # --- Meal-plan/chat grounding: nutritionist knowledge files ----------------
 #
-# Upgraded 2026-07-31 from "concatenate every active file, truncated to a
-# combined character budget" to real retrieval: knowledge_service.
-# search_knowledge embeds `query` and returns only the top-k most
-# relevant chunks across the knowledge base, so grounding scales past a
-# handful of short files instead of quietly truncating large/numerous
-# ones out. See knowledge_service.py's module docstring for the full
+# Retrieval-based: knowledge_service.search_knowledge embeds `query` and
+# returns only the top-k most relevant chunks across the knowledge base,
+# so grounding scales past a handful of short files rather than quietly
+# truncating large or numerous ones out. See knowledge_service.py's module docstring for the full
 # design writeup (chunking, embedding, retrieval, and what was
 # deliberately NOT ported from the Fiduciary project this was modeled
 # on). `query` should be whatever text best represents what the caller
@@ -306,9 +304,8 @@ def run_bloodwork_extraction(db: Session, content: str) -> str:
     a request handler, same discipline as every other AI-consuming
     endpoint in this app since that backlog item.
 
-    Bug fix (2026-08-02, author-reported follow-up): used to hard-cap
-    content at a flat `content[:8000]` -- see ollama_client.
-    content_char_budget's docstring."""
+    Content is capped by ollama_client.content_char_budget, which scales
+    with the configured context window."""
     budget = ollama_client.content_char_budget(
         db, prompt_overhead_chars=len(BLOODWORK_IMPORT_PROMPT), response_reserve_tokens=1500
     )

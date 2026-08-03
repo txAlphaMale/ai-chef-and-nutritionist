@@ -37,7 +37,7 @@ AND persists the summed result via `compute_recipe_nutrition` below.
 `compute_recipe_nutrition` only sums an ingredient whose quantity
 converts to grams -- today that means a mass-family unit (g/kg/oz/lb)
 directly, OR a volume-family unit with a cached `density_g_per_ml`
-(backlog B10.5, added 2026-08-01 -- see `_parse_usda_density` below).
+(backlog B10.5 -- see `_parse_usda_density` below).
 Density is only ever sourced from USDA's `foodPortions` data (a food
 detail response's list of real-world measures with a gram weight per
 measure); Open Food Facts products don't get a density in this pass, and

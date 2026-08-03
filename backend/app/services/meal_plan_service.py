@@ -134,12 +134,11 @@ def gather_generation_context(
         # Phase 6: household health trends (BMI/cholesterol/weight) and
         # any imported nutritionist reference material -- both optional,
         # both empty strings when nothing's been logged/uploaded yet.
-        # knowledge_context is now retrieval-based (2026-07-31, see
-        # health_service.build_knowledge_context) rather than a fixed
-        # concatenation, so it needs a query -- there's no single natural
-        # user question during generation the way there is in chat, so a
-        # synthetic one is built from what generation itself most needs
-        # grounded: dietary restrictions and stated goals.
+        # knowledge_context is retrieval-based (see
+        # health_service.build_knowledge_context), so it needs a query.
+        # Generation has no single natural user question the way chat
+        # does, so a synthetic one is built from what generation most
+        # needs grounded: dietary restrictions and stated goals.
         "health_summary": health_service.build_health_context_summary(db),
         "knowledge_context": health_service.build_knowledge_context(db, _build_knowledge_query(household)),
     }
@@ -671,9 +670,8 @@ def aggregate_ingredients(ingredient_lists: list[list[dict]]) -> list[dict]:
     """Merges scaled ingredient dicts (ingredient_name/quantity/unit)
     across multiple recipes into one summed list. Two ingredient lines
     with the same name merge if their units are identical OR convertible
-    into each other (backlog B5.3, added 2026-07-31 via
-    unit_conversion_service) -- e.g. "2 cup flour" + "8 tbsp flour" now
-    merges into one cup-denominated line instead of staying as two.
+    into each other (backlog B5.3, via unit_conversion_service) -- e.g.
+    "2 cup flour" + "8 tbsp flour" merge into one cup-denominated line.
     Genuinely incompatible units for the same ingredient (a count unit,
     or volume vs. mass with no known density) still stay as separate
     lines -- this deliberately never guesses a conversion."""
@@ -704,20 +702,15 @@ def is_pantry_staple(
     """Backlog B5.5 -- does this ingredient match the household's own
     free-text "always on hand" list?
 
-    Rewritten 2026-08-03 (audit P1-5). This was substring matching in
-    either direction, and the original comment argued that a household's
-    arbitrary list "is not a safety property" so lighter-weight matching
-    was appropriate. Re-reading what a hit actually DOES makes that
-    argument look wrong: a staple match removes the ingredient from the
-    grocery list entirely, before any quantity math runs. The failure
-    mode is not a mis-sorted aisle label, it is not buying dinner, with
-    nothing on screen to notice. A staple of "oil" suppressing a line for
-    "oil-packed tuna" is exactly that, and it is what the old code did.
-
-    So this is held to `THRESHOLD_SUPPRESSING` -- the same bar as a
-    database write -- and goes through the same resolution layer as every
-    other name match in the app. "salt" still covers "kosher salt"
-    (0.83); "oil" no longer covers "oil-packed tuna" (0.40).
+    Held to `THRESHOLD_SUPPRESSING` -- the same bar as a database write
+    -- and resolved through the same layer as every other name match in
+    the app. Do not loosen it. A staple hit removes the ingredient from
+    the grocery list entirely, before any quantity math runs, so the
+    failure mode is not a mis-sorted aisle label: it is not buying
+    dinner, with nothing on screen to notice. Substring matching here
+    lets a staple of "oil" suppress a line for "oil-packed tuna".
+    "salt" covers "kosher salt" (0.83); "oil" does not cover
+    "oil-packed tuna" (0.40).
 
     Note the argument order below: the STAPLE is the query and the
     ingredient is the candidate, not the other way round. That is not
@@ -761,12 +754,11 @@ def subtract_inventory(
     with no stated quantity (e.g. "salt to taste") is only listed if
     nothing matching is already in inventory at all.
 
-    Matching rewritten 2026-08-03 (audit P1-5): this was substring
-    matching in EITHER direction against the inventory list, taking the
-    first hit. That is how a grocery line for "egg" got reconciled
-    against an "eggplant" row, and how "chicken" got reconciled against
-    "chicken broth" -- in both cases silently removing or shrinking a
-    line for something the household did not actually have.
+    Names resolve through ingredient_resolution_service, never by
+    substring: substring matching in either direction reconciles "egg"
+    against an "eggplant" row and "chicken" against "chicken broth",
+    silently shrinking or removing a line for something the household
+    does not have.
 
     Held to `THRESHOLD_ADVISORY` rather than the stricter bar deduction
     uses. The asymmetry is deliberate and follows the cost of being

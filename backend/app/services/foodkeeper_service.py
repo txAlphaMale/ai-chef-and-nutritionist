@@ -15,19 +15,19 @@ both the web-fetch tool and a direct `curl` -- both failed outright for
 `github.com`/`npmjs.org`/`pypi.org` all worked fine -- this is a sandbox
 network-allowlist gap, not a content restriction). The author's own
 connected Chrome browser *does* reach `fsis.usda.gov`, so the live file
-was fetched, inspected, and condensed to the CSV this module reads via
-that browser session on 2026-08-01, not guessed or reconstructed from a
-stale secondary source. Source: the official, CC0/public-domain FSIS
-FoodKeeper dataset at `https://www.fsis.usda.gov/shared/data/EN/
-foodkeeper.json` (per data.gov's own catalog metadata for
-`fsis-foodkeeper-data`). One honesty-relevant wrinkle found while fetching
-it: the dataset's own "Version" sheet lists version 128 (modified
-2018-09-06, flagged `Current_Version: Yes`) as the newest entry -- so
-despite data.gov's catalog page showing a "Dataset Last Updated:
-2025-01-22" date, the actual FoodKeeper CONTENT hasn't changed since 2018;
-that 2025 date is a metadata re-harvest timestamp, not a content refresh.
-This is still genuinely the current official file, just itself several
-years stale at the source -- not a limitation of how Chef fetched it.
+was fetched, inspected and condensed into the CSV this module reads,
+rather than reconstructed from a secondary source. Source: the official,
+CC0/public-domain FSIS FoodKeeper dataset at
+`https://www.fsis.usda.gov/shared/data/EN/foodkeeper.json` (per
+data.gov's catalog metadata for `fsis-foodkeeper-data`).
+
+Worth knowing about the upstream data: the dataset's own "Version" sheet
+lists version 128, modified 2018-09-06 and flagged
+`Current_Version: Yes`, as the newest entry. data.gov's catalog page
+shows a "Dataset Last Updated: 2025-01-22" date, but that is a metadata
+re-harvest timestamp -- the FoodKeeper CONTENT has not changed since
+2018. This is still the current official file; it is simply stale at the
+source.
 
 **Shipped as a pre-processed CSV**, not the original nested JSON:
 `backend/app/data/foodkeeper_shelf_life.csv`, 661 rows, pipe-delimited

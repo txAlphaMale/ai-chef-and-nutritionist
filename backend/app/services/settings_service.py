@@ -1,7 +1,6 @@
-"""DB-backed, GUI-editable settings -- the author's stated preference
-(2026-07-30) is that user-customizable configuration lives in the
-database rather than requiring `.env` edits, so it can be changed from
-the Settings UI (Phase 8) without a container rebuild. `.env` is kept
+"""DB-backed, GUI-editable settings. User-customizable configuration
+lives in the database rather than in `.env`, so it can be changed from
+the Settings UI without a container rebuild. `.env` is kept
 only for true infra bootstrap values (DATABASE_URL, container ports)
 that have to exist before the database is even reachable.
 
@@ -68,16 +67,13 @@ SETTING_SPECS: list[SettingSpec] = [
         default="qwen3.6:27b",
         description=(
             "Ollama model used for chat, meal planning, recipe generation, and "
-            "receipt/list import. Changed (2026-08-02, author-directed) from the "
-            "original 9B pick, which a live investigation traced to bailing out "
-            "with an empty response on moderately complex prompts -- see "
-            "PROJECT-PLAN.md's session log. Uses both GPUs (Ollama splits a model "
-            "across multiple visible GPUs automatically when it doesn't fit one) "
-            "rather than reserving a GPU for the vision model, since the author's "
-            "actual hardware is dual GTX 1080 Tis (22GB combined), not a single "
-            "11GB card as the original 9B pick assumed. Same model family as the "
-            "original pick, just 3x the parameters, so the same non-thinking "
-            "sampling guidance and think=False handling still apply."
+            "receipt/list import. Smaller models in this family bail out with an "
+            "empty response on moderately complex prompts, so prefer a larger one "
+            "if generation returns nothing. Ollama splits a model across multiple "
+            "visible GPUs automatically when it does not fit on one, so the budget "
+            "here is the combined VRAM of every GPU Ollama can see, not a single "
+            "card. Non-thinking sampling guidance and think=False handling apply "
+            "to this model family."
         ),
         env_fallback="OLLAMA_CHAT_MODEL",
     ),
@@ -178,11 +174,9 @@ SETTING_SPECS: list[SettingSpec] = [
             "via the unit selector on a recipe's detail page, which saves back "
             "here the same way the Appearance theme picker does."
         ),
-        # Fixed 2026-08-01 -- this was rendering as a free-text box with no
-        # indication of what values actually do anything (recipe_service's
-        # apply_unit_system only recognizes these four exact strings; any
-        # other typed value silently behaves like "original"). The author
-        # flagged this directly from a screenshot.
+        # Constrained so the UI renders a <select>: recipe_service's
+        # apply_unit_system only recognizes these four exact strings, and
+        # any other typed value silently behaves like "original".
         options=["original", "metric", "imperial", "weight"],
     ),
     SettingSpec(
