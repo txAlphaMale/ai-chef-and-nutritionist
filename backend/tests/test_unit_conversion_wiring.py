@@ -86,16 +86,35 @@ def test_subtract_inventory_fully_covered_by_converted_on_hand():
     assert result == []  # fully covered, nothing left to buy
 
 
-def test_subtract_inventory_falls_back_to_raw_comparison_when_unconvertible():
-    # Inventory logged in a count unit against a volume-needed grocery line --
-    # not convertible, so this preserves the old (imprecise) raw-number
-    # comparison rather than crashing: 2 - 3 = -1, which is <= 0 so the
-    # line is (quirkily, but exactly as before this layer existed) treated
-    # as fully covered.
+def test_subtract_inventory_keeps_the_line_when_units_are_unconvertible():
+    """Inventory logged in a count unit against a volume-denominated
+    grocery line cannot be reconciled, so the full quantity stays on the
+    list with an explanation attached.
+
+    This replaced a test asserting the opposite. The old behaviour
+    compared the raw numbers when conversion failed -- 2 cup needed
+    against 3 whole on hand computed 2 - 3 = -1, which is <= 0, so the
+    line was dropped as "fully covered". Worse in the reverse direction:
+    "2 lb chicken" against a "500 g" row computed 2 - 500 and silently
+    removed chicken from the shopping list. Buying a little extra is
+    recoverable; not buying dinner is not."""
     aggregated = [{"ingredient_name": "onion", "quantity": 2, "unit": "cup"}]
     inventory = [_item("onion", 3, "whole")]
     result = meal_plan_service.subtract_inventory(aggregated, inventory)
-    assert result == []
+    assert len(result) == 1
+    assert result[0]["quantity"] == 2
+    assert "can't be compared automatically" in result[0]["needs_review"]
+
+
+def test_subtract_inventory_keeps_mass_line_when_on_hand_is_in_volume():
+    # The case that actually bit: a mass-denominated need against a
+    # volume-denominated row, where the raw comparison produced a large
+    # negative and dropped the item entirely.
+    aggregated = [{"ingredient_name": "chicken", "quantity": 2, "unit": "lb"}]
+    inventory = [_item("chicken", 500, "cup")]
+    result = meal_plan_service.subtract_inventory(aggregated, inventory)
+    assert len(result) == 1
+    assert result[0]["quantity"] == 2
 
 
 def test_subtract_inventory_same_unit_unchanged_behavior():
@@ -138,21 +157,32 @@ def test_deduct_by_name_same_unit_unchanged_behavior(db_session):
     assert updated.quantity == 3
 
 
-def test_deduct_by_name_falls_back_when_unit_missing_or_unconvertible(db_session):
+def test_deduct_by_name_treats_a_missing_unit_as_already_in_the_item_unit(db_session):
+    # No unit stated by the caller means there is nothing to reconcile --
+    # the quantity is taken at face value, which is the only sensible
+    # reading of "use 2 onions" against a row counted in whole onions.
     item = InventoryItem(name="onion", quantity=5, unit="whole", category="pantry")
     db_session.add(item)
     db_session.commit()
-    # No unit passed at all -- old behavior (subtract raw quantity as-is).
     updated = inventory_service.deduct_by_name(db_session, "onion", 2, None)
     assert updated.quantity == 3
 
-    item2 = InventoryItem(name="pepper", quantity=5, unit="whole", category="pantry")
-    db_session.add(item2)
+
+def test_deduct_by_name_refuses_to_deduct_across_unconvertible_units(db_session):
+    """A stated unit that cannot be converted into the row's own unit
+    leaves the quantity alone and only marks the item as used.
+
+    This replaced a test asserting the opposite. The old behaviour
+    subtracted the raw numbers regardless of unit, so confirming a recipe
+    calling for "2 cup flour" against a "5 lb flour" row wrote 3 lb to the
+    database -- a wrong number, with nothing telling the user it had
+    happened. A stale count the user can see beats a confident wrong one."""
+    item = InventoryItem(name="pepper", quantity=5, unit="whole", category="pantry")
+    db_session.add(item)
     db_session.commit()
-    # Unit given but not convertible against item's count unit -- falls
-    # back to raw-number subtraction, same as before this layer existed.
-    updated2 = inventory_service.deduct_by_name(db_session, "pepper", 2, "cup")
-    assert updated2.quantity == 3
+    updated = inventory_service.deduct_by_name(db_session, "pepper", 2, "cup")
+    assert updated.quantity == 5  # unchanged -- not 3
+    assert updated.last_used_date is not None  # but we know it was used
 
 
 def test_deduct_by_name_no_quantity_still_decrements_by_one(db_session):

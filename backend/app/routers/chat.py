@@ -146,11 +146,42 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
             context = chat_service.build_chat_context(job_db, query=message_text)
             system_prompt = chat_service.build_chat_system_prompt(base_prompt, context)
 
+            # Budget the grounding block before sending. It carries up to
+            # 80 inventory rows, 200 recipe titles, the whole meal plan and
+            # retrieved knowledge chunks -- all of which grow with use --
+            # and nothing measured it. Ollama silently clips an over-long
+            # prompt from the FRONT, which is where the persona and the
+            # action contract live, so chat degraded into ignoring its own
+            # instructions as a household accumulated data.
+            system_prompt, truncated = ollama_client.fit_prompt(
+                job_db, system_prompt, response_tokens=chat_service.CHAT_RESPONSE_TOKENS + _history_token_estimate(history)
+            )
+            if truncated:
+                print(
+                    "[chat.send] grounding context exceeded the configured context window and was "
+                    "trimmed -- raise 'Ollama context window' in Settings if replies seem unaware "
+                    "of recent inventory or recipes",
+                    flush=True,
+                )
+
             messages = [{"role": "system", "content": system_prompt}]
             messages.extend({"role": m.role, "content": m.content} for m in history if m.role in ("user", "assistant"))
 
-            response = ollama_client.chat(job_db, messages)
-            raw_output = ollama_client.extract_content(response)
+            # Constrained decoding (see app/schemas/ai_extraction.py). Chat
+            # is the hardest case for prompt-only JSON instructions -- the
+            # response is genuinely conversational AND has to carry a
+            # machine-readable action list -- so it benefits most from the
+            # structure being enforced by the sampler rather than requested
+            # in prose.
+            raw_output = ollama_client.chat_json(
+                job_db,
+                messages,
+                schema=chat_service.CHAT_SCHEMA,
+                response_tokens=chat_service.CHAT_RESPONSE_TOKENS,
+                # The reply is meant to read like a person wrote it; only
+                # the envelope is constrained.
+                extra_options={"temperature": 0.6},
+            )
 
             parsed = chat_service.parse_chat_response(raw_output)
             assistant_message = ChatMessage(
@@ -171,3 +202,15 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
 
     job_id, created = job_queue.enqueue("chat_message", "Chat reply", _run, dedup_key=f"chat:{session_id}")
     return JobEnqueuedResponse(job_id=job_id, created=created)
+
+
+def _history_token_estimate(history) -> int:
+    """Rough token cost of the conversation turns that will be sent
+    alongside the system prompt, so `fit_prompt` reserves room for them
+    too rather than budgeting as if the system block were the only input.
+
+    Approximate on purpose -- there is no tokenizer here for whatever
+    model the household configured, and over-estimating just leaves
+    headroom."""
+    total_chars = sum(len(m.content or "") for m in history if m.role in ("user", "assistant"))
+    return int(total_chars / 3.5)

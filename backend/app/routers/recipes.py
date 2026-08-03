@@ -311,11 +311,17 @@ def _run_text_extraction(db: Session, content: str) -> str:
     runs well past what a flat 8000-char cap ever allowed through."""
     prompt_template = recipe_service.get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=2500
+        db,
+        prompt_overhead_chars=len(prompt_template),
+        response_reserve_tokens=recipe_service.RECIPE_RESPONSE_TOKENS,
     )
     prompt = prompt_template.replace("{content}", content[:budget])
-    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return ollama_client.extract_content(response)
+    return ollama_client.chat_json(
+        db,
+        [{"role": "user", "content": prompt}],
+        schema=recipe_service.RECIPE_SCHEMA,
+        response_tokens=recipe_service.RECIPE_RESPONSE_TOKENS,
+    )
 
 
 @router.post("/import-folder/scan", response_model=JobEnqueuedResponse, status_code=202)
@@ -513,8 +519,20 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
             messages.extend(history)
             messages.append({"role": "user", "content": message})
 
-            response = ollama_client.chat(job_db, messages)
-            raw_output = ollama_client.extract_content(response)
+            # Constrained decoding (see app/schemas/ai_extraction.py):
+            # this response carries BOTH a conversational reply and an
+            # optional whole-recipe replacement, which is precisely the
+            # shape a free-form model is worst at emitting cleanly.
+            raw_output = ollama_client.chat_json(
+                job_db,
+                messages,
+                schema=recipe_service.RECIPE_EDIT_SCHEMA,
+                response_tokens=recipe_service.RECIPE_RESPONSE_TOKENS,
+                # A chat reply should read naturally; only the structure is
+                # constrained, so a little sampling warmth is appropriate
+                # here where it is not for pure extraction.
+                extra_options={"temperature": 0.4},
+            )
             parsed = recipe_service.parse_recipe_chat_response(raw_output)
             proposed = RecipeCreate(**parsed["proposed_recipe"]) if parsed["proposed_recipe"] else None
             return RecipeChatResponse(

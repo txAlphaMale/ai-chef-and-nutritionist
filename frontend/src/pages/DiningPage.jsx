@@ -17,6 +17,16 @@ const PER_ALLERGEN_LABELS = {
   no_data: "OpenStreetMap has no tag at all for this allergen",
 };
 
+// Results are ranked server-side (dining_service.restriction_sort_key), so
+// anything the household can actually eat is already at the top. This is
+// the client-side "hide the rest" toggle, kept OPT-IN and off by default:
+// a missing OSM tag means UNKNOWN, never "unsafe", and hiding untagged
+// venues by default would imply a data completeness OpenStreetMap does
+// not have.
+function hasMatchingTag(result) {
+  return Object.values(result.per_allergen || {}).some((v) => v === "only" || v === "yes" || v === "limited");
+}
+
 function metersToDistanceLabel(m) {
   const km = m / 1000;
   const mi = m / 1609.34;
@@ -33,6 +43,7 @@ export default function DiningPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [allergenLabels, setAllergenLabels] = useState({});
+  const [onlyTagged, setOnlyTagged] = useState(false);
 
   const [plans, setPlans] = useState([]);
   const [sendTarget, setSendTarget] = useState(null); // { restaurant, planId, entryId }
@@ -275,6 +286,9 @@ export default function DiningPage() {
 
   const targetPlan = sendTarget ? plans.find((p) => p.id === Number(sendTarget.planId)) : null;
 
+  const visibleResults = onlyTagged ? (results || []).filter(hasMatchingTag) : results || [];
+  const taggedCount = (results || []).filter(hasMatchingTag).length;
+
   return (
     <div>
       <div className="card">
@@ -391,8 +405,30 @@ export default function DiningPage() {
           <h3>
             {results.length} place{results.length === 1 ? "" : "s"} found
           </h3>
+          {results.length > 0 && (
+            <>
+              <p className="hint">
+                Sorted by how well each place matches your household's restrictions first, then by distance.{" "}
+                {taggedCount} of {results.length} have a relevant dietary tag in OpenStreetMap; the rest are
+                untagged, which means unknown -- not that they're unsuitable.
+              </p>
+              <label className="dining-filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={onlyTagged}
+                  onChange={(e) => setOnlyTagged(e.target.checked)}
+                />
+                Only show places with a matching dietary tag
+              </label>
+            </>
+          )}
           {results.length === 0 && <p className="hint">Nothing turned up in this radius -- try widening the search.</p>}
-          {results.map((r) => (
+          {visibleResults.length === 0 && results.length > 0 && (
+            <p className="hint">
+              None of the places found here carry a dietary tag. Untick the filter to see them all and call ahead.
+            </p>
+          )}
+          {visibleResults.map((r) => (
             <div className="dining-result" key={`${r.osm_type}-${r.osm_id}`}>
               <div className="dining-result-header">
                 <strong>{r.name}</strong>
@@ -401,6 +437,34 @@ export default function DiningPage() {
                 {r.amenity && <span className="tag">{r.amenity}</span>}
               </div>
               {r.address && <p className="hint">{r.address}</p>}
+              {/* Contact details come from OSM tags the search already
+                  returned. Calling ahead is the action every caution
+                  message on this page asks for, so the phone number
+                  belongs next to it rather than nowhere. */}
+              <p className="dining-contact">
+                {r.phone && (
+                  <a href={`tel:${r.phone.replace(/[^+\d]/g, "")}`} className="dining-contact-link">
+                    {r.phone}
+                  </a>
+                )}
+                {r.website && (
+                  <a href={r.website} target="_blank" rel="noopener noreferrer" className="dining-contact-link">
+                    Website
+                  </a>
+                )}
+                {r.map_url && (
+                  <a href={r.map_url} target="_blank" rel="noopener noreferrer" className="dining-contact-link">
+                    Map
+                  </a>
+                )}
+                <a
+                  href={`geo:${r.lat},${r.lon}?q=${encodeURIComponent(r.name)}`}
+                  className="dining-contact-link"
+                >
+                  Directions
+                </a>
+              </p>
+              {r.opening_hours && <p className="hint">Hours (as mapped): {r.opening_hours}</p>}
 
               {Object.keys(r.per_allergen || {}).length > 0 && (
                 <ul className="dining-allergen-list">

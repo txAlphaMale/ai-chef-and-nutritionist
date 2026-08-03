@@ -23,6 +23,7 @@ from app.services import (
     recipe_service,
     unit_conversion_service,
 )
+from app.schemas.ai_extraction import ExtractedMealPlan, schema_of
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.recipe_service import _extract_json_object, _safe_int
 
@@ -213,6 +214,17 @@ Meal slots to plan, with any specific guidance for that slot:
 # prompt() below makes with household_size/dietary_restrictions/etc.) --
 # see recipe_service.RECIPE_IMPORT_PROMPT for why this has to be a
 # separate substitution pass rather than an extra .format() kwarg.
+
+
+# Constrained-decoding schema for weekly generation. See
+# app/schemas/ai_extraction.py -- the prompt's own description of the
+# entry shape above is a human-readable restatement of this.
+MEAL_PLAN_SCHEMA = schema_of(ExtractedMealPlan)
+
+# Up to 21 slots, any of which may carry a complete proposed recipe.
+# Reserved explicitly so the grounding context (catalog, inventory,
+# knowledge chunks) can never crowd the answer out of the window.
+MEAL_PLAN_RESPONSE_TOKENS = 4000
 
 
 def _format_priority_ingredients(items: list[dict]) -> str:
@@ -674,11 +686,26 @@ def subtract_inventory(
             continue
 
         on_hand = 0.0
+        unreconciled_unit = None
         if match is not None:
             on_hand = match.quantity or 0.0
             if not _same_unit(match.unit, ing["unit"]):
                 converted = unit_conversion_service.convert(on_hand, match.unit, ing["unit"])
-                if converted is not None:
+                if converted is None:
+                    # Refuse rather than guess.
+                    #
+                    # This used to compare the raw numbers when conversion
+                    # failed: a line needing "2 lb chicken" against a
+                    # "500 g" inventory row computed 2 - 500 = -498 and
+                    # dropped chicken off the grocery list entirely. The
+                    # household then doesn't buy it.
+                    #
+                    # Keeping the full requested quantity and flagging the
+                    # line is the honest outcome -- buying a little extra
+                    # is recoverable, silently not buying dinner is not.
+                    on_hand = 0.0
+                    unreconciled_unit = match.unit
+                else:
                     on_hand = converted.quantity
 
         needed = round(ing["quantity"] - on_hand, 3)
@@ -686,6 +713,14 @@ def subtract_inventory(
             item = dict(ing)
             item["quantity"] = needed
             item["category"] = category
+            if unreconciled_unit is not None:
+                # Surfaced in the UI so the user can see WHY a line they
+                # thought they had stock for is still on the list.
+                item["needs_review"] = (
+                    f"You have some {match.name} on hand, but it's tracked in {unreconciled_unit} "
+                    f"and this recipe asks for {ing['unit']} -- those can't be compared automatically, "
+                    f"so the full amount is listed. Check before buying."
+                )
             remaining.append(item)
     return remaining
 

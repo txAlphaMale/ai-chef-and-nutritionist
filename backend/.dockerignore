@@ -1,0 +1,20 @@
+# Bytecode compiled by a different interpreter version than the image's
+# (the repo currently carries cpython-310 artefacts while the image runs
+# 3.12) -- copying it in is pure noise at best.
+__pycache__
+*.pyc
+*.pyo
+
+.pytest_cache
+.venv
+venv
+
+# Local SQLite/uploads live on a volume, never in the image.
+data
+
+.git
+.gitignore
+.env
+.env.*
+*.log
+.DS_Store

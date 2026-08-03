@@ -260,26 +260,54 @@ def deduct_by_name(
     delete zeroed-out items -- an empty-but-known item is still useful
     context (e.g. "we're out of X") rather than disappearing silently.
 
-    `unit` (backlog B5.3, added 2026-07-31) is the unit `quantity` is
-    expressed in -- e.g. a recipe calling for "2 cup flour" while the
-    inventory row is logged in pounds. When both `unit` and the item's
-    own `item.unit` are known and differ, the quantity is converted into
-    the item's unit via unit_conversion_service before subtracting,
-    fixing a real bug where the two were previously subtracted as raw
-    numbers regardless of unit. When conversion isn't possible (a count
-    unit, an unknown unit, or a volume<->mass gap with no density) this
-    falls back to the previous behavior -- treating quantity as already
-    in the item's unit -- rather than refusing to deduct at all."""
+    `unit` is the unit `quantity` is expressed in -- e.g. a recipe calling
+    for "2 cup flour" while the inventory row is logged in pounds. When
+    both units are known and differ, the quantity is converted into the
+    item's unit before subtracting.
+
+    When conversion isn't possible (a count unit, an unknown unit, or a
+    volume-to-mass gap with no density), the quantity is left UNCHANGED
+    and only `last_used_date` is stamped. Subtracting the raw numbers
+    anyway -- the previous behaviour -- silently corrupted the count."""
     item = find_by_name(db, ingredient_name)
     if item is None:
         return None
 
     if quantity is not None:
         amount = quantity
-        if unit and item.unit and unit_conversion_service.normalize_unit(unit) != unit_conversion_service.normalize_unit(item.unit):
+        units_differ = (
+            unit
+            and item.unit
+            and unit_conversion_service.normalize_unit(unit)
+            != unit_conversion_service.normalize_unit(item.unit)
+        )
+        if units_differ:
             converted = unit_conversion_service.convert(quantity, unit, item.unit)
-            if converted is not None:
-                amount = converted.quantity
+            if converted is None:
+                # Refuse rather than guess.
+                #
+                # This used to fall through and subtract the raw numbers as
+                # if the units matched: a recipe calling for "2 cup flour"
+                # against a "5 lb flour" row left 3 lb on hand. That is not
+                # imprecision, it is a wrong number written to the database
+                # with nothing telling the user it happened.
+                #
+                # Leaving the quantity alone and stamping last_used_date is
+                # the honest outcome: we know the ingredient was used, we do
+                # not know how much of the row it consumed. An inventory
+                # count the user can see is stale beats one that is
+                # confidently wrong.
+                item.last_used_date = date.today()
+                db.commit()
+                db.refresh(item)
+                print(
+                    f"[inventory_service] not deducting {quantity} {unit!r} from {item.name!r} "
+                    f"(stored in {item.unit!r}) -- no conversion available between those units; "
+                    f"marked used but quantity left unchanged",
+                    flush=True,
+                )
+                return item
+            amount = converted.quantity
         item.quantity = max(0.0, item.quantity - amount)
     else:
         item.quantity = max(0.0, item.quantity - 1)

@@ -59,6 +59,7 @@ from app.schemas.inventory import (
     VisionIntakeConfirmRequest,
     VisionIntakeResponse,
 )
+from app.schemas.ai_extraction import ExtractedInventoryList, schema_of
 from app.schemas.jobs import JobEnqueuedResponse
 from app.services import (
     food_data_service,
@@ -77,8 +78,8 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 VISION_PROMPT = """\
 Look at this photo of food items and identify each distinct item you can see.
-Respond with ONLY a JSON array (no other text, no markdown fences) where each \
-element is an object with these keys:
+Respond with ONLY a JSON object of the form {"items": [ ... ]}, where each \
+element of "items" is an object with these keys:
 - "name": string, the food item's name
 - "estimated_quantity": number or null
 - "unit": string or null (e.g. "count", "lbs", "oz", "cans")
@@ -87,8 +88,8 @@ element is an object with these keys:
 likely still good for, or null if you can't estimate
 - "confidence_note": a short string noting any uncertainty, or null
 
-Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
-"category": "fridge", "estimated_expiration_days": 7, "confidence_note": null}]
+Example: {"items": [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
+"category": "fridge", "estimated_expiration_days": 7, "confidence_note": null}]}
 """
 
 # Backlog B4.2 (author-requested 2026-08-01) -- shares VisionDetectedItem's
@@ -132,15 +133,13 @@ Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
 # description. Rendered against the author's real 15-line, 8-food-item
 # Walmart receipt this comes to ~4090 chars / ~1169 tokens, well under
 # half of what the prompt that caused the bailout used for the exact
-# same content (7723 chars / ~2207 tokens) -- see
-# _RECEIPT_EXTRA_OPTIONS's docstring below for the accompanying model
-# swap. Every functional requirement from the prior version is still
+# same content (7723 chars / ~2207 tokens). Every functional requirement from the prior version is still
 # here (non-food exclusion categories, abbreviation expansion, quantity-
 # vs-package-size, unit_price semantics, purchased_date semantics) --
 # reworded and reorganized, not dropped.
 RECEIPT_IMPORT_PROMPT = """\
 Task: extract every human-food/grocery item purchased on this receipt, PDF \
-order, or list, as a JSON array. Today's date: {today}.
+order, or list. Today's date: {today}.
 
 SOURCE:
 {content}
@@ -179,9 +178,10 @@ Correct output object: {"name": "Progresso Gluten Free Chicken Soup", \
 "estimated_expiration_days": 365, "purchased_date": "2026-07-30", \
 "unit_price": 6.96, "confidence_note": null}
 
-OUTPUT FORMAT: Respond with ONLY a JSON array -- no other text, no markdown \
-fences. An empty array `[]` only if this source genuinely contains zero \
-food/grocery items. Each element is an object with exactly these keys:
+OUTPUT FORMAT: Respond with ONLY a JSON object of the form {"items": [ ... ]} \
+-- no other text, no markdown fences. An empty "items" array only if this \
+source genuinely contains zero food/grocery items. Each element of "items" is \
+an object with exactly these keys:
 {"name": string, "estimated_quantity": number or null, "unit": string or \
 null, "category": one of "pantry"/"fridge"/"freezer"/"produce"/"spice"/\
 "other", "estimated_expiration_days": integer or null, "purchased_date": \
@@ -221,21 +221,33 @@ def get_vision_prompt(db: Session) -> str:
 # `ollama_chat_model`'s default is changed to this below (settings_
 # service.py) rather than only overridden here, since the author's
 # intent is an app-wide model swap, not a receipt-import-only patch --
-# meal planning, recipe generation, and chat all benefit from the same
-# larger-capacity model for the identical reason (more complex prompts
-# than a 9B model reliably executes).
+# Constrained-decoding schema for every inventory-extraction path: pantry
+# photo, receipt photo, receipt PDF, and a pasted item list. All four
+# produce the same shape, so they share one schema -- only the prompt
+# differs. See app/schemas/ai_extraction.py for why this replaced
+# prompt-only "respond with ONLY a JSON array" instructions.
+INVENTORY_SCHEMA = schema_of(ExtractedInventoryList)
+
+# A long grocery receipt is the biggest list this app extracts -- 30+
+# objects, each with eight fields. Reserved explicitly so the answer can
+# never be squeezed out of the context window by the source text.
+INVENTORY_RESPONSE_TOKENS = 3000
+
+# Sampling is now ollama_client.EXTRACTION_OPTIONS (temperature 0), applied
+# by chat_json/describe_image_json.
 #
-# `_RECEIPT_EXTRA_OPTIONS` keeps Qwen's own documented non-thinking/
-# general-task sampling recommendation (`temperature=0.7, top_p=0.8,
-# top_k=20, presence_penalty=1.5` -- Hugging Face model card,
-# Qwen/Qwen3.5-9B, verified live and cross-checked against a discussion
-# thread comparing two sections of that same README against each
-# other). This is a same-family EXTRAPOLATION to qwen3.6, not a value
-# independently verified against qwen3.6's own documentation -- the
-# diagnostic logging already wired into ollama_client.py (done_reason,
-# eval_count, thinking_chars) will make it immediately visible in
-# `docker compose logs` if qwen3.6 needs different sampling than 3.5 did.
-_RECEIPT_EXTRA_OPTIONS = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+# What was here before: temperature 0.7, top_p 0.8, top_k 20, and
+# presence_penalty 1.5 -- Qwen's published GENERAL CHAT parameters, applied
+# to a deterministic extraction job. The presence penalty was the damaging
+# one. It penalises tokens that have already appeared, and a receipt
+# extraction response is deliberately repetitive: the same eight JSON keys,
+# the same category strings, the same units, on every single element. A
+# strong presence penalty therefore pushes the model to stop emitting that
+# repeated structure partway down a long list -- which is exactly the
+# "captured 4 of 8 real items from a 15-line receipt" symptom it was added
+# while trying to fix. Ollama's own structured-output guidance is
+# temperature 0 and no penalties.
+
 
 
 @router.get("", response_model=list[InventoryItemRead])
@@ -453,8 +465,13 @@ async def vision_intake(file: UploadFile):
     def _run() -> dict:
         db = SessionLocal()
         try:
-            response = ollama_client.describe_image(db, image_bytes, get_vision_prompt(db))
-            raw_output = ollama_client.extract_content(response)
+            raw_output = ollama_client.describe_image_json(
+                db,
+                image_bytes,
+                get_vision_prompt(db),
+                schema=INVENTORY_SCHEMA,
+                response_tokens=INVENTORY_RESPONSE_TOKENS,
+            )
             detected = inventory_service.parse_vision_response(raw_output)
             return VisionIntakeResponse(detected_items=detected, raw_model_output=raw_output).model_dump()
         finally:
@@ -508,7 +525,7 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     nothing left to await here."""
     prompt_template = get_receipt_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=3000
+        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=INVENTORY_RESPONSE_TOKENS
     )
     print(
         f"[inventory._receipt_text_extraction] extracted_content_chars={len(content)} "
@@ -516,8 +533,12 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
         flush=True,
     )
     prompt = prompt_template.replace("{content}", content[:budget]).replace("{today}", date.today().isoformat())
-    response = ollama_client.chat(db, [{"role": "user", "content": prompt}], extra_options=_RECEIPT_EXTRA_OPTIONS)
-    raw_output = ollama_client.extract_content(response)
+    raw_output = ollama_client.chat_json(
+        db,
+        [{"role": "user", "content": prompt}],
+        schema=INVENTORY_SCHEMA,
+        response_tokens=INVENTORY_RESPONSE_TOKENS,
+    )
     print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
     return raw_output
 
@@ -608,8 +629,13 @@ async def import_inventory(
                 prompt = get_receipt_import_prompt(db).replace(
                     "{content}", "[see attached photo of a receipt]"
                 ).replace("{today}", date.today().isoformat())
-                response = ollama_client.describe_image(db, raw_bytes, prompt, extra_options=_RECEIPT_EXTRA_OPTIONS)
-                return ollama_client.extract_content(response)
+                return ollama_client.describe_image_json(
+                    db,
+                    raw_bytes,
+                    prompt,
+                    schema=INVENTORY_SCHEMA,
+                    response_tokens=INVENTORY_RESPONSE_TOKENS,
+                )
 
         elif content_type == "application/pdf" or filename.endswith(".pdf"):
             extracted = recipe_service.extract_pdf_text(raw_bytes)

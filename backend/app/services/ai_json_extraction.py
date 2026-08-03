@@ -1,6 +1,21 @@
-"""Shared, defensive JSON-from-model-text extraction, used by every AI
-call site in this app that asks Ollama for a single JSON object or array
-and has to cope with what a real local model actually sends back.
+"""Fallback JSON-from-model-text extraction.
+
+READ THIS BEFORE EXTENDING ANYTHING HERE. As of the 2026-08-03 audit this
+module is no longer the primary path. Every structured AI call in this app
+now passes a JSON Schema to Ollama's `format` parameter (see
+app/schemas/ai_extraction.py and ollama_client.chat_json), which constrains
+decoding so a malformed response is unrepresentable rather than merely
+unlikely. That is the correct fix, and it makes almost everything below
+unnecessary.
+
+What remains here is the degradation path for an Ollama server too old to
+support `format`, and a cheap safety net for the handful of genuinely
+conversational responses that are not schema-constrained. If a model is
+producing output this module has to rescue, the answer is to constrain
+that call site -- not to add another recovery heuristic here. Three
+successive rounds of exactly that (the greedy-regex fix, the
+reasoning-trace stripper, the truncation salvage) is what the audit found,
+and each one left the underlying feature still failing.
 
 Bug fix (2026-08-03, author-reported: recipe PDF import went from
 "parses wrong" to "totally broken" -- "Could not extract a recipe from
@@ -187,6 +202,18 @@ def extract_json_array(raw_text: str) -> list:
         parsed = json.loads(text)
         if isinstance(parsed, list):
             return parsed
+        # Ollama's `format` parameter takes an OBJECT schema -- a bare
+        # top-level array is not portably supported across llama.cpp
+        # grammar builds -- so every list-shaped extraction in this app is
+        # now constrained to `{"items": [...]}` (see
+        # app/schemas/ai_extraction.ExtractedInventoryList). Unwrapping it
+        # here means callers keep receiving a plain list and none of them
+        # had to change.
+        if isinstance(parsed, dict):
+            for key in ("items", "entries", "results", "data"):
+                value = parsed.get(key)
+                if isinstance(value, list):
+                    return value
     except (json.JSONDecodeError, TypeError):
         pass
 

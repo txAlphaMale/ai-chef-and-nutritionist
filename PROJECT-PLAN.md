@@ -1218,6 +1218,80 @@ Author-reported directly, and framed correctly as an architecture problem rather
 
 Added defensively while re-auditing the camera/barcode path after two rounds of fixes were reported as still not working post-deploy: neither `serve-handler` (checked its source directly) nor the old `serve` CLI it replaced ever set a `Cache-Control` header by default -- only `Last-Modified`, no `Expires`/`Cache-Control` at all -- which leaves a browser free to apply its own heuristic freshness lifetime to `index.html`/`sw.js`/the manifest and serve a stale copy after a rebuild without re-asking the server at all. `frontend/server.js` now sets `Cache-Control: no-cache` (always revalidate) on those three never-hashed entry files, and `public, max-age=31536000, immutable` on Vite's hashed `/assets/*` files (safe -- a content change is a new URL). Not confirmed as THE cause of the still-reported camera failure -- flagged and fixed as a real, independently-worth-having class of "why doesn't my fix show up after redeploying" risk for every future frontend change, not just this one. Verified live: `curl -D -` against a running `server.js` shows the exact expected header on `index.html`, a real hashed asset, and `sw.js`. Clean `vite build` (306 modules, unchanged).
 
+## Audit and remediation pass (2026-08-03)
+
+A full architecture review and code audit was run over the whole codebase
+by a fresh reviewer. Findings live in **AUDIT-2026-08-03.md** at the repo
+root -- read that file, not this summary, before touching any of the areas
+below. It records the root cause of each defect and, for several, the
+incorrect theory that had previously been "fixed" in its place.
+
+**The headline finding.** Every structured AI response in this app was
+free-form text that a bespoke 250-line parser then tried to rescue.
+Ollama has supported JSON-Schema-constrained decoding via its `format`
+parameter the whole time, which makes a malformed response
+unrepresentable rather than merely unlikely. Three successive rounds of
+prompt and parser tuning on the recipe importer -- each documented in this
+file as a root cause found -- were all treating the symptom. Extraction now
+goes through `app/schemas/ai_extraction.py` and
+`ollama_client.chat_json()`; `ai_json_extraction.py` is demoted to a
+documented fallback for an Ollama server too old to support `format`.
+
+**Seven P0 defects, all fixed except where noted:**
+
+- Ollama calls had NO timeout (ollama-python's default) on a single serial
+  worker thread -- one stalled generation wedged every AI feature in the
+  app permanently. Now bounded by a configurable `ollama_timeout_seconds`.
+- A stale `job_id` in localStorage permanently disabled the import buttons
+  on whichever page stored it, after any container restart, with no way out
+  short of clearing site data.
+- The barcode scanner enumerated cameras BEFORE requesting permission.
+  WebKit withholds device ids until access is granted, so on iOS the id was
+  `""`, the decode effect returned early, and `getUserMedia` was never
+  called at all -- no prompt, no error, no camera. It failed over HTTPS too;
+  the secure-context fix on 2026-08-03 was addressing a different problem.
+- Receipt extraction ran with `presence_penalty: 1.5` -- a parameter that
+  penalises repeated tokens, applied to a response that is deliberately
+  repetitive. It was added while chasing the "captured 4 of 8 receipt
+  items" bug and was making it worse.
+- The frontend Docker build copied the host's `node_modules` over the
+  image's (no `.dockerignore` existed anywhere), so builds were not
+  reproducible.
+- **Installing a TLS certificate broke every API call.** B15.1 turned
+  `BACKEND_PORT` into a redirect-only listener when a cert is present; the
+  2026-08-03 proxy rework pointed the frontend proxy at that same port. Every
+  API call came back as a 307 to an internal Docker hostname no browser can
+  resolve. TLS now terminates once, at the frontend.
+- Dining Out evaluated restrictions and then never used the result --
+  results were sorted by distance and cut to the nearest 50, which in a
+  dense area discards tagged matches before they are ever seen.
+
+**Correctness fixes worth knowing about:**
+
+- `normalize_unit` lowercased before lookup, collapsing `T` (tablespoon)
+  into `t` (teaspoon). Every "2 T butter" was silently 2 teaspoons.
+- Inventory deduction and grocery-list subtraction fell back to subtracting
+  raw numbers when a unit conversion failed. "2 lb chicken" against a
+  "500 g" row computed 2 - 500 and dropped chicken off the shopping list.
+  Both now refuse rather than guess, and say why.
+- SQLite was running with foreign keys OFF (the default, which SQLAlchemy
+  does not change) -- every FK in the schema was decorative.
+
+**Not done, and the biggest thing left: P1-5, the ingredient resolution
+layer.** Ingredient identity is this app's join key across inventory,
+recipes, grocery lines and price lookups, and it is currently unbounded
+substring matching in both directions, taking the first row in arbitrary
+order. `"egg"` matches `"eggplant"`. This needs a real design pass --
+normalisation, word-boundary matching, longest-match-wins, a persisted
+alias table, and confidence surfaced to the UI -- not another patch. See
+the audit's Stage 3 for the full list of what remains.
+
+**Verification:** 639 backend tests pass (up from 617). New regression
+tests in `backend/tests/test_audit_2026_08_03_regressions.py` pin each fix
+and name the wrong behaviour it replaced, so a future session can tell
+whether a change is reintroducing something already understood. Two
+existing tests were rewritten because they asserted the buggy behaviour.
+
 ## Session log
 
 - **2026-08-03**: Fixed an author-reported recipe-import parsing regression (backlog B16.1, see its own notes section above for full root-cause detail) and shipped the author's second, related ask from the same message: every AI import/extraction prompt is now a DB-backed, GUI-editable Settings-page prompt, not a hardcoded Python constant. Root cause was NOT the recipe prompt's wording -- it was `recipe_service._extract_json_object`, the shared JSON-extraction function recipe import, recipe-chat edits, health/bloodwork parsing, AND meal-plan generation's `new_recipe` proposals all funnel through, still running the original naive greedy-regex fallback that the array-shaped receipt/vision path had already been fixed away from on 2026-08-02. New `app/services/ai_json_extraction.py` centralizes the reasoning-trace-stripping, bracket-matching extraction (with new truncated-object salvage) for both shapes; `inventory_service.py` and `recipe_service.py` both now delegate to it. Also redesigned `RECIPE_IMPORT_PROMPT` into the numbered-rules-plus-worked-example format `RECEIPT_IMPORT_PROMPT` already has, and switched every AI-prompt placeholder substitution app-wide from `.format()` to plain `str.replace()` -- necessary groundwork for the settings-exposure ask, since a household-edited prompt containing a stray literal brace would otherwise raise a hard `KeyError` at request time. Four new `SystemPrompt` rows (`recipe_import`, `recipe_modify`, `receipt_import`, `vision_intake`), each with a `get_*_prompt(db)` getter (DB override if active, else the code-level default -- unchecking "Active" reverts to the shipped default without losing a draft edit), seeded in `app/seed.py`, surfaced in `SettingsPage.jsx` behind a new "Advanced: import & extraction prompts" disclosure separate from the existing persona-prompt card. 34 new backend tests (617 collected, up from 583; 527 run and green in this sandbox across every non-network-dependent file, matching this project's standing sandbox-network limitation). Additionally hand-verified against a reconstruction of the actual reported failure (a synthetic `qwen3.6:27b`-shaped response containing an inline reasoning trace with its own scratch JSON braces, built from the real uploaded PDF's own divided-sugar ingredient case) -- parses correctly end to end. `vite build` transforms cleanly (306 modules); the output-write step hit this sandbox's already-documented FUSE `EPERM` limitation, not a code issue. Not independently verified against a real, live Ollama container -- same standing limitation as every other AI-prompt change in this project's history; the author's own next real import attempt is the practical verification step.

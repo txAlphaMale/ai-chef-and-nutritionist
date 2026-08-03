@@ -153,11 +153,19 @@ async def auth_gate(request: Request, call_next):
     path = request.url.path
     if not path.startswith("/api/") or path in _AUTH_EXEMPT_PATHS:
         return await call_next(request)
-    db = SessionLocal()
-    try:
-        enabled = auth_service.is_enabled(db)
-    finally:
-        db.close()
+    # `is_enabled` caches, so the session below is opened once per
+    # process (and again after a password change), not once per request.
+    # It used to open a fresh session and hit the database on EVERY
+    # /api/* call -- blocking I/O on the event loop, at the frequency of
+    # the 1.5-second job poll.
+    if auth_service.enabled_cache_is_warm():
+        enabled = auth_service.is_enabled(None)
+    else:
+        db = SessionLocal()
+        try:
+            enabled = auth_service.is_enabled(db)
+        finally:
+            db.close()
     if enabled and not request.session.get("authenticated"):
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
     return await call_next(request)

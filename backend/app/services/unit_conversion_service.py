@@ -66,9 +66,21 @@ MASS_TO_G: dict[str, float] = {
 # trailing "s" stripped, and punctuation-stripped before lookup (see
 # normalize_unit), so this only needs to list the singular canonical-ish
 # forms, not every plural/period variant.
+# Single-letter abbreviations are CASE-SENSITIVE in standard recipe
+# notation and are resolved before anything is lowercased -- see
+# `normalize_unit`. This is not pedantry: "T" is tablespoon and "t" is
+# teaspoon, so lowercasing first collapsed them and silently turned every
+# "2 T butter" into 2 teaspoons. A 3x error, applied to the display
+# toggle, grocery aggregation, inventory deduction and cost math alike.
+CASE_SENSITIVE_ABBREVIATIONS: dict[str, str] = {
+    "T": "tbsp",
+    "t": "tsp",
+    "C": "cup",
+    "c": "cup",
+}
+
 UNIT_SYNONYMS: dict[str, str] = {
     "teaspoon": "tsp",
-    "t": "tsp",
     "tablespoon": "tbsp",
     "tbl": "tbsp",
     "tbls": "tbsp",
@@ -77,7 +89,6 @@ UNIT_SYNONYMS: dict[str, str] = {
     "floz": "fl_oz",
     "fl oz": "fl_oz",
     "cups": "cup",
-    "c": "cup",
     "pint": "pt",
     "pints": "pt",
     "quart": "qt",
@@ -109,15 +120,29 @@ MASS_UNITS = frozenset(MASS_TO_G)
 
 
 def normalize_unit(unit: str | None) -> str | None:
-    """Lowercases, strips whitespace/trailing periods, and resolves known
-    synonyms to a canonical unit key. Returns None for an empty/None input
-    (e.g. "salt to taste" has no unit at all) and returns the cleaned
-    input unchanged if it isn't a recognized volume/mass unit -- most
-    likely a count-based unit (e.g. "clove", "can"), which is valid and
-    just not volume/mass-convertible."""
+    """Strips whitespace/trailing periods and resolves known synonyms to a
+    canonical unit key. Returns None for an empty/None input (e.g. "salt to
+    taste" has no unit at all) and returns the cleaned input unchanged if
+    it isn't a recognized volume/mass unit -- most likely a count-based
+    unit (e.g. "clove", "can"), which is valid and just not
+    volume/mass-convertible.
+
+    Case matters for exactly one thing and it is handled first: the
+    single-letter recipe abbreviations, where "T" means tablespoon and "t"
+    means teaspoon. Everything else is matched case-insensitively, since
+    the free-text unit strings this app deals with come from AI
+    extraction, manual entry and third-party imports and are spelled
+    inconsistently ("tbsp", "Tbsp", "tablespoon", "tablespoons")."""
     if not unit:
         return None
-    cleaned = unit.strip().lower().replace(".", "").strip()
+
+    # Case-sensitive single-letter forms first, before any lowercasing --
+    # see CASE_SENSITIVE_ABBREVIATIONS.
+    stripped = unit.strip().replace(".", "").strip()
+    if stripped in CASE_SENSITIVE_ABBREVIATIONS:
+        return CASE_SENSITIVE_ABBREVIATIONS[stripped]
+
+    cleaned = stripped.lower()
     if cleaned in VOLUME_TO_ML or cleaned in MASS_TO_G:
         return cleaned
     if cleaned in UNIT_SYNONYMS:

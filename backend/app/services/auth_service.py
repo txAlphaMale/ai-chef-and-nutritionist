@@ -73,8 +73,43 @@ def _set_raw(db: Session, key: str, value: str) -> None:
     db.commit()
 
 
-def is_enabled(db: Session) -> bool:
-    return _get_raw(db, _ENABLED_KEY) == "true"
+# Cached because main.py's auth_gate middleware calls is_enabled() on
+# EVERY /api/* request -- including the 1.5-second job poll and the jobs
+# badge poll -- and it did so by opening a fresh SQLAlchemy session and
+# hitting the database each time, from inside an `async` middleware. That
+# is blocking I/O on the event loop, per request, to read a value that
+# changes only when a household sets or clears its password.
+#
+# Invalidated explicitly by the two functions that can change it
+# (set_password, disable) rather than by a time-based expiry: this is a
+# single-process app, so an explicit invalidation is exact, and a TTL
+# would mean a window where the gate is wrong in one direction or the
+# other.
+_enabled_cache: bool | None = None
+
+
+def invalidate_enabled_cache() -> None:
+    """Called by anything that changes whether the gate is on."""
+    global _enabled_cache
+    _enabled_cache = None
+
+
+def enabled_cache_is_warm() -> bool:
+    """Lets a caller skip opening a database session it would only need
+    on a cold cache -- see main.py's auth_gate middleware."""
+    return _enabled_cache is not None
+
+
+def is_enabled(db: Session | None) -> bool:
+    """`db` may be None ONLY when the cache is already warm (check with
+    `enabled_cache_is_warm`), which is how the per-request middleware
+    avoids opening a session it doesn't need."""
+    global _enabled_cache
+    if _enabled_cache is None:
+        if db is None:
+            raise ValueError("is_enabled() needs a database session on a cold cache")
+        _enabled_cache = _get_raw(db, _ENABLED_KEY) == "true"
+    return _enabled_cache
 
 
 def is_configured(db: Session) -> bool:
@@ -95,6 +130,7 @@ def set_password(db: Session, password: str) -> None:
         raise ValueError("password must be at least 8 characters")
     _set_raw(db, _HASH_KEY, _ph.hash(password))
     _set_raw(db, _ENABLED_KEY, "true")
+    invalidate_enabled_cache()
 
 
 def disable(db: Session) -> None:
@@ -103,6 +139,7 @@ def disable(db: Session) -> None:
     disabled-but-still-present hash sitting in the database."""
     _set_raw(db, _ENABLED_KEY, "false")
     _set_raw(db, _HASH_KEY, "")
+    invalidate_enabled_cache()
 
 
 def verify_password(db: Session, password: str) -> bool:

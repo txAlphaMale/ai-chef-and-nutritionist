@@ -15,15 +15,12 @@ certificate re-execs THIS script (os.execv, same PID -- Docker's restart
 policy never sees an exit), so the HTTP-vs-HTTPS decision gets
 re-derived fresh from whatever's on disk at that moment.
 
-When HTTPS is active, this ALSO starts a tiny plain-HTTP listener on the
-old port (BACKEND_PORT/8095) that does nothing but 307-redirect to the
-same path on BACKEND_HTTPS_PORT -- so a bookmarked/typed
-http://host:8095 URL doesn't go completely dead once HTTPS takes over.
-Runs in a background daemon thread with its own event loop rather than
-uvicorn's normal `--port` flag, because uvicorn can only bind one
-(host, port) pair per Config/Server -- see _start_redirect_thread()
-below for why a thread, not a second concurrent Server.serve() in the
-same loop, was chosen.
+When HTTPS is active, this ALSO serves the real app over plain HTTP on
+BACKEND_PORT, in a background daemon thread. That is what the frontend
+container's reverse proxy talks to over the private Docker network --
+see _start_internal_http_thread() below, which documents the regression
+that made this necessary and why it is a second Server in a thread
+rather than a second concurrent serve() on the same loop.
 
 Started via `python -m app.run_server` -- see backend/Dockerfile."""
 import asyncio
@@ -39,89 +36,69 @@ HTTP_PORT = os.environ.get("BACKEND_PORT", "8095")
 HTTPS_PORT = os.environ.get("BACKEND_HTTPS_PORT", "8446")
 
 
-async def _redirect_asgi(scope, receive, send):
-    """Minimal hand-rolled ASGI app (no FastAPI/Starlette needed for
-    this) -- 307-redirects every request to the same path+query on
-    HTTPS_PORT. 307 (Temporary Redirect), not 301/308: this app can
-    toggle HTTPS off again (Settings > Security > Certificate > clear),
-    at which point HTTP_PORT needs to go back to serving normally -- a
-    permanently-cached 301/308 in the browser would keep bouncing
-    requests to a now-dead HTTPS port forever after that."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-    if scope["type"] != "http":
-        return
-    headers = dict(scope.get("headers") or ())
-    host_header = headers.get(b"host", b"").decode("latin-1")
-    if host_header:
-        hostname = host_header.split(":")[0]
-    else:
-        server = scope.get("server") or ("localhost", None)
-        hostname = server[0]
-    location = f"https://{hostname}:{HTTPS_PORT}{scope.get('path', '/')}"
-    query = scope.get("query_string", b"")
-    if query:
-        location += "?" + query.decode("latin-1")
-    await send(
-        {
-            "type": "http.response.start",
-            "status": 307,
-            "headers": [(b"location", location.encode("latin-1")), (b"content-length", b"0")],
-        }
-    )
-    await send({"type": "http.response.body", "body": b""})
+def _start_internal_http_thread():
+    """Serves the REAL app over plain HTTP on BACKEND_PORT, in a
+    background daemon thread, whenever HTTPS is active on
+    BACKEND_HTTPS_PORT.
 
+    This replaced a 307-redirect listener, and the reason matters.
 
-def _start_redirect_thread():
-    """Runs the redirect listener on HTTP_PORT in its own background
-    daemon thread + event loop, separate from the main app server's
-    loop. Deliberately NOT a second uvicorn.Server.serve() gathered into
-    the same asyncio loop as the main app: uvicorn.Server installs
-    SIGTERM/SIGINT handlers via plain signal.signal() when running in
-    the main thread, and two Server instances doing that in the same
-    loop stomp on each other's handler -- only the second one actually
-    gets wired up, so the first would silently stop responding to a
-    graceful shutdown signal. Running this one from a non-main thread
-    makes uvicorn skip signal handling for it entirely, which is exactly
-    what's wanted: it's a daemon thread, so it (and its socket) is torn
-    down automatically the instant the process exits or os.execv
-    replaces it, with no separate shutdown path needed.
+    Since 2026-08-03 the frontend container reverse-proxies /api/* and
+    /health to `http://<backend service>:$BACKEND_PORT` over the private
+    Docker network -- the browser never talks to this container directly.
+    But the old behaviour turned BACKEND_PORT into a redirect-only
+    listener the moment a certificate was installed, so every proxied API
+    call started coming back as a 307 pointing at
+    `https://backend:8446/...` -- an internal Docker hostname no browser
+    on the LAN can resolve. Net effect: installing a certificate (which
+    B15.1 exists to make the camera and geolocation work at all) silently
+    broke every API call in the app.
 
-    Best-effort: if HTTP_PORT can't be bound for some reason, the main
-    app on HTTPS_PORT still starts fine -- this is a convenience
-    redirect, not core functionality."""
+    TLS now terminates once, at the edge the browser actually talks to.
+    This container keeps its own HTTPS listener for direct/scripted
+    access, and always serves the real app on plain HTTP internally.
+
+    What was given up: a bookmarked `http://<host>:8095` no longer
+    auto-redirects to the HTTPS port -- it just serves the API plainly.
+    That redirect only ever mattered for people hitting the API directly
+    in a browser, and the frontend still runs its own HTTP-to-HTTPS
+    redirect for the page origin, which is the URL people actually
+    bookmark (see frontend/redirect-server.js).
+
+    Best-effort: if BACKEND_PORT can't be bound, the HTTPS listener still
+    starts. That degrades direct access, not the app."""
 
     def _run():
         try:
-            config = uvicorn.Config(_redirect_asgi, host=HOST, port=int(HTTP_PORT), log_level="warning")
+            config = uvicorn.Config("app.main:app", host=HOST, port=int(HTTP_PORT), log_level="warning")
             asyncio.run(uvicorn.Server(config).serve())
-        except Exception as e:  # noqa: BLE001 -- a failed convenience redirect must not take down the main app
+        except Exception as e:  # noqa: BLE001 -- must never take down the main HTTPS listener
             print(
-                f"[run_server] redirect listener on port {HTTP_PORT} failed to start ({e}) -- "
-                f"the app itself is unaffected, but old links to port {HTTP_PORT} won't auto-redirect",
+                f"[run_server] internal plain-HTTP listener on port {HTTP_PORT} failed to start ({e}) -- "
+                f"the frontend proxy and any direct HTTP client will not be able to reach this backend",
                 flush=True,
             )
 
-    threading.Thread(target=_run, daemon=True, name="http-redirect").start()
+    # A non-main thread is required, not just convenient: uvicorn.Server
+    # installs SIGTERM/SIGINT handlers via signal.signal() when it runs on
+    # the main thread, and two Servers doing that in one process stomp on
+    # each other -- only the last one registered actually handles a
+    # graceful shutdown. Running from a non-main thread makes uvicorn skip
+    # signal handling entirely, which is what is wanted here: a daemon
+    # thread and its socket are torn down automatically when the process
+    # exits or os.execv replaces it.
+    threading.Thread(target=_run, daemon=True, name="internal-http").start()
 
 
 def main():
     if tls_service.has_active_cert():
         print(f"[run_server] starting HTTPS on port {HTTPS_PORT} (cert: {tls_service.CERT_PATH})", flush=True)
         print(
-            f"[run_server] also starting a plain-HTTP redirect on port {HTTP_PORT} -> "
-            f"https://<host>:{HTTPS_PORT} (so old bookmarks/typed URLs still land you somewhere "
-            f"instead of going dark)",
+            f"[run_server] also serving the app over plain HTTP on port {HTTP_PORT} for the "
+            f"frontend container's internal reverse proxy (see _start_internal_http_thread)",
             flush=True,
         )
-        _start_redirect_thread()
+        _start_internal_http_thread()
         config = uvicorn.Config(
             "app.main:app",
             host=HOST,

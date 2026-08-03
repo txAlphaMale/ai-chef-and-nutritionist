@@ -18,6 +18,15 @@ class RestaurantCandidate(BaseModel):
     amenity: str | None = None
     cuisine: str | None = None
     address: str | None = None
+    # All four come straight off the OSM tags the Overpass query already
+    # returns. They were being fetched and discarded, which left results
+    # with no way to call ahead and confirm -- the exact action the
+    # caution message on every result tells the household to take.
+    website: str | None = None
+    phone: str | None = None
+    opening_hours: str | None = None
+    wheelchair: str | None = None
+    map_url: str | None = None
     diet_tags: dict[str, str] = Field(default_factory=dict)
     per_allergen: dict[str, str] = Field(default_factory=dict)
     allergens_with_no_data_source: list[str] = Field(default_factory=list)

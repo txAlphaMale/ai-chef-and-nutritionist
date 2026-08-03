@@ -1,7 +1,13 @@
 FROM node:22-slim AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# package-lock.json is copied too, and `npm ci` (not `npm install`) is used:
+# ci installs exactly the locked tree and fails if the lockfile and
+# package.json disagree, so a build produces the same dependency set every
+# time. `npm install` silently re-resolved semver ranges on every build.
+COPY package.json package-lock.json ./
+RUN npm ci
+# .dockerignore is what makes this safe -- without it this line copies the
+# host's node_modules over the one npm just installed. See that file.
 COPY . .
 RUN npm run build
 
@@ -16,7 +22,10 @@ WORKDIR /app
 # (nor `serve` before them) belongs in package.json, since none of this
 # app's actual npm dependencies are needed after the Vite build produces
 # static output; only this runtime shell needs them.
-RUN npm install -g http-proxy serve-handler
+# Pinned. These are the runtime shell (static serving + reverse proxy);
+# unpinned globals mean a future rebuild can silently pull a breaking
+# major of either one into a container nobody is watching.
+RUN npm install -g http-proxy@1.18.1 serve-handler@6.1.5
 COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh .
 COPY redirect-server.js .

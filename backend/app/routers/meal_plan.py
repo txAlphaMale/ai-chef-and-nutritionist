@@ -278,10 +278,33 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
             )
             prompt = meal_plan_service.build_generation_prompt(context)
             system_prompt = ollama_client.get_active_prompt(db, "main_chef") or ""
-            response = ollama_client.chat(
-                db, [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+            # A full week of slots, several of which may carry a complete
+            # proposed recipe, is the single largest response this app
+            # asks for. Reserved explicitly, and the assembled prompt is
+            # measured against what is left rather than trusting it to
+            # fit -- Ollama clips an over-long prompt from the FRONT,
+            # which is exactly where the system prompt and the output
+            # contract live.
+            fitted_prompt, truncated = ollama_client.fit_prompt(
+                db,
+                f"{system_prompt}\n\n{prompt}",
+                response_tokens=meal_plan_service.MEAL_PLAN_RESPONSE_TOKENS,
             )
-            raw_output = ollama_client.extract_content(response)
+            if truncated:
+                print(
+                    "[meal_plan.generate] grounding context exceeded the configured context window and "
+                    "was trimmed -- raise 'Ollama context window' in Settings, or reduce the recipe catalog",
+                    flush=True,
+                )
+            raw_output = ollama_client.chat_json(
+                db,
+                [{"role": "user", "content": fitted_prompt}],
+                schema=meal_plan_service.MEAL_PLAN_SCHEMA,
+                response_tokens=meal_plan_service.MEAL_PLAN_RESPONSE_TOKENS,
+                # Meal planning genuinely benefits from some variety across
+                # a week; only the structure needs to be deterministic.
+                extra_options={"temperature": 0.5},
+            )
 
             entries = meal_plan_service.parse_meal_plan_response(raw_output)
             if not entries:

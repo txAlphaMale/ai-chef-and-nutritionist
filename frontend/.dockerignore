@@ -1,0 +1,22 @@
+# Without this file, the `COPY . .` in Dockerfile's build stage copies the
+# HOST's node_modules straight over the one `npm install` just produced in
+# the image -- linking the build against whatever binaries happen to be on
+# the developer's machine instead of the image's. That makes builds
+# non-reproducible and is a plausible cause of "the fix didn't show up
+# after redeploying".
+node_modules
+
+# Build output. Never an input.
+dist
+dist.*
+
+# Vite writes a config timestamp file per dev-server start; dozens
+# accumulate and there is no reason for any of them to enter the image.
+vite.config.js.timestamp-*.mjs
+
+.git
+.gitignore
+.env
+.env.*
+*.log
+.DS_Store

@@ -53,6 +53,62 @@ CATEGORY_VALUES = {"pantry", "fridge", "freezer", "produce", "spice", "other"}
 # --- Context building ----------------------------------------------------
 
 
+# Constrained-decoding schema for a chat turn: a conversational reply plus
+# a list of proposed, confirmable actions.
+#
+# Built by hand rather than from a Pydantic model because the action list
+# is a discriminated union of six shapes that share no common field set,
+# and expressing that as a single model would mean either a permissive
+# "everything optional" object (which constrains nothing useful) or six
+# nested models whose $refs have to be flattened for the grammar builder.
+# A hand-written `anyOf` says exactly what is meant and stays readable
+# next to ALLOWED_ACTION_TYPES above it.
+#
+# `_coerce_action` below still validates everything this admits -- the
+# schema stops the model emitting malformed JSON, it does not stop it
+# emitting a plausible-looking action referencing an entry_id that does
+# not exist. Those are different problems and both need handling.
+def _action_schema() -> dict:
+    common = {
+        "type": {"type": "string", "enum": sorted(ALLOWED_ACTION_TYPES)},
+        "description": {"type": "string"},
+    }
+    return {
+        "type": "object",
+        "properties": {
+            **common,
+            "ingredient_name": {"type": ["string", "null"]},
+            "name": {"type": ["string", "null"]},
+            "quantity": {"type": ["number", "null"]},
+            "unit": {"type": ["string", "null"]},
+            "category": {"type": ["string", "null"], "enum": [*sorted(CATEGORY_VALUES), None]},
+            "is_priority": {"type": ["boolean", "null"]},
+            "priority_note": {"type": ["string", "null"]},
+            "meal_plan_id": {"type": ["integer", "null"]},
+            "entry_id": {"type": ["integer", "null"]},
+            "target_recipe_id": {"type": ["integer", "null"]},
+            "mode": {"type": ["string", "null"], "enum": ["variant", "overwrite", None]},
+            "variant_label": {"type": ["string", "null"]},
+            "recipe": {"type": ["object", "null"]},
+        },
+        "required": ["type", "description"],
+    }
+
+
+CHAT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reply": {"type": "string"},
+        "actions": {"type": "array", "items": _action_schema()},
+    },
+    "required": ["reply", "actions"],
+}
+
+# A conversational reply plus any proposed actions. A recipe_update_proposal
+# carries a whole recipe, so this needs real room.
+CHAT_RESPONSE_TOKENS = 2000
+
+
 def get_relevant_meal_plan(db: Session) -> MealPlan | None:
     """The plan the chat should reference: the active one if there is
     one, else the most recently created (by week_start_date) plan at

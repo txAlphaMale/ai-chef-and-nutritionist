@@ -3,6 +3,12 @@ import { api } from "../api";
 
 const POLL_INTERVAL_MS = 1500;
 
+// ~30 seconds of consecutive failed polls before giving up. Long enough
+// to ride out a backend restart or a brief network drop, short enough
+// that a genuinely unreachable backend surfaces as an error rather than
+// an indefinite spinner.
+const MAX_CONSECUTIVE_FAILURES = 20;
+
 /** Backlog B11.1 (2026-08-01) -- every AI-consuming endpoint in this app
  * now returns { job_id } immediately (202) instead of blocking the
  * request until Ollama finishes (see job_queue.py's module docstring for
@@ -52,16 +58,44 @@ export function useBackgroundJob(storageKey) {
       setResult(null);
       setError(null);
 
+      let consecutiveFailures = 0;
+
       async function tick() {
         let job;
         try {
           job = await api.get(`/jobs/${jobId}`);
-        } catch {
-          // A transient network hiccup (or the backend restarting) --
-          // keep polling rather than abandoning the job on one failed
-          // check. A genuinely gone job_id (404) will keep failing here
-          // forever, which is an acceptable, quiet degradation: the
-          // busy indicator just stays up until the user navigates away.
+          consecutiveFailures = 0;
+        } catch (err) {
+          // A 404 is terminal, not transient. The job registry is
+          // in-memory and capped, so an id goes missing after any backend
+          // restart or once 100 later jobs have aged it out -- neither of
+          // which will ever resolve by waiting.
+          //
+          // This used to `return` on every error, which left status stuck
+          // at "queued" forever. Since every call site does
+          // `disabled={job.busy}`, that permanently disabled the Import /
+          // Parse / Scan buttons on whichever page had stored the id,
+          // with no way out short of clearing site data. That single
+          // behaviour accounted for a large share of "nothing in this app
+          // works reliably".
+          if (err?.status === 404) {
+            stopPolling();
+            localStorage.removeItem(storageKey);
+            setStatus(null);
+            setResult(null);
+            setError(null);
+            return;
+          }
+          // Anything else (backend mid-restart, a dropped wifi frame) is
+          // worth retrying -- but not forever. Give up after a bounded
+          // run of failures and surface a real error rather than
+          // spinning silently.
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            stopPolling();
+            localStorage.removeItem(storageKey);
+            setError("Lost contact with the backend while waiting for this task. Try again.");
+          }
           return;
         }
         setStatus(job.status);

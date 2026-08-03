@@ -55,3 +55,17 @@ def db_session():
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_enabled_cache():
+    """`auth_service` caches the "is the password gate on" flag in module
+    state so the per-request middleware doesn't hit the database on every
+    single API call. That cache is process-global, and each test gets its
+    own throwaway database -- so without this, one test enabling the gate
+    would leak a stale `True` into every test that ran after it."""
+    from app.services import auth_service
+
+    auth_service.invalidate_enabled_cache()
+    yield
+    auth_service.invalidate_enabled_cache()

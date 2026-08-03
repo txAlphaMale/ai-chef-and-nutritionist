@@ -20,9 +20,10 @@ from unittest.mock import patch
 
 from app.models import SystemPrompt
 from app.routers.inventory import (
+    INVENTORY_RESPONSE_TOKENS,
+    INVENTORY_SCHEMA,
     RECEIPT_IMPORT_PROMPT,
     VISION_PROMPT,
-    _RECEIPT_EXTRA_OPTIONS,
     _inventory_import_job,
     _receipt_text_extraction,
     get_receipt_import_prompt,
@@ -111,7 +112,7 @@ def test_receipt_import_prompt_instructs_skipping_non_food_items():
     rendered = _render("irrelevant").lower()
     for phrase in ("household", "personal care", "pet food", "supplements"):
         assert phrase in rendered
-    assert "empty array" in rendered
+    assert 'empty "items" array' in rendered
 
 
 def test_receipt_import_prompt_instructs_purchased_date_and_price_extraction():
@@ -203,25 +204,42 @@ def test_receipt_text_extraction_uses_the_active_db_override_when_present(db_ses
     )
     db_session.commit()
     with patch(
-        "app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}
+        "app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}'
     ) as mock_chat:
         _receipt_text_extraction(db_session, "some receipt text")
     sent_prompt = mock_chat.call_args[0][1][0]["content"]
     assert sent_prompt.startswith("CUSTOM some receipt text")
 
 
-def test_receipt_text_extraction_uses_qwens_documented_non_thinking_sampling_params(db_session):
-    # Values must match Qwen's own official non-thinking/general-task
-    # recommendation (temperature=0.7, top_p=0.8, top_k=20,
-    # presence_penalty=1.5 -- Qwen/Qwen3.5-9B model card, verified live)
-    # exactly, not an unverified guess -- see the module comment above
-    # and _RECEIPT_EXTRA_OPTIONS's docstring for why this replaced an
-    # earlier temperature=0.1-only attempt.
-    with patch("app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}) as mock_chat:
+def test_receipt_text_extraction_uses_constrained_decoding(db_session):
+    """Receipt extraction must go through Ollama's schema-constrained
+    `format` path, not a free-form request the parser then has to rescue.
+
+    This replaced a test asserting temperature=0.7 / top_p=0.8 / top_k=20 /
+    presence_penalty=1.5 -- Qwen's published GENERAL CHAT sampling, applied
+    to a deterministic extraction job. The presence penalty in particular
+    penalises tokens that have already appeared, and a receipt extraction
+    is deliberately repetitive (same keys, same units, same categories on
+    every element), so it pushed the model to stop emitting the repeated
+    structure partway through a long list -- the exact "4 of 8 items"
+    symptom it was added to fix. `chat_json` applies temperature 0 and no
+    penalties; see ollama_client.EXTRACTION_OPTIONS."""
+    with patch(
+        "app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}'
+    ) as mock_chat_json:
         _receipt_text_extraction(db_session, "some receipt text")
-    _, kwargs = mock_chat.call_args
-    assert kwargs["extra_options"] == _RECEIPT_EXTRA_OPTIONS
-    assert _RECEIPT_EXTRA_OPTIONS == {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
+    _, kwargs = mock_chat_json.call_args
+    assert kwargs["schema"] is INVENTORY_SCHEMA
+    assert kwargs["response_tokens"] == INVENTORY_RESPONSE_TOKENS
+
+
+def test_inventory_schema_constrains_category_to_the_known_set(db_session):
+    """The category enum lives in the schema now, not just in prose, so
+    `inventory_service.parse_vision_response`'s "unknown category -> other"
+    fallback stops being the only thing standing between the model and a
+    bad row."""
+    category = INVENTORY_SCHEMA["properties"]["items"]["items"]["properties"]["category"]
+    assert set(category["enum"]) == inventory_service.CATEGORY_VALUES
 
 
 def test_parse_vision_response_extracts_unit_price_and_purchased_date():
@@ -308,12 +326,12 @@ def test_parse_vision_response_skips_non_item_entries_missing_a_name():
 
 
 def test_receipt_text_extraction_logs_content_length_and_budget(db_session, capsys):
-    with patch("app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}):
+    with patch("app.routers.inventory.ollama_client.chat_json", return_value='{"items": []}'):
         _receipt_text_extraction(db_session, "some receipt text " * 50)
     out = capsys.readouterr().out
     assert "extracted_content_chars=" in out
     assert "budget_chars=" in out
-    assert "raw_output_chars=2" in out  # len("[]")
+    assert 'raw_output_chars=13' in out  # len('{"items": []}')
 
 
 def test_inventory_import_job_logs_raw_output_length_vs_detected_count(db_session):

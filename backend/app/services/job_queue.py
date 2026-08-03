@@ -64,6 +64,7 @@ from typing import Callable
 _JOBS: dict[str, dict] = {}
 _JOBS_ORDER: list[str] = []
 _JOBS_LOCK = threading.Lock()
+_WORKER_LOCK = threading.Lock()
 _JOB_Q: "queue.Queue[tuple[str, Callable[[], dict]]]" = queue.Queue()
 
 # Ring-buffer cap on the in-memory registry -- mirrors Fiduciary's
@@ -71,6 +72,36 @@ _JOB_Q: "queue.Queue[tuple[str, Callable[[], dict]]]" = queue.Queue()
 # lifetime. Finished jobs age out oldest-first; this only trims the
 # STATUS record, never anything already written to the database.
 JOBS_MAX = 100
+
+
+
+# How long a single job may run before the status board reports it as
+# stalled. This does NOT kill the job -- Python cannot safely interrupt a
+# thread mid-call, and the real bound on a runaway generation is the
+# httpx timeout in ollama_client (`ollama_timeout_seconds`, default 600s).
+# What this buys is honesty: without it, a wedged worker is
+# indistinguishable from a slow one, and the UI shows a spinner forever
+# with no explanation. Set comfortably above the default Ollama timeout
+# so a normal slow generation never trips it.
+STALLED_AFTER_SECONDS = 900.0
+
+
+def _ensure_worker_alive() -> None:
+    """Restarts the worker thread if it ever dies.
+
+    `_worker` catches `Exception` around each job body, but not
+    `BaseException` -- a MemoryError or a SystemExit raised inside a job
+    would kill the thread and silently take every future AI operation in
+    the app down with it, with the queue quietly accepting work nothing
+    will ever run. Checked on every enqueue: cheap, and the only moment
+    that matters."""
+    global _worker_thread
+    with _WORKER_LOCK:
+        if _worker_thread is not None and _worker_thread.is_alive():
+            return
+        print("[job_queue] worker thread not alive -- starting a new one", flush=True)
+        _worker_thread = threading.Thread(target=_worker, daemon=True, name="chef-job-worker")
+        _worker_thread.start()
 
 
 def enqueue(kind: str, label: str, fn: Callable[[], dict], dedup_key: str | None = None) -> tuple[str, bool]:
@@ -112,6 +143,7 @@ def enqueue(kind: str, label: str, fn: Callable[[], dict], dedup_key: str | None
         _JOBS_ORDER.append(jid)
         while len(_JOBS_ORDER) > JOBS_MAX:
             _JOBS.pop(_JOBS_ORDER.pop(0), None)
+    _ensure_worker_alive()
     _JOB_Q.put((jid, fn))
     return jid, True
 
@@ -142,6 +174,11 @@ def list_jobs() -> dict:
             "typical_seconds": round(typical) if typical is not None else None,
             "pct_of_typical": round(elapsed / typical * 100) if typical else None,
             "over_typical": bool(typical and elapsed > typical * 1.5),
+            # See STALLED_AFTER_SECONDS -- an honest "this has been running
+            # far longer than any generation should" signal the UI can show,
+            # instead of an indefinite spinner that looks identical to
+            # normal progress.
+            "stalled": elapsed > STALLED_AFTER_SECONDS,
         }
     return {
         "queued": queued,
@@ -204,8 +241,8 @@ def _worker() -> None:
             job["finished_at"] = time.time()
 
 
-_worker_thread = threading.Thread(target=_worker, daemon=True, name="chef-job-worker")
-_worker_thread.start()
+_worker_thread: threading.Thread | None = None
+_ensure_worker_alive()
 
 
 def _reset_for_tests() -> None:

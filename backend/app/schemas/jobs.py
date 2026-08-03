@@ -31,6 +31,12 @@ class JobProgress(BaseModel):
     typical_seconds: float | None = None
     pct_of_typical: float | None = None
     over_typical: bool = False
+    # True once a job has been running longer than any generation
+    # plausibly should (job_queue.STALLED_AFTER_SECONDS). The job is not
+    # killed -- this exists so the UI can say "this looks stuck, the
+    # Ollama host may be unreachable" instead of showing an indefinite
+    # spinner that looks identical to normal progress.
+    stalled: bool = False
 
 
 class JobRead(BaseModel):

@@ -14,7 +14,17 @@ services:
     container_name: chef-backend
     restart: unless-stopped
     env_file:
-      - .env
+      # `required: false` so a fresh clone starts with `docker compose up
+      # --build` and no manual step. Every value in .env has a working
+      # default here or in settings_service's SETTING_SPECS, and the
+      # runtime-configurable ones (Ollama URL/models, Tavily key) are meant
+      # to be set from the Settings page anyway -- .env is bootstrap
+      # convenience, not a requirement. Previously this was mandatory, so a
+      # clone without a hand-copied .env failed to start at all, which is
+      # the opposite of the README's stated goal. Needs Docker Compose
+      # v2.24 or newer for the `required` key.
+      - path: .env
+        required: false
     ports:
       # Author-reported 2026-08-03: as of frontend/server.js, a browser
       # never needs to reach these directly anymore -- the frontend
@@ -77,13 +87,29 @@ services:
       # the in-app WIKI's "Recipe folder import" entry for the full
       # walkthrough.
       # - /path/on/this/host/to/your/recipes:/app/data/recipe_import:ro
+    # Uses Python rather than curl/wget: the slim base image ships neither,
+    # and adding one just for a healthcheck is a package for nothing.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('BACKEND_PORT','8095')+'/health', timeout=3).status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      # Generous: the first start runs migrations and seeding before the
+      # server binds, and this hardware is not fast.
+      start_period: 60s
+      retries: 5
 
   frontend:
     build: ./frontend
     container_name: chef-frontend
     restart: unless-stopped
     env_file:
-      - .env
+      # See the backend service's note above.
+      - path: .env
+        required: false
     ports:
       # Same host==container port-mapping fix as the backend above, and
       # for the same reason: docker-entrypoint.sh's supervisor loop binds
@@ -106,8 +132,14 @@ services:
       # Backlog B15.1 -- read-only: the frontend only ever READS the
       # certificate the backend generated/imported, never writes one.
       - chef-tls:/app/tls:ro
+    # `service_healthy`, not a bare `depends_on`. The backend runs Alembic
+    # migrations and the seed script before uvicorn starts, so a plain
+    # dependency lets this container begin proxying to a backend that isn't
+    # listening yet -- which surfaces to the user as a 502 on first load
+    # with no indication it is transient.
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   chef-data:

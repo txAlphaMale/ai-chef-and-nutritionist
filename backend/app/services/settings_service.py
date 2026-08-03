@@ -112,6 +112,24 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="OLLAMA_NUM_CTX",
     ),
     SettingSpec(
+        key="ollama_timeout_seconds",
+        label="Ollama request timeout (seconds)",
+        is_secret=False,
+        default="600",
+        description=(
+            "How long to wait for a single Ollama generation before giving up. "
+            "The ollama-python client's own default is NO timeout at all, which "
+            "means one stalled generation (a model still loading into VRAM, a "
+            "large model thrashing, a network blip to the Ollama host) blocks "
+            "the app's single background worker thread forever -- taking down "
+            "chat, imports, vision intake and meal planning together, with no "
+            "error shown. This bounds that. Raise it if a genuinely slow model "
+            "on this hardware needs longer than 10 minutes for one call; the "
+            "connect timeout is separate and always short."
+        ),
+        env_fallback="OLLAMA_TIMEOUT_SECONDS",
+    ),
+    SettingSpec(
         key="tavily_api_key",
         label="Tavily API key",
         is_secret=True,

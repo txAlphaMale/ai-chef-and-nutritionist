@@ -137,6 +137,10 @@ def build_overpass_query(lat: float, lon: float, radius_m: int) -> str:
         f"(\n"
         f'  node["amenity"~"^(restaurant|cafe|fast_food)$"](around:{radius_m},{lat},{lon});\n'
         f'  way["amenity"~"^(restaurant|cafe|fast_food)$"](around:{radius_m},{lat},{lon});\n'
+        # Relations too: a venue mapped as a multipolygon (a mall food
+        # court, a building with a courtyard) is a relation, not a node or
+        # a way, and was silently missing from every search.
+        f'  relation["amenity"~"^(restaurant|cafe|fast_food)$"](around:{radius_m},{lat},{lon});\n'
         f");\n"
         f"out tags center;"
     )
@@ -174,6 +178,8 @@ def parse_overpass_response(data: dict, origin_lat: float, origin_lon: float) ->
         if el.get("type") == "node":
             lat, lon = el.get("lat"), el.get("lon")
         else:
+            # Ways and relations have no coordinate of their own; `out
+            # center` supplies a representative point for both.
             center = el.get("center") or {}
             lat, lon = center.get("lat"), center.get("lon")
         if lat is None or lon is None:
@@ -191,10 +197,37 @@ def parse_overpass_response(data: dict, origin_lat: float, origin_lon: float) ->
                 "cuisine": tags.get("cuisine"),
                 "address": _format_address(tags),
                 "diet_tags": diet_tags,
+                # Contact and hours were being fetched and thrown away.
+                # `out tags center` returns EVERY tag on the element, so
+                # all of this was already on the wire and already paid
+                # for -- the parser simply never read it, leaving results
+                # with no way to call ahead (the one thing the safety
+                # framing everywhere else in this module tells the user to
+                # do) or check a menu.
+                "website": tags.get("website") or tags.get("contact:website"),
+                "phone": tags.get("phone") or tags.get("contact:phone"),
+                "opening_hours": tags.get("opening_hours"),
+                "wheelchair": tags.get("wheelchair"),
+                # Deep link to the venue on OSM. Built from data already
+                # present rather than adding a mapping dependency; the
+                # frontend also renders a plain coordinate link so any map
+                # app can take over.
+                "map_url": _osm_map_url(el.get("type"), el.get("id"), lat, lon),
             }
         )
     places.sort(key=lambda p: p["distance_m"])
     return places
+
+
+def _osm_map_url(osm_type: str | None, osm_id, lat: float, lon: float) -> str:
+    """A link to the venue's own OSM page when we have its identity, else
+    a pin at its coordinates. Keyless, no tile-server dependency, and it
+    carries the venue's full tag list -- which is genuinely useful here,
+    since a household verifying a gluten-free claim wants to see what the
+    underlying data actually says and when it was last touched."""
+    if osm_type in ("node", "way", "relation") and osm_id is not None:
+        return f"https://www.openstreetmap.org/{osm_type}/{osm_id}"
+    return f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=18/{lat}/{lon}"
 
 
 async def search_nearby_restaurants(lat: float, lon: float, radius_m: int = 5000) -> list[dict]:
@@ -368,4 +401,65 @@ def evaluate_restrictions(place: dict, restricted_allergens: list[str], gluten_o
         "per_allergen": per_allergen,
         "allergens_with_no_data_source": no_data_source,
         "caution": caution,
+    }
+
+
+# --- Ranking against the household's restrictions ----------------------
+#
+# `evaluate_restrictions` below produces a verdict per restricted
+# allergen, but nothing used to act on it: results were sorted by distance
+# and then cut to the nearest 50. In any moderately dense area that is
+# strictly worse than not filtering, because the nearest 50 venues are
+# almost all untagged, so a genuinely `diet:gluten_free=only` place three
+# kilometres out was discarded before the household ever saw it. The one
+# feature here with real safety relevance was the one throwing away the
+# relevant results.
+#
+# Ranking, not filtering, is the right primitive. A missing tag means
+# UNKNOWN, never "unsafe" -- OSM coverage is uneven and skews urban, and
+# hiding untagged venues would imply a completeness the data does not
+# have. So everything is returned, ordered so that what the household can
+# actually eat is at the top.
+_VERDICT_RANK = {
+    "only": 0,      # entire menu fits the restriction
+    "yes": 1,       # options available
+    "limited": 2,   # contested tag value, but a real signal
+    "unknown": 3,   # no tag on this venue -- not a judgement either way
+    "no_data": 4,   # OSM has no tag for this allergen at all
+    "no": 5,        # explicitly not available
+}
+
+
+def restriction_sort_key(evaluated_place: dict) -> tuple:
+    """Sort key placing the best-evidenced matches first, distance second.
+
+    Uses the WORST verdict across all restricted allergens, not the best:
+    a place tagged gluten-free but explicitly not dairy-free is not a
+    match for a household restricting both, and averaging would hide that.
+    A household with no restrictions set gets pure distance ordering,
+    which is the sensible default when there is nothing to rank against."""
+    per_allergen = (evaluated_place.get("per_allergen") or {}).values()
+    worst = max((_VERDICT_RANK.get(v, 3) for v in per_allergen), default=3)
+    return (worst, evaluated_place.get("distance_m", 0))
+
+
+def summarize_coverage(evaluated_places: list[dict]) -> dict:
+    """Counts behind the results, so absence of data stays visible instead
+    of looking like absence of options -- the safety-framing requirement
+    this module is built around, applied to the result set as a whole
+    rather than only to individual venues."""
+    tagged = sum(
+        1
+        for p in evaluated_places
+        if any(v in ("only", "yes", "limited") for v in (p.get("per_allergen") or {}).values())
+    )
+    untagged = sum(
+        1
+        for p in evaluated_places
+        if (p.get("per_allergen") or {}) and all(v == "unknown" for v in p["per_allergen"].values())
+    )
+    return {
+        "total": len(evaluated_places),
+        "with_matching_tag": tagged,
+        "untagged": untagged,
     }

@@ -15,6 +15,10 @@ from app.services import dining_service
 
 router = APIRouter(prefix="/api/dining", tags=["dining"])
 
+# Enough to be useful without returning an unscrollable wall. Applied
+# AFTER restriction ranking, never before -- see nearby_restaurants.
+MAX_RESULTS = 50
+
 
 @router.get("/geocode", response_model=list[GeocodeResult])
 async def geocode_location(query: str):
@@ -85,8 +89,15 @@ async def nearby_restaurants(
     restricted = (prefs.restricted_allergens or []) if prefs else []
     observance = prefs.gluten_observance_level if prefs else None
 
-    results = []
-    for place in places[:50]:  # cap -- a dense downtown search can return hundreds
-        evaluation = dining_service.evaluate_restrictions(place, restricted, observance)
-        results.append({**place, **evaluation})
-    return results
+    # Evaluate EVERY result before capping, then rank, then cap.
+    #
+    # The order used to be the other way round -- `places[:50]` (nearest
+    # first) and only then evaluate -- which in a dense area threw away
+    # every tagged match beyond the 50th-nearest venue. The restriction
+    # check is pure local computation over data already fetched, so
+    # running it on the full result set costs nothing.
+    evaluated = [
+        {**place, **dining_service.evaluate_restrictions(place, restricted, observance)} for place in places
+    ]
+    evaluated.sort(key=dining_service.restriction_sort_key)
+    return evaluated[:MAX_RESULTS]

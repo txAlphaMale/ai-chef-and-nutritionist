@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
 from app.services import ollama_client, recipe_image_service, unit_conversion_service
+from app.schemas.ai_extraction import ExtractedRecipe, ExtractedRecipeEdit, schema_of
 from app.services.ai_json_extraction import extract_json_object
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
@@ -215,6 +216,25 @@ OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fen
 # {content} token above is left alone here and filled in later, per-call,
 # also via str.replace() (see this section's comment above for why
 # .format() was dropped app-wide for this prompt).
+
+
+# Constrained-decoding schema for every recipe extraction path (pasted
+# text, PDF, photo, HTML with no JSON-LD, and the folder importer). The
+# prompt's OUTPUT FORMAT section above is now a human-readable restatement
+# of this -- the schema is what the model is actually held to. See
+# app/schemas/ai_extraction.py for why this replaced prompt-only
+# instructions.
+RECIPE_SCHEMA = schema_of(ExtractedRecipe)
+
+# A full recipe -- title, description, every ingredient, every instruction
+# step, nutrition, tags and tips -- is one of the longest responses this
+# app asks for. Reserved explicitly so a long source can never crowd the
+# answer out of the context window (done_reason "length").
+RECIPE_RESPONSE_TOKENS = 2500
+
+# The recipe-scoped chat's shape: a conversational reply plus an optional
+# full replacement recipe the user reviews before anything is saved.
+RECIPE_EDIT_SCHEMA = schema_of(ExtractedRecipeEdit)
 
 
 def get_recipe_import_prompt(db: Session) -> str:
@@ -872,11 +892,15 @@ def _extract_via_ollama(db: Session, content: str) -> str:
     always the messier, no-structured-data path for file-based imports."""
     prompt_template = get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=2500
+        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=RECIPE_RESPONSE_TOKENS
     )
     prompt = prompt_template.replace("{content}", content[:budget])
-    response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
-    return ollama_client.extract_content(response)
+    return ollama_client.chat_json(
+        db,
+        [{"role": "user", "content": prompt}],
+        schema=RECIPE_SCHEMA,
+        response_tokens=RECIPE_RESPONSE_TOKENS,
+    )
 
 
 def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, content_type: str = "") -> dict:
@@ -931,10 +955,13 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
         )
         default_source = "import_file_jsonld"
     elif content_type.startswith("image/"):
-        response = ollama_client.describe_image(
-            db, raw_bytes, get_recipe_import_prompt(db).replace("{content}", "[see attached photo]")
+        raw_output = ollama_client.describe_image_json(
+            db,
+            raw_bytes,
+            get_recipe_import_prompt(db).replace("{content}", "[see attached photo]"),
+            schema=RECIPE_SCHEMA,
+            response_tokens=RECIPE_RESPONSE_TOKENS,
         )
-        raw_output = ollama_client.extract_content(response)
         default_source = "import_image"
         try:
             image_path = recipe_image_service.save_image(content_type, raw_bytes)
@@ -942,6 +969,19 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
             pass  # unsupported content type -- skip, not fatal to the import
     elif content_type == "application/pdf" or filename_lower.endswith(".pdf"):
         pdf_text = extract_pdf_text(raw_bytes)
+        if not pdf_text.strip():
+            # A scanned or photographed PDF has no text layer, so pypdf
+            # correctly returns nothing. Sending that empty string on as
+            # the prompt's SOURCE block produced "Could not extract a
+            # recipe from that input" -- indistinguishable, from the
+            # user's side, from a genuine parse failure on a perfectly
+            # readable file. The receipt importer already guards this;
+            # the recipe importer did not.
+            raise RuntimeError(
+                "That PDF has no extractable text -- it looks like a scan or a photo saved as a PDF. "
+                "Export or save a text-based PDF, or upload the page as an image instead so the "
+                "vision model can read it."
+            )
         raw_output = _extract_via_ollama(db, pdf_text)
         default_source = "import_file"
     elif filename_lower.endswith((".html", ".htm")):
