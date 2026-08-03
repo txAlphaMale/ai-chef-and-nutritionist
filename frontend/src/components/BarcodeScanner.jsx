@@ -1,226 +1,205 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserCodeReader, BrowserMultiFormatReader } from "@zxing/browser";
 
-// Backlog B4.1 (author-requested 2026-08-01): a camera-based barcode
-// scanner, using ZXing -- a pure-JS decoder that runs entirely in the
-// browser, no server round trip needed to read the barcode itself
-// (only the decoded number is sent to the backend, via GET /api/
-// inventory/barcode-lookup).
+// Camera barcode scanner, using ZXing -- a pure-JS decoder that runs
+// entirely in the browser, so only the decoded number is sent to the
+// backend (GET /api/inventory/barcode-lookup).
 //
-// Deliberately the ONLY implementation path here, not "native
-// BarcodeDetector Web API with a ZXing fallback": verified live (2026)
-// that Safari, and every browser on iOS/iPadOS (WebKit is the only
-// rendering engine Apple allows there, so this applies to "Chrome for
-// iOS"/"Firefox for iOS" too, not just Safari itself), do not implement
-// BarcodeDetector, with no Apple-announced timeline to add it. The
-// author explicitly needs this to work on a phone and an iPad with no
-// dedicated scanner peripheral -- branching on native-API availability
-// would leave iOS users on a second, far-less-exercised code path for
-// no real benefit, so this app always uses ZXing, on every platform.
+// ZXing is the only implementation path here, not "native BarcodeDetector
+// with a ZXing fallback". Safari and every browser on iOS/iPadOS (WebKit
+// is the only engine Apple permits, so this covers "Chrome for iOS" and
+// "Firefox for iOS" too) do not implement BarcodeDetector. Branching on
+// native availability would put iOS on a second, far-less-exercised path
+// for no benefit, so every platform uses ZXing.
 //
-// A desktop/laptop webcam can decode a standard UPC-A/EAN-13 grocery
-// barcode too, just less reliably than a phone camera at close range
-// (lower resolution, harder to get the barcode in focus at typical
-// webcam distance) -- a real, physical-hardware limitation, not
-// something this component can code around. The manual entry field
-// below exists specifically for that case (and for a barcode that's too
-// worn/damaged to scan at all).
+// A desktop webcam can decode a UPC-A/EAN-13 grocery barcode, just less
+// reliably than a phone at close range -- a physical limitation, not
+// something this component can code around. The manual entry field below
+// exists for that case, and for a barcode too worn to scan at all.
 export default function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
   const controlsRef = useRef(null);
+  const streamRef = useRef(null);
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState("");
+  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const [manualBarcode, setManualBarcode] = useState("");
-  // True once camera permission has been granted and device enumeration
-  // has been attempted -- see the two effects below for why decoding is
-  // gated on this rather than on a device id.
-  const [ready, setReady] = useState(false);
 
-  // `onDetected` is held in a ref rather than depended on directly.
-  //
-  // The parent recreates that callback on every render, so listing it in
-  // the decode effect's dependency array tore the camera down and
-  // restarted it on every parent state change -- visible as a flickering
-  // preview and, on slower devices, a scanner that never stayed up long
-  // enough to decode anything. The ref keeps the effect stable while
-  // still always calling the current callback.
+  // `onDetected` is held in a ref rather than depended on directly. The
+  // parent recreates that callback every render, so depending on it tore
+  // the camera down and restarted it on every parent state change --
+  // visible as a flickering preview, and on slower devices a scanner
+  // that never stayed up long enough to decode anything.
   const onDetectedRef = useRef(onDetected);
   useEffect(() => {
     onDetectedRef.current = onDetected;
   }, [onDetected]);
 
-  // Step 1: request camera permission, THEN enumerate devices.
+  const stopEverything = useCallback(() => {
+    // controls.stop() disposes the stream ZXing was given, but it only
+    // exists once decoding actually started. Stopping the raw stream too
+    // covers the window before that, where a quick cancel would
+    // otherwise leave the camera light on.
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  // One camera acquisition, not two.
   //
-  // Order is the whole bug. WebKit deliberately withholds device identity
-  // until camera access has been granted -- on iOS and iPadOS (where
-  // every browser is WebKit, including "Chrome" and "Firefox"),
-  // `enumerateDevices()` on an unpermissioned origin returns entries with
-  // empty labels and empty/obfuscated `deviceId` values.
+  // WebKit withholds device identity until camera access has been
+  // granted: on an unpermissioned origin `enumerateDevices()` returns
+  // entries with empty labels and empty/obfuscated ids. So permission has
+  // to come first, and enumeration second -- gating the stream on a
+  // device id means `getUserMedia` is never called at all and the camera
+  // silently never engages.
   //
-  // This component used to call `listVideoInputDevices()` first and then
-  // gate everything on the resulting `deviceId`. On iOS that id was `""`,
-  // which is falsy, so the decode effect below returned immediately and
-  // `getUserMedia` was never called at all. No permission prompt, no
-  // video element, no error -- the camera simply never engaged, which is
-  // exactly what was reported. It failed over HTTPS too, so it was never
-  // the secure-context problem it was mistaken for.
-  //
-  // Requesting a stream first triggers the prompt and unlocks real device
-  // labels and ids, so the camera picker below works on the second pass.
+  // The stream opened for that permission step is then handed straight to
+  // `decodeFromStream`, rather than released so ZXing can open its own.
+  // Two acquisitions per scan is a second camera start, and on WebKit a
+  // second opportunity to prompt.
   useEffect(() => {
     // Checked first and unconditionally: WebKit keeps
     // `navigator.mediaDevices.getUserMedia` PRESENT on an insecure origin
-    // but never settles calls made through it, so a feature-detection
-    // check passes and then hangs forever with nothing shown.
+    // but never settles calls made through it, so feature detection
+    // passes and then hangs forever with nothing shown.
     if (window.isSecureContext === false) {
       setError(
         "Camera access needs HTTPS (or localhost) -- this page was loaded over a plain, non-secure connection. Type the barcode number below instead."
       );
-      return;
+      return undefined;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("This browser doesn't support camera access. Type the barcode number below instead.");
-      return;
+      return undefined;
     }
 
-    readerRef.current = new BrowserMultiFormatReader();
     let cancelled = false;
+    readerRef.current = readerRef.current || new BrowserMultiFormatReader();
 
-    async function requestPermissionThenEnumerate() {
+    async function start() {
+      setError(null);
+      setScanning(false);
+
       let stream;
       try {
-        // `ideal`, not `exact`: a laptop with only a front-facing webcam
-        // must still get a stream rather than an OverconstrainedError.
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          // `ideal`, not `exact`, for facingMode: a laptop with only a
+          // front-facing webcam must still get a stream rather than an
+          // OverconstrainedError. An explicitly chosen device IS exact --
+          // if the user picked a camera, silently using a different one
+          // is worse than failing.
+          video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: "environment" } },
         });
       } catch (err) {
         if (!cancelled) setError(cameraErrorMessage(err));
         return;
       }
-      // The probe stream's only job was to unlock permission. Release it
-      // immediately -- ZXing opens its own, and leaving this one running
-      // means two live camera tracks and a permission indicator that
-      // never goes out.
-      stream.getTracks().forEach((track) => track.stop());
-      if (cancelled) return;
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = stream;
 
-      let list = [];
+      // Labels are readable now that permission is granted. Only needed
+      // to populate the optional picker, so a failure here is not fatal.
       try {
-        list = await BrowserCodeReader.listVideoInputDevices();
+        const list = await BrowserCodeReader.listVideoInputDevices();
+        if (!cancelled) setDevices(list);
       } catch {
-        // Enumeration is only needed for the camera PICKER. Failing it is
-        // not fatal: falling through with an empty device id makes ZXing
-        // use the browser's default camera, which is the right one on
-        // most phones anyway.
-        list = [];
+        /* picker stays empty; the default camera is already streaming */
       }
       if (cancelled) return;
 
-      setDevices(list);
-      // Most phones and tablets label the rear camera "back"/"rear"/
-      // "environment". Prefer it -- it is the one pointed at the product
-      // in your hand. The browser's own first entry is often the selfie
-      // camera.
-      const rear = list.find((d) => /back|rear|environment/i.test(d.label || ""));
-      setDeviceId((rear || list[0])?.deviceId || "");
-      setReady(true);
+      try {
+        const controls = await readerRef.current.decodeFromStream(stream, videoRef.current, (result, err) => {
+          if (result) {
+            stopEverything();
+            onDetectedRef.current(result.getText());
+            return;
+          }
+          // ZXing invokes this on every frame, decoded or not. A frame
+          // with no readable barcode is the normal state while hunting
+          // for one -- only a genuine stream/device failure is worth
+          // surfacing.
+          if (err && !isScanMiss(err)) setError(cameraErrorMessage(err));
+        });
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
+        controlsRef.current = controls;
+        setScanning(true);
+      } catch (err) {
+        if (!cancelled) setError(cameraErrorMessage(err));
+      }
     }
 
-    requestPermissionThenEnumerate();
+    start();
 
     return () => {
       cancelled = true;
-      controlsRef.current?.stop();
-      controlsRef.current = null;
+      stopEverything();
     };
-  }, []);
-
-  // Step 2: decode. Runs once permission has been granted, whether or not
-  // enumeration produced a usable device id -- an empty id tells ZXing to
-  // use the default camera, which is a working scanner rather than the
-  // blank panel the old `if (!deviceId) return` produced.
-  useEffect(() => {
-    if (!ready || !videoRef.current || !readerRef.current) return;
-    let stopped = false;
-    setError(null);
-
-    readerRef.current
-      .decodeFromVideoDevice(deviceId || undefined, videoRef.current, (result, err, controls) => {
-        // Captured on every callback so the cleanup below can stop the
-        // stream even if the component unmounts before the first decode.
-        // Previously `controlsRef` stayed null until this fired, so a
-        // quick cancel leaked the MediaStream and left the camera light on.
-        controlsRef.current = controls;
-        if (stopped) {
-          controls.stop();
-          return;
-        }
-        if (result) {
-          stopped = true;
-          controls.stop();
-          onDetectedRef.current(result.getText());
-          return;
-        }
-        // ZXing invokes this on every video frame, decoded or not -- a
-        // "NotFoundException" just means no barcode was readable in THAT
-        // frame, which is the normal state while hunting for one. Only a
-        // genuine stream/device failure is worth surfacing.
-        if (err && err.name !== "NotFoundException") {
-          setError(cameraErrorMessage(err));
-        }
-      })
-      .catch((err) => setError(cameraErrorMessage(err)));
-
-    return () => {
-      stopped = true;
-      controlsRef.current?.stop();
-      controlsRef.current = null;
-    };
-  }, [deviceId, ready]);
+  }, [deviceId, stopEverything]);
 
   function handleManualSubmit(e) {
     e.preventDefault();
     if (!manualBarcode.trim()) return;
-    controlsRef.current?.stop();
+    stopEverything();
     onDetected(manualBarcode.trim());
   }
 
   function handleClose() {
-    controlsRef.current?.stop();
+    stopEverything();
     onClose();
   }
 
   return (
     <div className="barcode-scanner">
-      {devices.length > 1 && (
-        <label className="barcode-scanner-device">
-          Camera
-          <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
-            {devices.map((d, i) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Camera ${i + 1}`}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {/* Rendered as soon as permission is granted, not once a device id
-          exists. On iOS the id is legitimately empty and the browser picks
-          the default camera -- gating the <video> on it left an empty
-          panel with the camera running behind it. */}
-      {ready && !error && (
+      {!error && (
         <div className="barcode-scanner-video-wrap">
+          {/* Mounted before decoding starts, not after: decodeFromStream
+              needs this element to attach the stream to. */}
           <video ref={videoRef} className="barcode-scanner-video" muted playsInline autoPlay />
         </div>
       )}
-      {!ready && !error && <p className="hint">Waiting for camera permission...</p>}
+      {!error && !scanning && <p className="hint">Starting the camera...</p>}
       {error && <p className="error-text">{error}</p>}
-      {ready && !error && (
+      {!error && scanning && (
         <p className="hint">Point the camera at a barcode -- it scans automatically, no button to press.</p>
       )}
+
+      {/* Hidden behind a toggle. `facingMode: environment` already picks
+          the right camera, and a phone enumerates every physical lens
+          (triple, ultra wide, telephoto...) -- a list that is noise
+          unless the default actually picked wrong. */}
+      {!error && devices.length > 1 && (
+        <div className="barcode-scanner-device">
+          {showPicker ? (
+            <label>
+              Camera
+              <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+                <option value="">Automatic (rear camera)</option>
+                {devices.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Camera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowPicker(true)}>
+              Use a different camera
+            </button>
+          )}
+        </div>
+      )}
+
       <form className="barcode-scanner-manual" onSubmit={handleManualSubmit}>
         <input
           placeholder="Or type the barcode number"
@@ -240,6 +219,38 @@ export default function BarcodeScanner({ onDetected, onClose }) {
       </div>
     </div>
   );
+}
+
+// Errors ZXing raises per-frame that mean "nothing readable here", not
+// "the camera broke".
+const SCAN_MISS_KINDS = new Set(["NotFoundException", "ChecksumException", "FormatException"]);
+
+// Classify by ZXing's own `kind`, NEVER by `err.name`.
+//
+// @zxing/library's exceptions do not set `.name` at all. It comes from
+// ts-custom-error, which assigns `new.target.name` -- the constructor's
+// function name, which a production minifier rewrites to something like
+// "e". So `err.name === "NotFoundException"` is true in dev and false in
+// every built bundle, which turned the normal no-barcode-in-this-frame
+// case into a fatal "Could not start the camera" on the first frame and
+// made the scanner unusable in the container while testing clean in dev.
+//
+// `kind` is a static string literal on each exception class, so it
+// survives minification intact.
+function zxingKind(err) {
+  if (!err) return null;
+  if (typeof err.getKind === "function") {
+    try {
+      return err.getKind();
+    } catch {
+      /* fall through to the static */
+    }
+  }
+  return err.constructor?.kind ?? null;
+}
+
+function isScanMiss(err) {
+  return SCAN_MISS_KINDS.has(zxingKind(err));
 }
 
 function cameraErrorMessage(err) {
