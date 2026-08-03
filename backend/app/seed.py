@@ -27,7 +27,9 @@ from app.models import (
     MealTag,
     SystemPrompt,
 )
+from app.routers.inventory import RECEIPT_IMPORT_PROMPT, VISION_PROMPT
 from app.services import knowledge_service, settings_service
+from app.services.recipe_service import RECIPE_IMPORT_PROMPT, RECIPE_MODIFY_INSTRUCTIONS
 
 # Backlog B2.1 (2026-08-01): bundled, repo-shipped reference documents so
 # every external user starts with SOME grounding for the "grounded in
@@ -219,6 +221,28 @@ def seed() -> None:
                     is_active=True,
                 )
             )
+
+        # Backlog B16.1 (author-requested 2026-08-03): the AI import/
+        # extraction prompts -- previously hardcoded Python constants a
+        # household could only change by editing code and rebuilding the
+        # container -- are now SystemPrompt rows too, seeded with the
+        # exact same text the code otherwise falls back to (see each of
+        # recipe_service.get_recipe_import_prompt/get_recipe_modify_prompt
+        # and routers/inventory.py's get_receipt_import_prompt/
+        # get_vision_prompt: "DB row if present and active, else this
+        # module's own constant"). Seeding these means a fresh install's
+        # Settings page shows the REAL prompt text ready to tweak, not an
+        # empty box -- and unlike main_chef/dietary_onboarding, unchecking
+        # "Active" on one of these has a precise, safe meaning: revert to
+        # the shipped default without losing the household's draft edit.
+        for prompt_key, default_content in (
+            ("recipe_import", RECIPE_IMPORT_PROMPT),
+            ("recipe_modify", RECIPE_MODIFY_INSTRUCTIONS),
+            ("receipt_import", RECEIPT_IMPORT_PROMPT),
+            ("vision_intake", VISION_PROMPT),
+        ):
+            if not db.query(SystemPrompt).filter_by(prompt_key=prompt_key).first():
+                db.add(SystemPrompt(prompt_key=prompt_key, content=default_content, is_active=True))
 
         db.commit()
 

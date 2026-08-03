@@ -1,0 +1,257 @@
+"""Shared, defensive JSON-from-model-text extraction, used by every AI
+call site in this app that asks Ollama for a single JSON object or array
+and has to cope with what a real local model actually sends back.
+
+Bug fix (2026-08-03, author-reported: recipe PDF import went from
+"parses wrong" to "totally broken" -- "Could not extract a recipe from
+that input" on a plain, well-formed two-page recipe PDF). Root cause,
+found by tracing every consumer of `_extract_json_object` (recipe
+import, the recipe-chat "propose an edit" flow, health-metrics/bloodwork
+free-text parsing, and meal-plan generation's `new_recipe` proposals --
+ALL five of these share one function): that function was still the
+original naive implementation --
+
+    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+
+-- a GREEDY regex spanning the FIRST "{" anywhere in the response to the
+LAST "}" anywhere in it, with zero defense against a `<think>...</think>`
+reasoning trace landing inline in `message.content`. `ollama_client.chat`
+already requests `think=False` on every call, but its own module
+docstring documents this is NOT honored by every Ollama server version /
+model chat template combination -- and the household's configured chat
+model (`qwen3.6:27b`, a thinking-capable model, swapped in 2026-08-02)
+makes an inline trace containing a scratch JSON draft ("let me structure
+this: { "title": ... }") a routine occurrence, not a rare edge case. The
+greedy regex then spans from a brace INSIDE that scratch draft to the
+real answer's closing brace, producing unparseable garbage, which
+`_extract_json_object` silently turned into `{}` -- indistinguishable to
+the user from "the model genuinely couldn't find a recipe."
+
+This exact failure mode was already found, root-caused, and fixed once
+before -- for the ARRAY-shaped receipt/vision-intake responses, in
+`inventory_service.py`'s `_extract_json_array` (see that function's own
+2026-08-02 bug-fix comment for the original investigation). This module
+is that same fix, generalized: `strip_reasoning` (moved here verbatim)
+plus a string-aware bracket-matching scan, offered for BOTH array and
+object shapes, so every JSON-consuming AI call site in this app --
+recipe import, recipe-chat edits, health/bloodwork parsing, meal-plan
+generation, receipt/vision intake -- gets the same defense instead of
+half the app having it and the other half not.
+"""
+from __future__ import annotations
+
+import json
+import re
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_ORPHAN_THINK_CLOSE_RE = re.compile(r"^.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(raw_text: str) -> str:
+    """Removes a thinking/reasoning trace from model output before any
+    JSON extraction is attempted. Two shapes are handled: a complete
+    `<think>...</think>` block, and a bare trailing `</think>` with no
+    opening tag (what you get when the chat template itself opens the
+    tag, so the opener never appears in the returned content -- observed
+    behavior, not a hypothetical, see inventory_service's original
+    investigation)."""
+    text = _THINK_BLOCK_RE.sub(" ", raw_text)
+    if "</think>" in text.lower():
+        text = _ORPHAN_THINK_CLOSE_RE.sub(" ", text)
+    return text
+
+
+def _scan_bracketed(text: str, start: int, open_char: str, close_char: str) -> tuple[int | None, list[tuple[int, int]]]:
+    """Bracket-matching scan starting at `text[start] == open_char`,
+    string-aware so brackets/braces inside string values (a free-text
+    "confidence_note"/"description" field, say) don't throw off the depth
+    count. Handles either shape (`[`/`]` for an array, `{`/`}` for an
+    object) via the caller-supplied character pair, so the array and
+    object extractors below share one implementation instead of two
+    near-identical copies.
+
+    Returns `(end_index_exclusive, top_level_spans)`:
+      - `end_index_exclusive` is None if the bracket is never closed --
+        i.e. generation was cut off mid-structure (the context/
+        `num_predict` limit -- `done_reason` "length" in ollama_client's
+        response log).
+      - `top_level_spans` are the (start, end_exclusive) spans of every
+        depth-1 `{...}` object found directly inside the structure --
+        meaningful for an array (each element), and also collected for
+        an object (each `{`/`[`-valued property) so a truncated OBJECT
+        can still recover a nested object it fully contains even when
+        the outer object itself never closes.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    object_start: int | None = None
+    spans: list[tuple[int, int]] = []
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            if char == "{" and depth == 1 and object_start is None:
+                object_start = index
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if char == "}" and depth == 1 and object_start is not None:
+                spans.append((object_start, index + 1))
+                object_start = None
+            if depth == 0:
+                return index + 1, spans
+    return None, spans
+
+
+def _scan_top_level_pair_boundary(text: str, start: int) -> int | None:
+    """Companion scan for OBJECT truncation salvage: walks `text[start] ==
+    "{"` tracking depth-1 (i.e. this object's own top-level, not a nested
+    value's) commas, string-aware exactly like `_scan_bracketed`. Returns
+    the index of the LAST depth-1 comma seen before the text ends (or
+    None if none was seen) -- the end of the last fully-formed "key":
+    value pair, and therefore a safe point to truncate a cut-off object
+    at and append a closing "}" to recover a partial-but-valid result
+    (e.g. title/description/ingredients present but a long
+    "instructions" array cut off mid-generation)."""
+    depth = 0
+    in_string = False
+    escaped = False
+    last_top_level_comma: int | None = None
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if depth == 0:
+                return last_top_level_comma  # closed normally -- caller won't reach here needing salvage anyway
+        elif char == "," and depth == 1:
+            last_top_level_comma = index
+    return last_top_level_comma
+
+
+def _salvage_array_objects(text: str, spans: list[tuple[int, int]]) -> list:
+    """Parses each individually-complete `{...}` element of an array that
+    could not be parsed as a whole (truncated mid-generation, or a
+    trailing comma). Elements that don't parse on their own are skipped
+    rather than failing the batch -- a partial result is strictly better
+    than the zero items a naive parse failure would return."""
+    salvaged = []
+    for object_start, object_end in spans:
+        try:
+            entry = json.loads(text[object_start:object_end])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            salvaged.append(entry)
+    return salvaged
+
+
+def extract_json_array(raw_text: str) -> list:
+    """Pulls the first genuinely-populated JSON array out of a model's
+    raw answer -- reasoning trace stripped, string-aware bracket-matching
+    (never a greedy regex, which a stray bracket anywhere else in the
+    response -- trailing commentary, a lead-in sentence, a second array
+    -- silently corrupts), with truncated-array salvage of whatever
+    complete elements exist before a mid-generation cutoff. An `[]`
+    embedded in prose is treated as a false start and skipped in favor of
+    a later populated array; a response that IS just `[]` (parses
+    strictly on the first attempt) is honored as a genuine "found
+    nothing" answer."""
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        return []
+
+    text = strip_reasoning(raw_text)
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    for start in (index for index, char in enumerate(text) if char == "["):
+        end, spans = _scan_bracketed(text, start, "[", "]")
+        if end is not None:
+            try:
+                parsed = json.loads(text[start:end])
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                if parsed:
+                    return parsed
+                continue  # empty-in-prose is more often a false start -- keep looking
+        salvaged = _salvage_array_objects(text, spans)
+        if salvaged:
+            return salvaged
+    return []
+
+
+def extract_json_object(raw_text: str) -> dict:
+    """Pulls the first genuinely-populated JSON object out of a model's
+    raw answer -- the object-shaped counterpart to `extract_json_array`
+    above, and the direct fix for this module's own bug-fix note: no
+    more greedy first-`{`-to-last-`}` regex. Tries a strict full-text
+    parse first, then a bracket-matching scan of every `{` in the
+    (reasoning-stripped) text, taking the first candidate that parses to
+    a non-empty dict. If a candidate object never closes (truncated
+    mid-generation), attempts one salvage: cut the text at the end of the
+    last fully-formed top-level "key": value pair and close it with `}`
+    -- recovering, say, a recipe's title/description/ingredients even
+    when a long instructions list got cut off mid-array. Returns `{}`
+    (never raises, never returns None) when nothing usable is found,
+    matching every existing caller's "empty dict means nothing extracted"
+    contract."""
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        return {}
+
+    text = strip_reasoning(raw_text)
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    for start in (index for index, char in enumerate(text) if char == "{"):
+        end, _spans = _scan_bracketed(text, start, "{", "}")
+        if end is not None:
+            try:
+                parsed = json.loads(text[start:end])
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+            continue  # empty-in-prose ("{}" as part of an unrelated example) -- keep looking
+
+        salvage_point = _scan_top_level_pair_boundary(text, start)
+        if salvage_point is not None:
+            candidate = text[start:salvage_point] + "}"
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+    return {}

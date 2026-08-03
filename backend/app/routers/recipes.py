@@ -309,10 +309,11 @@ def _run_text_extraction(db: Session, content: str) -> str:
     whose site publishes no schema.org markup) -- exactly the messiest
     sources, where a scraped blog page's SEO/life-story prose commonly
     runs well past what a flat 8000-char cap ever allowed through."""
+    prompt_template = recipe_service.get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(recipe_service.RECIPE_IMPORT_PROMPT), response_reserve_tokens=2500
+        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=2500
     )
-    prompt = recipe_service.RECIPE_IMPORT_PROMPT.format(content=content[:budget])
+    prompt = prompt_template.replace("{content}", content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return ollama_client.extract_content(response)
 
@@ -506,7 +507,7 @@ def chat_about_recipe(recipe_id: int, payload: RecipeChatRequest, db: Session = 
             messages = [
                 {
                     "role": "system",
-                    "content": f"{system_prompt}\n\n{context}\n\n{recipe_service.RECIPE_MODIFY_INSTRUCTIONS}",
+                    "content": f"{system_prompt}\n\n{context}\n\n{recipe_service.get_recipe_modify_prompt(job_db)}",
                 }
             ]
             messages.extend(history)

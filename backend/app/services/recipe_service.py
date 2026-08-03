@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
 from app.services import ollama_client, recipe_image_service, unit_conversion_service
+from app.services.ai_json_extraction import extract_json_object
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
 
@@ -148,63 +149,87 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # --- AI-assisted import -------------------------------------------------
 #
 # Ollama is asked to return a single JSON object matching (most of)
-# RecipeCreate's shape. Real model output often wraps that in prose or
-# markdown fences, so parsing is defensive: try strict JSON, then fall
-# back to extracting the first {...} block. Mirrors
-# inventory_service.parse_vision_response's approach for arrays.
-
+# RecipeCreate's shape. Real model output often wraps that in prose,
+# markdown fences, or a reasoning trace, so parsing is defensive -- see
+# ai_json_extraction.extract_json_object (what _extract_json_object below
+# delegates to).
+#
+# REWRITTEN FROM SCRATCH (2026-08-03, author-reported "totally broken" --
+# a well-formed, plain two-page recipe PDF failed to parse at all). The
+# actual root cause traced to `_extract_json_object`'s old naive
+# greedy-regex fallback (see ai_json_extraction.py's module docstring for
+# the full investigation) and is fixed there, not by this rewrite --
+# but this prompt gets the same numbered-rules-plus-worked-example
+# redesign RECEIPT_IMPORT_PROMPT already got on 2026-08-02 (see
+# routers/inventory.py) anyway, for two reasons: consistency (one style
+# of extraction prompt across the app, not two), and defense in depth
+# (a long, flowing prose-paragraph prompt was independently confirmed
+# that session to increase a model's odds of bailing out early on a
+# capable-but-not-huge local model -- numbered rules read faster and
+# cost fewer tokens per requirement stated). Every functional requirement
+# from the prior version is preserved: unit fidelity (never convert,
+# never guess), the split-not-merged handling of an ingredient name
+# reused across sections (crust vs. filling, "divided" quantities), the
+# fixed tag vocabulary, the tips/copyright-respect rule -- reworded and
+# reorganized, not dropped.
+#
+# Substitution mechanics changed too, and matters for backlog B16.1
+# (below): {content} is now filled via a plain str.replace() at each call
+# site (recipe_service._extract_via_ollama, routers/recipes.py's
+# _run_text_extraction, and the image branch of
+# parse_recipe_file_content), NOT `.format()`. This prompt is now a
+# DB-backed, GUI-editable SystemPrompt (get_recipe_import_prompt, below)
+# -- a household member editing free text in a textarea has no reason to
+# know `.format()`'s escaping rule (a literal `{` in a JSON example has
+# to be doubled to `{{`), and a prompt containing a single stray brace
+# would raise a hard `KeyError`/`IndexError` at request time instead of
+# just behaving oddly. `.replace()` has no such footgun -- a literal `{`
+# anywhere in a custom prompt (this one's own worked example included)
+# is simply left alone.
 RECIPE_IMPORT_PROMPT = """\
-Extract a recipe from the following content and respond with ONLY a JSON \
-object (no other text, no markdown fences) with these keys:
-- "title": string
-- "description": short string or null
-- "default_servings": integer (your best estimate if not stated, else a \
-reasonable default like 4)
-- "prep_time_minutes": integer or null
-- "cook_time_minutes": integer or null
-- "instructions": array of strings, one per step
-- "ingredients": array of objects with "ingredient_name" (string), \
-"quantity" (number or null), "unit" (string or null), "prep_note" \
-(string or null, e.g. "diced"). Copy each ingredient's quantity and unit \
-EXACTLY as written in the source -- never convert between units (e.g. \
-"2 Tbsp." must stay quantity 2 / unit "Tbsp.", NOT be converted to a \
-fraction of a cup or any other unit) and never guess a quantity/unit \
-that isn't actually stated; leave both null rather than invent one. If \
-the same ingredient name (e.g. "sugar", "kosher salt") appears more than \
-once in the source, for a different part of the recipe (a crust vs. a \
-filling, a marinade vs. a sauce, etc.), list each occurrence as its OWN \
-separate ingredient entry with ONLY the quantity/unit/prep_note stated \
-for THAT specific occurrence -- never merge, average, or carry a \
-modifier like "divided" from one occurrence onto a different one.
-- "nutrition": object with best-effort per-serving estimates as numbers \
-or null: {NUTRITION_PROMPT_HINT}
-- "tags": array of short lowercase strings from this set where \
-applicable: quick, portable, non_refrigerated, dutch_oven_only, \
-backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, \
-gluten_free (omit any that don't apply; you may also add a new tag if \
-clearly relevant)
-- "tips": array of short strings capturing any GENUINELY USEFUL asides \
-from the source that aren't part of the core recipe structure above -- \
-ingredient substitutions, optional variations, make-ahead/storage notes, \
-or equipment alternatives the source explicitly mentions. Each entry \
-should be a short paraphrase in your own words, not a long verbatim \
-quote. Omit this entirely (empty array) if there's nothing like that.
+Task: extract a structured recipe from the following content, as a single JSON object.
 
-Important: only extract factual/functional recipe information (what to \
-buy, what to do, timing, substitutions). Do NOT reproduce the source's \
-narrative prose, personal stories, advertisements, or other copyrightable \
-writing -- summarize functionally instead of quoting at length.
-
-Content to extract from:
----
+SOURCE:
 {content}
----
+
+RULES:
+1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
+2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
+3. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
+4. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
+5. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
+6. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
+7. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
+
+EXAMPLE (a source line reused across two sections -- see rule 2):
+Source: the ingredient list says "3/4 cup plus 2 Tbsp. sugar, divided"; a later step says "fold in ... remaining 2 Tbsp. sugar".
+Correct output includes BOTH as separate ingredient entries -- never one merged "3/4 cup plus 2 Tbsp." entry:
+{"ingredient_name": "sugar", "quantity": 0.75, "unit": "cup", "prep_note": "divided"}
+{"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null}
+
+OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fences. Exactly these keys:
+{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
-# ^ plain str.replace (not .format) for the nutrition-key hint, since
-# {content} below is a real .format() placeholder filled in per-call
-# (see routers/recipes.py's _run_text_extraction) -- .format() would
-# choke on the still-unfilled {NUTRITION_PROMPT_HINT} token if this were
-# resolved via .format() at both places.
+# ^ the ONE remaining plain str.replace() at module-definition time,
+# resolving the shared nutrition-key hint into the constant once -- the
+# {content} token above is left alone here and filled in later, per-call,
+# also via str.replace() (see this section's comment above for why
+# .format() was dropped app-wide for this prompt).
+
+
+def get_recipe_import_prompt(db: Session) -> str:
+    """Backlog B16.1 (author-requested 2026-08-03: expose the AI import/
+    extraction prompts as GUI-editable advanced settings) -- returns the
+    household's custom override for the `recipe_import` SystemPrompt row
+    when one exists and is marked active, else this module's own
+    RECIPE_IMPORT_PROMPT default. Mirrors the existing main_chef/
+    dietary_onboarding pattern exactly (same SystemPrompt table, same
+    /api/system/prompts GET/PATCH endpoints, same Settings-page textarea)
+    rather than inventing new plumbing -- unchecking "Active" in the
+    Settings UI reverts to the shipped default without losing the
+    household's draft edit, since the row's content isn't touched by
+    toggling is_active off."""
+    return ollama_client.get_active_prompt(db, "recipe_import") or RECIPE_IMPORT_PROMPT
 
 
 def parse_recipe_response(raw_text: str) -> dict | None:
@@ -829,13 +854,14 @@ def fetch_image_bytes(image_url: str, max_bytes: int = 8_000_000) -> tuple[bytes
 
 
 def _extract_via_ollama(db: Session, content: str) -> str:
-    """Sends extracted/plain text through RECIPE_IMPORT_PROMPT and
-    returns the model's raw response text. Near-identical to routers/
-    recipes.py's own `_run_text_extraction` (kept as two small, separate
-    functions rather than one shared cross-module private import -- an
-    underscore-prefixed function is module-internal by convention in
-    this codebase; this is recipe_service.py's own copy for its own
-    internal use, not exported).
+    """Sends extracted/plain text through the active recipe-import prompt
+    (get_recipe_import_prompt -- the household's Settings-page override
+    if set, else RECIPE_IMPORT_PROMPT) and returns the model's raw
+    response text. Near-identical to routers/recipes.py's own
+    `_run_text_extraction` (kept as two small, separate functions rather
+    than one shared cross-module private import -- an underscore-prefixed
+    function is module-internal by convention in this codebase; this is
+    recipe_service.py's own copy for its own internal use, not exported).
 
     Bug fix (2026-08-02, author-reported follow-up): used to hard-cap
     content at a flat `content[:8000]` -- see ollama_client.
@@ -844,10 +870,11 @@ def _extract_via_ollama(db: Session, content: str) -> str:
     processes -- there is no JSON-LD available for either (that's a URL-
     only shortcut, see routers/recipes.py's import order), so this is
     always the messier, no-structured-data path for file-based imports."""
+    prompt_template = get_recipe_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(RECIPE_IMPORT_PROMPT), response_reserve_tokens=2500
+        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=2500
     )
-    prompt = RECIPE_IMPORT_PROMPT.format(content=content[:budget])
+    prompt = prompt_template.replace("{content}", content[:budget])
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}])
     return ollama_client.extract_content(response)
 
@@ -905,7 +932,7 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
         default_source = "import_file_jsonld"
     elif content_type.startswith("image/"):
         response = ollama_client.describe_image(
-            db, raw_bytes, RECIPE_IMPORT_PROMPT.format(content="[see attached photo]")
+            db, raw_bytes, get_recipe_import_prompt(db).replace("{content}", "[see attached photo]")
         )
         raw_output = ollama_client.extract_content(response)
         default_source = "import_image"
@@ -1077,6 +1104,19 @@ it themselves.
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 
 
+def get_recipe_modify_prompt(db: Session) -> str:
+    """Backlog B16.1 -- same DB-override-with-fallback pattern as
+    get_recipe_import_prompt above, for the recipe-scoped chat's "propose
+    an edit" instructions. Never passed through `.format()` at any call
+    site (it's f-string-concatenated into a chat message alongside the
+    system prompt and recipe context instead -- see routers/recipes.py's
+    chat_about_recipe), so, unlike the import prompt, there was never a
+    brace-escaping footgun here to fix -- this getter exists purely to
+    make the prompt GUI-editable, same as every other one in this
+    file/router."""
+    return ollama_client.get_active_prompt(db, "recipe_modify") or RECIPE_MODIFY_INSTRUCTIONS
+
+
 def parse_recipe_chat_response(raw_text: str) -> dict:
     """Defensively extracts {"reply", "proposed_recipe", "variant_label"}
     from the model's response to the recipe-scoped chat. Like chat_
@@ -1101,22 +1141,21 @@ def parse_recipe_chat_response(raw_text: str) -> dict:
 
 
 def _extract_json_object(raw_text: str) -> dict:
-    try:
-        parsed = json.loads(raw_text)
-        if isinstance(parsed, dict):
-            return parsed
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    match = re.search(r"\{.*\}", raw_text or "", re.DOTALL)
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    return {}
+    """Thin re-export of ai_json_extraction.extract_json_object, kept
+    under this name/location since health_service.py, chat_service.py,
+    and meal_plan_service.py all already import `_extract_json_object`
+    from THIS module (recipe_service) -- changing the import path in all
+    three would be pure churn for no behavior change. See
+    ai_json_extraction.py's module docstring for what this replaced and
+    why (2026-08-03 bug fix): the previous implementation here was a bare
+    `json.loads` followed by a GREEDY `re.search(r"\\{.*\\}")` fallback,
+    with no defense against a `<think>` reasoning trace landing inline in
+    the response -- the exact bug already found and fixed for the
+    ARRAY-shaped receipt/vision responses in inventory_service.py, just
+    never ported over here even though this function is the one EVERY
+    recipe import, recipe-chat edit, health-metric parse, and meal-plan
+    generation call in the app funnels through."""
+    return extract_json_object(raw_text)
 
 
 def _safe_float(value) -> float | None:

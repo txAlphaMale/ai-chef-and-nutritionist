@@ -94,15 +94,22 @@ Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", \
 # Backlog B4.2 (author-requested 2026-08-01) -- shares VisionDetectedItem's
 # exact output shape with VISION_PROMPT above (same keys), so
 # inventory_service.parse_vision_response works unchanged for this
-# source too -- only the prompt differs. Uses the same "{content}"
-# .format() placeholder trick as recipe_service.RECIPE_IMPORT_PROMPT: for
-# a photo, the caller substitutes a short description instead of real
-# text (see import_inventory below) rather than needing a second prompt
-# template. Deliberately has NO inline JSON example (unlike VISION_PROMPT
-# above, which is never passed through .format() so literal braces are
-# safe there) -- an example containing literal `{`/`}` would need
-# doubling to survive .format(), and the bullet list alone is unambiguous
-# without one.
+# source too -- only the prompt differs. Uses the same "{content}"/
+# "{today}" str.replace() placeholder trick as
+# recipe_service.RECIPE_IMPORT_PROMPT: for a photo, the caller substitutes
+# a short description instead of real text (see import_inventory below)
+# rather than needing a second prompt template.
+#
+# Substitution mechanics (2026-08-03, same pass as recipe_service.
+# RECIPE_IMPORT_PROMPT's rewrite, backlog B16.1): this prompt is now a
+# DB-backed, GUI-editable SystemPrompt (get_receipt_import_prompt, below),
+# so {content}/{today} are filled via plain str.replace() at each call
+# site rather than `.format()` -- the worked EXAMPLE below used to need
+# its literal `{`/`}` doubled to `{{`/`}}` to survive `.format()`; that
+# doubling is gone now, since .replace() has no such escaping rule and a
+# household member editing this in a textarea has no reason to know one
+# exists. `.format()`'s KeyError-on-a-stray-brace failure mode is exactly
+# the kind of code-only footgun a GUI-editable prompt cannot carry.
 # REWRITTEN FROM SCRATCH (2026-08-02, author-directed full reset): four
 # rounds of patching the previous prompt (see git history on this file)
 # chased symptoms one at a time -- date/price fields, quantity-vs-unit
@@ -167,20 +174,35 @@ only if no date is printed anywhere.
 EXAMPLE:
 Source line: "Progresso Gluten Free Chicken Soup, 14 oz. Qty 2 $6.96" (order \
 dated "Jul 30, 2026 order")
-Correct output object: {{"name": "Progresso Gluten Free Chicken Soup", \
+Correct output object: {"name": "Progresso Gluten Free Chicken Soup", \
 "estimated_quantity": 2, "unit": "14 oz can", "category": "pantry", \
 "estimated_expiration_days": 365, "purchased_date": "2026-07-30", \
-"unit_price": 6.96, "confidence_note": null}}
+"unit_price": 6.96, "confidence_note": null}
 
 OUTPUT FORMAT: Respond with ONLY a JSON array -- no other text, no markdown \
 fences. An empty array `[]` only if this source genuinely contains zero \
 food/grocery items. Each element is an object with exactly these keys:
-{{"name": string, "estimated_quantity": number or null, "unit": string or \
+{"name": string, "estimated_quantity": number or null, "unit": string or \
 null, "category": one of "pantry"/"fridge"/"freezer"/"produce"/"spice"/\
 "other", "estimated_expiration_days": integer or null, "purchased_date": \
 "YYYY-MM-DD" or null, "unit_price": number or null, "confidence_note": \
-string or null}}
+string or null}
 """
+
+
+def get_receipt_import_prompt(db: Session) -> str:
+    """Backlog B16.1 -- DB-override-with-fallback for RECEIPT_IMPORT_PROMPT,
+    same pattern as recipe_service.get_recipe_import_prompt. Filled in
+    per-call via str.replace("{content}", ...).replace("{today}", ...) at
+    every call site below -- never `.format()`, see this section's module
+    comment for why."""
+    return ollama_client.get_active_prompt(db, "receipt_import") or RECEIPT_IMPORT_PROMPT
+
+
+def get_vision_prompt(db: Session) -> str:
+    """Backlog B16.1 -- DB-override-with-fallback for VISION_PROMPT (the
+    pantry/fridge photo-intake prompt, no placeholders to fill)."""
+    return ollama_client.get_active_prompt(db, "vision_intake") or VISION_PROMPT
 
 # Model swap (2026-08-02, author-directed): the author pointed out this
 # whole investigation had narrowed to "make qwen3.5:9b work" instead of
@@ -431,7 +453,7 @@ async def vision_intake(file: UploadFile):
     def _run() -> dict:
         db = SessionLocal()
         try:
-            response = ollama_client.describe_image(db, image_bytes, VISION_PROMPT)
+            response = ollama_client.describe_image(db, image_bytes, get_vision_prompt(db))
             raw_output = ollama_client.extract_content(response)
             detected = inventory_service.parse_vision_response(raw_output)
             return VisionIntakeResponse(detected_items=detected, raw_model_output=raw_output).model_dump()
@@ -484,15 +506,16 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     caller now runs this from inside a job body on the background worker
     thread, never from a request handler awaiting it directly, so there's
     nothing left to await here."""
+    prompt_template = get_receipt_import_prompt(db)
     budget = ollama_client.content_char_budget(
-        db, prompt_overhead_chars=len(RECEIPT_IMPORT_PROMPT), response_reserve_tokens=3000
+        db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=3000
     )
     print(
         f"[inventory._receipt_text_extraction] extracted_content_chars={len(content)} "
         f"budget_chars={budget} truncated={len(content) > budget}",
         flush=True,
     )
-    prompt = RECEIPT_IMPORT_PROMPT.format(content=content[:budget], today=date.today().isoformat())
+    prompt = prompt_template.replace("{content}", content[:budget]).replace("{today}", date.today().isoformat())
     response = ollama_client.chat(db, [{"role": "user", "content": prompt}], extra_options=_RECEIPT_EXTRA_OPTIONS)
     raw_output = ollama_client.extract_content(response)
     print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
@@ -573,12 +596,18 @@ async def import_inventory(
         filename = (file.filename or "").lower()
 
         if content_type.startswith("image/"):
-            prompt = RECEIPT_IMPORT_PROMPT.format(
-                content="[see attached photo of a receipt]", today=date.today().isoformat()
-            )
             source_type = "photo"
 
             def extractor(db: Session) -> str:
+                # Prompt resolution moved inside the job-body closure
+                # (2026-08-03, backlog B16.1) -- this handler has no `db`
+                # session of its own (B11.1's pattern: the DB session only
+                # opens inside the job body, on the worker thread), and
+                # get_receipt_import_prompt needs one to check for a
+                # household override.
+                prompt = get_receipt_import_prompt(db).replace(
+                    "{content}", "[see attached photo of a receipt]"
+                ).replace("{today}", date.today().isoformat())
                 response = ollama_client.describe_image(db, raw_bytes, prompt, extra_options=_RECEIPT_EXTRA_OPTIONS)
                 return ollama_client.extract_content(response)
 

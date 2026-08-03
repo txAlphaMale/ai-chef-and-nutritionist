@@ -25,7 +25,14 @@ class SystemPrompt(Base, TimestampMixin):
     __tablename__ = "system_prompts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    prompt_key: Mapped[str] = mapped_column(String(50), unique=True)  # main_chef | dietary_onboarding
+    # main_chef | dietary_onboarding | recipe_import | recipe_modify |
+    # receipt_import | vision_intake -- the last four (backlog B16.1,
+    # 2026-08-03) are the AI import/extraction prompts, seeded in
+    # app/seed.py with the same default text their code-level fallback
+    # constant carries (see recipe_service.get_recipe_import_prompt/
+    # get_recipe_modify_prompt and routers/inventory.py's
+    # get_receipt_import_prompt/get_vision_prompt).
+    prompt_key: Mapped[str] = mapped_column(String(50), unique=True)
     content: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

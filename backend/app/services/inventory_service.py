@@ -4,14 +4,13 @@ a deduction primitive for when a meal gets confirmed as made (wired up
 by Phase 5/7, which own the meal-plan/chat flows that call it)."""
 from __future__ import annotations
 
-import json
-import re
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem
 from app.services import package_parsing, unit_conversion_service
+from app.services.ai_json_extraction import extract_json_array
 
 # --- Urgency scoring -------------------------------------------------
 #
@@ -124,15 +123,20 @@ def get_expiring_digest(
 # app/routers/inventory.py's VISION_PROMPT) but real-world model output
 # often wraps that in prose, markdown fences, or a reasoning trace.
 # Parse defensively: try strict JSON first, then fall back to a
-# string-aware bracket-matching scan for the first parseable [...] block
-# (see _extract_json_array for why a plain greedy regex was not enough).
+# string-aware bracket-matching scan for the first parseable [...] block.
+# That scan (reasoning-trace stripping, bracket matching, truncated-array
+# salvage) moved to app/services/ai_json_extraction.py's extract_json_array
+# (2026-08-03) so recipe/health/meal-plan JSON-OBJECT extraction -- which
+# had the exact same greedy-regex bug this one was already fixed for --
+# could share the same defense instead of only this module having it. See
+# that module's docstring for the fuller history/rationale.
 
 CATEGORY_VALUES = {"pantry", "fridge", "freezer", "produce", "spice", "other"}
 
 
 def parse_vision_response(raw_text: str, today: date | None = None) -> list[dict]:
     today = today or date.today()
-    data = _extract_json_array(raw_text)
+    data = extract_json_array(raw_text)
     items: list[dict] = []
     for entry in data:
         if not isinstance(entry, dict) or not entry.get("name"):
@@ -217,169 +221,6 @@ def _safe_iso_date(value) -> date | None:
         return date.fromisoformat(value.strip())
     except ValueError:
         return None
-
-
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-_ORPHAN_THINK_CLOSE_RE = re.compile(r"^.*?</think>", re.DOTALL | re.IGNORECASE)
-
-
-def _strip_reasoning(raw_text: str) -> str:
-    """Removes a thinking/reasoning trace from model output before any
-    JSON extraction is attempted.
-
-    Bug fix (2026-08-02): `ollama_client.chat()` passes `think=False`, and
-    on a new enough Ollama server a thinking model's trace is returned in
-    `message.thinking` rather than `message.content` -- but neither of
-    those is a guarantee for every model/server/template combination a
-    self-hoster can configure (an Ollama server predating the `think`
-    request parameter silently ignores it and leaves the trace inline in
-    content; some community/custom Modelfile templates emit the tags
-    inline regardless). An inline trace is prose, and prose routinely
-    contains square brackets ("lines [1-15]", "[see attached]"), which is
-    exactly what defeated the old first-`[`-to-last-`]` regex below. Two
-    shapes are handled: a complete `<think>...</think>` block, and a bare
-    trailing `</think>` with no opening tag (what you get when the chat
-    template itself opens the tag, so the opener never appears in the
-    returned content)."""
-    text = _THINK_BLOCK_RE.sub(" ", raw_text)
-    if "</think>" in text.lower():
-        text = _ORPHAN_THINK_CLOSE_RE.sub(" ", text)
-    return text
-
-
-def _scan_json_array(text: str, start: int) -> tuple[int | None, list[tuple[int, int]]]:
-    """Bracket-matching scan of a JSON array starting at `text[start] ==
-    "["`, string-aware so brackets/braces inside string values (a
-    "confidence_note" reading `included [borderline]`, say) don't throw
-    off the depth count.
-
-    Returns `(end_index_exclusive, top_level_object_spans)` where
-    `end_index_exclusive` is None if the array is never closed -- i.e.
-    the model's output was cut off mid-array, which is what a generation
-    that hits the context/`num_predict` limit looks like (`done_reason`
-    "length" in ollama_client's response log). The object spans are
-    returned in both cases so a truncated array's already-complete
-    elements can still be salvaged rather than thrown away wholesale."""
-    depth = 0
-    in_string = False
-    escaped = False
-    object_start: int | None = None
-    spans: list[tuple[int, int]] = []
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char in "[{":
-            if char == "{" and depth == 1 and object_start is None:
-                object_start = index
-            depth += 1
-        elif char in "]}":
-            depth -= 1
-            if char == "}" and depth == 1 and object_start is not None:
-                spans.append((object_start, index + 1))
-                object_start = None
-            if depth == 0:
-                return index + 1, spans
-    return None, spans
-
-
-def _extract_json_array(raw_text: str) -> list:
-    """Pulls the JSON array out of a model's raw answer.
-
-    Bug fix (2026-08-02, author-reported "0 items identified" with a
-    NON-EMPTY raw model response): this used to fall back to
-    `re.search(r"\\[.*\\]", raw_text, re.DOTALL)` -- a GREEDY match, so it
-    spanned from the FIRST "[" anywhere in the output to the LAST "]"
-    anywhere in the output. Any square bracket outside the real array
-    silently corrupted the slice into unparseable JSON and this returned
-    `[]`, which the UI reports as "0 items identified" -- indistinguish-
-    able, to the user, from the model genuinely finding no food. Real,
-    reproducible cases that a model in this app's own receipt-import path
-    produces routinely (each one is a test in test_inventory_import.py):
-
-      * a correct array followed by a note -- `[{...}]\\n\\nNote: I skipped
-        the non-food lines [paper towels, lint roller].` (the prompt
-        explicitly asks the model to skip non-food items, which makes
-        exactly this trailing commentary likely)
-      * a lead-in containing brackets -- `Here are the items [from the
-        receipt]:\\n[{...}]`
-      * an inline `<think>` trace whose prose mentions "[1-15]"
-      * two arrays in one response (the items, then the skipped ones)
-
-    Replaced with: strip any reasoning trace, then walk each "[" in order
-    doing a real string-aware bracket-matching scan (`_scan_json_array`)
-    and take the first candidate that actually parses as a list. That
-    also makes a genuinely-empty `[]` distinguishable from a parse
-    failure instead of collapsing both to the same answer.
-
-    Also added: salvage of a TRUNCATED array. If generation stopped
-    mid-array (context/num_predict limit -- `done_reason` "length"), the
-    array never closes and strict parsing of the whole thing is
-    impossible, but every element before the cut is complete and
-    perfectly good. Previously that produced zero items from a response
-    that had already correctly identified most of the receipt; now the
-    complete elements are returned. The same path incidentally recovers
-    an array with a trailing comma before "]", another routine
-    small-model JSON slip."""
-    if not isinstance(raw_text, str) or not raw_text.strip():
-        return []
-
-    text = _strip_reasoning(raw_text)
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            return parsed
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    for start in (index for index, char in enumerate(text) if char == "["):
-        end, spans = _scan_json_array(text, start)
-        if end is not None:
-            try:
-                parsed = json.loads(text[start:end])
-            except json.JSONDecodeError:
-                parsed = None
-            if isinstance(parsed, list):
-                if parsed:
-                    return parsed
-                # An empty `[]` embedded in prose is far more often a
-                # stray example or a false start than the real answer --
-                # keep looking for a populated array before accepting it.
-                # (A response that is ONLY `[]` never reaches here: it
-                # parses strictly above and is returned as-is, so a model
-                # genuinely reporting "no food on this receipt" is still
-                # honored.)
-                continue
-        salvaged = _salvage_objects(text, spans)
-        if salvaged:
-            return salvaged
-    return []
-
-
-def _salvage_objects(text: str, spans: list[tuple[int, int]]) -> list:
-    """Parses each individually-complete `{...}` element of an array that
-    could not be parsed as a whole (truncated mid-generation, or a
-    trailing comma). Elements that don't parse on their own are skipped
-    rather than failing the batch -- a partial receipt is strictly better
-    than the zero items this used to return."""
-    salvaged = []
-    for object_start, object_end in spans:
-        try:
-            entry = json.loads(text[object_start:object_end])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(entry, dict):
-            salvaged.append(entry)
-    return salvaged
 
 
 def _safe_float(value) -> float | None:

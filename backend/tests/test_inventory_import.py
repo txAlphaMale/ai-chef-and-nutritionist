@@ -6,22 +6,27 @@ Router-level AI-dispatch logic in this project has never had dedicated
 unit tests (recipe import's own history -- see PROJECT-PLAN.md -- was
 verified via live curl instead, since there's no live Ollama reachable
 in this sandbox to actually exercise the AI call). This file sticks to
-what's genuinely pure and worth locking down: the new prompt template's
-`.format()` safety (a stray unescaped brace would raise at request time,
-not at import time, so it's worth catching here), and
-inventory_service.parse_vision_response -- already covered elsewhere,
-exercised once more here specifically against a RECEIPT-shaped fixture,
-since that's the exact function this new intake source reuses unchanged.
+what's genuinely pure and worth locking down: the prompt template's
+substitution mechanics (str.replace() as of 2026-08-03, backlog B16.1 --
+see the module comment above RECEIPT_IMPORT_PROMPT for why this moved
+off `.format()`), and inventory_service.parse_vision_response -- already
+covered elsewhere, exercised once more here specifically against a
+RECEIPT-shaped fixture, since that's the exact function this new intake
+source reuses unchanged.
 """
 from __future__ import annotations
 
 from unittest.mock import patch
 
+from app.models import SystemPrompt
 from app.routers.inventory import (
     RECEIPT_IMPORT_PROMPT,
+    VISION_PROMPT,
     _RECEIPT_EXTRA_OPTIONS,
     _inventory_import_job,
     _receipt_text_extraction,
+    get_receipt_import_prompt,
+    get_vision_prompt,
 )
 from app.services import inventory_service
 
@@ -45,18 +50,26 @@ _TODAY = "2026-08-02"
 # prompt itself just got rebuilt to avoid.
 
 
+def _render(content: str, today: str = _TODAY) -> str:
+    """Test helper matching the app's OWN substitution mechanics
+    (2026-08-03, backlog B16.1): RECEIPT_IMPORT_PROMPT is now a DB-backed,
+    GUI-editable prompt filled in via plain str.replace() at each real
+    call site (routers/inventory.py's get_receipt_import_prompt callers),
+    not `.format()` -- see that file's module comment for why (a
+    household member editing free text in a Settings textarea has no
+    reason to know `.format()`'s brace-escaping rule, and a stray literal
+    brace used to raise a hard KeyError at request time instead of just
+    behaving oddly). These tests render the prompt the same way the app
+    itself now does."""
+    return RECEIPT_IMPORT_PROMPT.replace("{content}", content).replace("{today}", today)
+
+
 def test_receipt_import_prompt_formats_with_real_text():
-    rendered = RECEIPT_IMPORT_PROMPT.format(
-        content="ORG BANANA 1.29\nGV 2% MLK GAL 3.49\nSUBTOTAL 4.78", today=_TODAY
-    )
+    rendered = _render("ORG BANANA 1.29\nGV 2% MLK GAL 3.49\nSUBTOTAL 4.78")
     assert "ORG BANANA" in rendered
-    # Placeholders actually got filled, not left literal -- and, since
-    # this version's schema/example blocks contain real JSON braces that
-    # had to be escaped as {{ }} for .format() to survive them, this also
-    # confirms none of those leaked through as literal double-braces.
+    # Placeholders actually got filled, not left literal.
     assert "{content}" not in rendered
     assert "{today}" not in rendered
-    assert "{{" not in rendered and "}}" not in rendered
     assert _TODAY in rendered
 
 
@@ -64,22 +77,22 @@ def test_receipt_import_prompt_formats_with_photo_placeholder():
     # Mirrors recipe_service.RECIPE_IMPORT_PROMPT's own trick: the same
     # template is reused for the image-upload path by substituting a
     # short description instead of real extracted text.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="[see attached photo of a receipt]", today=_TODAY)
+    rendered = _render("[see attached photo of a receipt]")
     assert "[see attached photo of a receipt]" in rendered
 
 
 def test_receipt_import_prompt_worked_example_is_valid_json():
     # The rewrite embeds one concrete worked-example JSON object directly
-    # in the prompt text, escaped for .format() as {{ }}. This confirms
-    # it actually renders as real, parseable JSON once escaped -- not
-    # just "no crash", but genuinely well-formed -- since a model shown a
-    # malformed example is worse than one shown no example at all. (The
-    # separate OUTPUT FORMAT block is a type-annotated schema description,
-    # e.g. `"unit": string or null`, not itself parseable JSON -- its key
-    # names are checked by other tests below instead.)
+    # in the prompt text. This confirms it actually renders as real,
+    # parseable JSON -- not just "no crash", but genuinely well-formed --
+    # since a model shown a malformed example is worse than one shown no
+    # example at all. (The separate OUTPUT FORMAT block is a type-
+    # annotated schema description, e.g. `"unit": string or null`, not
+    # itself parseable JSON -- its key names are checked by other tests
+    # below instead.)
     import json
 
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY)
+    rendered = _render("irrelevant")
     marker = "Correct output object: "
     start = rendered.index(marker) + len(marker)
     end = rendered.index("}", start) + 1
@@ -95,7 +108,7 @@ def test_receipt_import_prompt_instructs_skipping_non_food_items():
     # care/pet items on the same receipt -- locks down that the
     # exclusion instruction is present so a future edit can't silently
     # drop it.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    rendered = _render("irrelevant").lower()
     for phrase in ("household", "personal care", "pet food", "supplements"):
         assert phrase in rendered
     assert "empty array" in rendered
@@ -105,7 +118,7 @@ def test_receipt_import_prompt_instructs_purchased_date_and_price_extraction():
     # VisionDetectedItem/the frontend review table both support these
     # fields (populated by the order-history CSV importer since B10.3);
     # this locks down the AI prompt actually asks for them too.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    rendered = _render("irrelevant").lower()
     assert '"purchased_date"' in rendered
     assert '"unit_price"' in rendered
     assert "order/transaction date" in rendered or "order date" in rendered
@@ -115,12 +128,12 @@ def test_receipt_import_prompt_instructs_not_conflating_package_size_with_quanti
     # A receipt line's product NAME often contains a size/count number
     # (e.g. "...6 Count", "...24 oz") that must not be read as the
     # purchased quantity -- locks down the disambiguating instruction.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    rendered = _render("irrelevant").lower()
     assert "6 count" in rendered
     assert "never" in rendered
 
 def test_receipt_import_prompt_instructs_not_merging_duplicate_named_lines():
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY).lower()
+    rendered = _render("irrelevant").lower()
     assert "never merge" in rendered
     assert "separate purchase" in rendered
 
@@ -132,7 +145,7 @@ def test_receipt_import_prompt_includes_a_worked_example():
     # of abstract description. Locks down that the rewrite actually
     # includes one, with a real product name and real field values, not
     # just an "EXAMPLE:" label with nothing under it.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="irrelevant", today=_TODAY)
+    rendered = _render("irrelevant")
     assert "EXAMPLE" in rendered
     assert '"estimated_quantity": 2' in rendered
     assert '"unit_price": 6.96' in rendered
@@ -145,8 +158,56 @@ def test_receipt_import_prompt_is_meaningfully_shorter_than_the_version_it_repla
     # the failing length -- not a promise of correctness by itself, but
     # a regression guard against the same prompt slowly regrowing back
     # past the length that's already been proven to fail.
-    rendered = RECEIPT_IMPORT_PROMPT.format(content="x" * 1423, today=_TODAY)
+    rendered = _render("x" * 1423)
     assert len(rendered) < 6000
+
+
+# --- get_receipt_import_prompt / get_vision_prompt (backlog B16.1,
+# 2026-08-03: expose the AI import/extraction prompts as GUI-editable
+# advanced settings) -------------------------------------------------
+
+
+def test_get_receipt_import_prompt_falls_back_to_default_with_no_db_row(db_session):
+    assert get_receipt_import_prompt(db_session) == RECEIPT_IMPORT_PROMPT
+
+
+def test_get_receipt_import_prompt_uses_active_db_override(db_session):
+    db_session.add(SystemPrompt(prompt_key="receipt_import", content="CUSTOM RECEIPT PROMPT", is_active=True))
+    db_session.commit()
+    assert get_receipt_import_prompt(db_session) == "CUSTOM RECEIPT PROMPT"
+
+
+def test_get_receipt_import_prompt_inactive_override_falls_back_to_default(db_session):
+    db_session.add(SystemPrompt(prompt_key="receipt_import", content="CUSTOM RECEIPT PROMPT", is_active=False))
+    db_session.commit()
+    assert get_receipt_import_prompt(db_session) == RECEIPT_IMPORT_PROMPT
+
+
+def test_get_vision_prompt_falls_back_to_default_with_no_db_row(db_session):
+    assert get_vision_prompt(db_session) == VISION_PROMPT
+
+
+def test_get_vision_prompt_uses_active_db_override(db_session):
+    db_session.add(SystemPrompt(prompt_key="vision_intake", content="CUSTOM VISION PROMPT", is_active=True))
+    db_session.commit()
+    assert get_vision_prompt(db_session) == "CUSTOM VISION PROMPT"
+
+
+def test_receipt_text_extraction_uses_the_active_db_override_when_present(db_session):
+    # _receipt_text_extraction must resolve the prompt through
+    # get_receipt_import_prompt (DB override if set), not the hardcoded
+    # module constant directly -- this is what makes the Settings-page
+    # edit actually take effect on the next request.
+    db_session.add(
+        SystemPrompt(prompt_key="receipt_import", content="CUSTOM {content} {today}", is_active=True)
+    )
+    db_session.commit()
+    with patch(
+        "app.routers.inventory.ollama_client.chat", return_value={"message": {"content": "[]"}}
+    ) as mock_chat:
+        _receipt_text_extraction(db_session, "some receipt text")
+    sent_prompt = mock_chat.call_args[0][1][0]["content"]
+    assert sent_prompt.startswith("CUSTOM some receipt text")
 
 
 def test_receipt_text_extraction_uses_qwens_documented_non_thinking_sampling_params(db_session):
