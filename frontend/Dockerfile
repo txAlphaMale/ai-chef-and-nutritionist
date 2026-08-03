@@ -13,24 +13,50 @@ RUN npm run build
 
 FROM node:22-slim
 WORKDIR /app
-# Author-reported 2026-08-03: replaced the plain `serve` static server
-# with a small custom one (server.js) that ALSO reverse-proxies /api/*
-# and /health to the backend container -- so a browser anywhere on the
-# LAN only ever needs to reach and trust this one origin, never the
-# backend's directly. See server.js's own module docstring for the full
-# rationale. Global install, same as `serve` was -- neither of these
-# (nor `serve` before them) belongs in package.json, since none of this
-# app's actual npm dependencies are needed after the Vite build produces
-# static output; only this runtime shell needs them.
-# Pinned. These are the runtime shell (static serving + reverse proxy);
-# unpinned globals mean a future rebuild can silently pull a breaking
-# major of either one into a container nobody is watching.
-RUN npm install -g http-proxy@1.18.1 serve-handler@6.1.5
+# The runtime shell: server.js serves the built static files AND reverse-
+# proxies /api/* and /health to the backend, so a browser on the LAN only
+# ever reaches and trusts this one origin. Its two dependencies are kept
+# out of the app's own package.json because none of React/Vite/ZXing is
+# needed once the Vite build has produced static output.
+#
+# Installed LOCALLY into /app/node_modules, not with `npm install -g`.
+#
+# This was a global install, and it never worked. Node does not search
+# npm's global directory (/usr/local/lib/node_modules) when resolving
+# require() -- NODE_PATH is not set in this base image and the legacy
+# GLOBAL_FOLDERS list does not include it. So the container started,
+# logged that it was serving HTTPS, and then died on
+# `Cannot find module 'http-proxy'` in a restart loop that never showed
+# up as a failed build or an unhealthy container. Only redirect-server.js
+# kept running, because it uses nothing but Node built-ins -- which is
+# why port 5173 still redirected to a 5174 that had nothing listening.
+#
+# A local install is the ordinary resolution path and needs no NODE_PATH
+# trick to work.
+COPY runtime-deps/package.json runtime-deps/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh .
 COPY redirect-server.js .
 COPY server.js .
 RUN chmod +x docker-entrypoint.sh
+
+# Fail the BUILD if server.js cannot load, instead of shipping an image
+# that crash-loops at runtime.
+#
+# The global-install bug above was invisible for exactly one reason:
+# nothing ever tried to load this file until a user hit the site. The
+# build passed, the container reported healthy (its healthcheck only
+# tests the backend), and the only evidence was a restart counter nobody
+# was reading. One line here converts that whole class of failure into a
+# red build.
+#
+# `--check` parses without executing, so no port is bound; the requires
+# are asserted separately.
+RUN node --check server.js \
+    && node --check redirect-server.js \
+    && node -e "require('http-proxy'); require('serve-handler'); console.log('runtime deps resolve OK')"
 
 # Backlog B15.1 (2026-08-01) -- shared with the backend container via
 # the chef-tls volume (read-only here; the backend writes it). See

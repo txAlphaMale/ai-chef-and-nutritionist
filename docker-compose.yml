@@ -140,6 +140,29 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # The frontend had no healthcheck, and that is the second reason its
+    # crash loop went unnoticed for as long as it did: `docker compose ps`
+    # showed "Restarting", which looks like a container mid-start rather
+    # than one that has died the same way forty times. Nothing reported a
+    # problem, so nothing was investigated.
+    #
+    # This checks the port server.js actually binds -- HTTPS when a
+    # certificate is present, plain HTTP otherwise -- using Node itself,
+    # which is guaranteed present here (curl and wget are not in
+    # node:22-slim, and installing a package purely to run a healthcheck
+    # is not worth it). `rejectUnauthorized: false` because the
+    # certificate is self-signed by design and this call never leaves the
+    # container.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const tls=require('fs').existsSync('/app/tls/cert.pem');const m=tls?require('https'):require('http');const p=tls?(process.env.FRONTEND_HTTPS_PORT||5174):(process.env.FRONTEND_PORT||5173);m.get({host:'127.0.0.1',port:p,path:'/',rejectUnauthorized:false,timeout:3000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
 volumes:
   chef-data:

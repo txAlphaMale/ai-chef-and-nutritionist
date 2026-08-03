@@ -1,0 +1,9 @@
+{
+  "name": "chef-frontend-runtime",
+  "private": true,
+  "description": "Runtime dependencies for the container's static-file server and reverse proxy (server.js). Deliberately separate from the app's own package.json: none of React/Vite/ZXing is needed once the Vite build has produced static output, so the runtime image installs only these two and never the build toolchain. Installed LOCALLY into /app/node_modules rather than with `npm install -g` -- Node does not search the global directory for require(), so a global install produced a container that started, logged that it was serving, and then crash-looped on MODULE_NOT_FOUND.",
+  "dependencies": {
+    "http-proxy": "1.18.1",
+    "serve-handler": "6.1.5"
+  }
+}
