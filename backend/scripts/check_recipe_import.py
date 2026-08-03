@@ -5,14 +5,23 @@ The backend test suite cannot do this: it has no model. This is the step
 that actually proves the RECIPE_IMPORT_PROMPT rewrite works, so run it
 after any change to that prompt or to ExtractedIngredient.
 
-    docker compose exec chef python -m scripts.check_recipe_import
+    docker compose cp backend/tests/fixtures/pumpkin_chiffon_pie_pypdf.txt chef:/tmp/pie.txt
+    docker compose exec chef python scripts/check_recipe_import.py /tmp/pie.txt
 
-Pass a path to try a different source (any file extract_pdf_text or plain
-text can read):
+The fixture is copied in rather than baked into the image on purpose:
+test data does not belong in a production image, and `.dockerignore`
+keeps `backend/tests` out of the build context entirely. The script
+itself ships (`COPY backend/scripts ./scripts`) because it is an
+operational tool, not a test.
 
-    docker compose exec chef python -m scripts.check_recipe_import /path/to/other.pdf
+Any source works -- a .pdf goes through the same extract_pdf_text() the
+app uses, anything else is read as text:
 
-Exit code is 0 only if every check passes, so it can gate a change.
+    docker compose exec chef python scripts/check_recipe_import.py /tmp/other.pdf
+
+The Pumpkin Chiffon Pie assertions run when the source is recognised by
+content, not by filename, so a copied-in fixture is still checked. Exit
+code is 0 only if every check passes, so this can gate a change.
 """
 
 import sys
@@ -23,6 +32,11 @@ from app.services import recipe_service
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "pumpkin_chiffon_pie_pypdf.txt"
 
+# Identifies the pie by content, so the assertions below still run on a
+# copy at any path. This exact string is an ingredient LINE in the real
+# source -- see tests/test_recipe_components.py.
+PIE_MARKER = "(scant) cup plus 2 Tbsp. sugar"
+
 
 def load_source(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
@@ -32,6 +46,12 @@ def load_source(path: Path) -> str:
 
 def main() -> int:
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_FIXTURE
+    if not path.exists():
+        print(f"No such source: {path}\n")
+        print("The fixture is not baked into the image. Copy it in first:")
+        print("  docker compose cp backend/tests/fixtures/pumpkin_chiffon_pie_pypdf.txt chef:/tmp/pie.txt")
+        print("  docker compose exec chef python scripts/check_recipe_import.py /tmp/pie.txt")
+        return 2
     source = load_source(path)
     print(f"source: {path}  ({len(source)} chars)\n")
 
@@ -56,8 +76,8 @@ def main() -> int:
         print(f"  [{comp:>22}] {ing.get('quantity')!s:>8} {ing.get('unit') or ''!s:<8} {ing['ingredient_name']}{note}")
     print()
 
-    if path != DEFAULT_FIXTURE:
-        print("Custom source -- no assertions to run. Review the table above.")
+    if PIE_MARKER not in source:
+        print("Source is not the Pumpkin Chiffon Pie -- no assertions to run. Review the table above.")
         return 0
 
     failures = []

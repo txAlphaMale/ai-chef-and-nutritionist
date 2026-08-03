@@ -47,6 +47,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini .
+# Operational scripts, not tests -- things run against the live deployment
+# and its real Ollama, which the test suite cannot reach. Test data stays
+# out: `.dockerignore` keeps backend/tests out of the build context, so
+# any fixture a script needs is copied in at run time.
+COPY backend/scripts ./scripts
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
