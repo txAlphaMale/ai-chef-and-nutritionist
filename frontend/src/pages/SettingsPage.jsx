@@ -88,6 +88,7 @@ const AI_MODEL_SETTING_KEYS = [
   "ollama_vision_model",
   "ollama_embed_model",
   "ollama_num_ctx",
+  "ollama_timeout_seconds",
 ];
 const INTEGRATION_SETTING_KEYS = [
   "tavily_api_key",
