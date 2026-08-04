@@ -502,3 +502,92 @@ def test_and_is_only_a_compound_joiner_when_a_number_follows():
 
     assert len(entries) == 1
     assert entries[0]["ingredient_name"] == "salt and pepper"
+
+
+def test_a_one_glyph_transcription_slip_is_repaired_not_dropped():
+    """The first live two-pass run returned 12 of 16 ingredients.
+
+    Pass 1 had transcribed the source's 1/4 as 1/2 -- U+00BC and U+00BD,
+    adjacent codepoints -- on three lines. Verification correctly refused
+    them, and they then vanished, which is silent data loss: a household
+    reviewing the import sees a plausible ingredient list with the salt
+    and the nutmeg simply absent.
+
+    The source says what the answer should have been, so it is used.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    slips = ["½ tsp. kosher salt", "½ tsp. ground nutmeg", "½ cup sour cream"]
+
+    accepted, rejected = recipe_service.reconcile_copied_lines(slips, source)
+
+    assert rejected == []
+    assert accepted == ["¼ tsp. kosher salt", "¼ tsp. ground nutmeg", "¼ cup sour cream"]
+
+
+def test_repair_can_never_introduce_text_the_source_does_not_have():
+    """The property that makes repairing safe at all.
+
+    Everything accepted is the SOURCE's own characters, never the model's,
+    so a too-generous threshold can at worst pick the wrong real line -- it
+    can never invent one. Without this, "repair" would just be a second
+    place for the model to hallucinate.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    normalized_source = " ".join(source.split())
+
+    accepted, _ = recipe_service.reconcile_copied_lines(
+        ["½ tsp. kosher salt", "12 graham crackers", "¾ cup whole milk"], source
+    )
+
+    assert accepted
+    for line in accepted:
+        assert line in normalized_source
+
+
+def test_repair_does_not_rescue_a_hallucination():
+    """The threshold sits in measured empty space, not on a round number.
+
+    On the real fixture, transcription slips scored 0.938-0.987 against
+    their true line and these scored 0.500-0.727 -- every one of them
+    something the live model actually produced.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    hallucinated = [
+        "2 Tbsp. graham cracker crumbs",
+        "a scant ½ cup sugar",
+        "graham cracker crumbs (reserved)",
+        "sour cream, remaining 2 Tbsp. sugar, and ¼ tsp. salt just to combine",
+        "2 cups whipped cream",
+    ]
+
+    accepted, rejected = recipe_service.reconcile_copied_lines(hallucinated, source)
+
+    assert accepted == []
+    assert rejected == hallucinated
+
+
+def test_repair_recovers_the_full_ingredient_list_from_a_slipped_transcription():
+    """End to end: what the live run should have produced.
+
+    Pass 1's actual output, with the three glyph slips it really made,
+    yields all 16 entries once repaired.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    blocks = _pie_ingredient_lines()
+    slipped = {
+        "¼ tsp. kosher salt": "½ tsp. kosher salt",
+        "¼ tsp. ground nutmeg": "½ tsp. ground nutmeg",
+        "¼ cup sour cream": "½ cup sour cream",
+    }
+
+    entries = []
+    for component, lines in blocks.items():
+        as_sent = [slipped.get(line, line) for line in lines]
+        for line in recipe_service.verify_copied_lines(as_sent, source):
+            for entry in recipe_service.parse_ingredient_line_amounts(line):
+                entries.append({**entry, "component": component})
+
+    assert len(entries) == 16, "a repaired transcription must lose nothing"
+    assert all(e["quantity"] is not None for e in entries)
+    salt = [e for e in entries if e["ingredient_name"] == "kosher salt" and e["component"] == "Crust"]
+    assert salt and salt[0]["quantity"] == 0.25, "the slipped 1/4 tsp. must come back as 0.25, not 0.5"

@@ -5,6 +5,7 @@ context for the recipe-scoped chat feature."""
 from __future__ import annotations
 
 import contextlib
+import difflib
 import io
 import json
 import re
@@ -623,35 +624,63 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-def verify_copied_lines(candidates: list[str], source: str) -> list[str]:
-    """Keeps only the lines that really are lines of `source`.
+# A copied line this close to a real source line is a transcription slip,
+# not a different line. Measured on the real fixture: genuine slips scored
+# 0.938-0.987 and hallucinations 0.500-0.727, so 0.90 sits in a 0.21-wide
+# empty band rather than being a round number someone liked.
+_REPAIR_THRESHOLD = 0.90
 
-    A copied line is accepted when some source line STARTS WITH it, after
-    whitespace normalisation. Prefix rather than equality because pypdf
-    routinely welds page furniture onto the last item of a block -- the
-    real source ends "1/4 cup sour creamC o m p l e t e  y o u r  B o n
-    A p p e t i t" -- and an equality test would throw that ingredient
-    away.
 
-    Prefix rather than "appears anywhere" because a plain substring test
-    accepts the preparation text. "2 Tbsp. graham cracker crumbs" IS in
-    this source, inside the sentence "Set aside 2 Tbsp. graham cracker
-    crumbs for serving", and a phantom row for it has appeared in every
-    single live run so far. It is not the start of any line, so this
-    rejects it.
+def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str], list[str]]:
+    """Match each copied line to the source line it came from.
 
-    Measured against the real fixture: 15 of 15 genuine ingredient lines
-    accepted, and 0 of 6 rejected -- the six being every hallucination the
-    model actually produced across four runs. This is the check that
-    replaces asking the model not to mine the method text, which three
-    prompt rewrites failed to achieve."""
+    Returns (accepted, rejected). **Every accepted line is the SOURCE's
+    own text**, never the model's -- so nothing this returns can contain a
+    character the source does not have, whatever the model actually sent.
+    That property is what makes repairing safe: a too-generous threshold
+    can at worst pick the wrong real line, and can never invent one.
+
+    Matching is against the leading substring of each source line, not the
+    whole line, because pypdf welds page furniture onto the last item of a
+    block -- the real fixture ends `1/4 cup sour creamC o m p l e t e  y o
+    u r  B o n  A p p e t i t`. Prefix rather than "appears anywhere",
+    because a substring test accepts the method text: `2 Tbsp. graham
+    cracker crumbs` IS in this source, inside `Set aside 2 Tbsp. graham
+    cracker crumbs for serving`, and a phantom row for it appeared in
+    every single live run.
+
+    An exact prefix is accepted outright. A near miss above
+    _REPAIR_THRESHOLD is REPAIRED to the source text rather than dropped,
+    because dropping it is silent data loss: the first live two-pass run
+    returned 12 of 16 ingredients, having transcribed `1/4` as `1/2` --
+    adjacent Unicode codepoints -- on three lines. Those are not the model
+    reading the wrong line, they are the model fumbling one glyph while
+    copying the right one, and the source says what the answer should have
+    been."""
     source_lines = [_normalize_for_match(line) for line in (source or "").splitlines() if line.strip()]
-    kept = []
+    accepted: list[str] = []
+    rejected: list[str] = []
     for candidate in candidates:
         normalized = _normalize_for_match(candidate)
-        if normalized and any(line.startswith(normalized) for line in source_lines):
-            kept.append(candidate)
-    return kept
+        if not normalized:
+            continue
+        best_text, best_ratio = None, 0.0
+        for line in source_lines:
+            prefix = line[: len(normalized)]
+            ratio = difflib.SequenceMatcher(None, normalized, prefix).ratio()
+            if ratio > best_ratio:
+                best_text, best_ratio = prefix, ratio
+        if best_text is not None and best_ratio >= _REPAIR_THRESHOLD:
+            accepted.append(best_text)
+        else:
+            rejected.append(candidate)
+    return accepted, rejected
+
+
+def verify_copied_lines(candidates: list[str], source: str) -> list[str]:
+    """Accepted lines only -- see reconcile_copied_lines for the rules and
+    for the rejected half, which callers that report to a human want."""
+    return reconcile_copied_lines(candidates, source)[0]
 
 
 def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
@@ -689,7 +718,14 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
             continue
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
-        for line in verify_copied_lines(raw_lines, content):
+        kept, discarded = reconcile_copied_lines(raw_lines, content)
+        if discarded:
+            print(
+                f"[recipe_import] pass 1 returned {len(discarded)} line(s) not found in the source, dropped: "
+                f"{discarded}",
+                flush=True,
+            )
+        for line in kept:
             for entry in parse_ingredient_line_amounts(line):
                 if entry["ingredient_name"]:
                     ingredients.append({**entry, "component": component})

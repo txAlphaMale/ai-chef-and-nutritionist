@@ -111,6 +111,8 @@ def main() -> int:
     if two_pass:
         parsed["ingredients"] = two_pass
         print(f"PASS B -- two-pass, {len(two_pass)} ingredients after verification and deterministic parsing:\n")
+        # Anything pass 1 returned that could not be matched to a source
+        # line is logged by extract_ingredients_two_pass itself, above.
         for ing in two_pass:
             comp = ing.get("component") or "-"
             note = f"  ({ing['prep_note']})" if ing.get("prep_note") else ""
@@ -164,17 +166,31 @@ def main() -> int:
     if any(i.get("quantity") == 1.75 for i in filling_sugar):
         failures.append("filling sugar summed to 1.75 cup -- compound amount was merged (rule 2)")
 
-    # 3. No ingredient invented from the preparation text.
+    # 3. Completeness. The first two-pass run reported "every check clean"
+    # while returning 12 of 16 ingredients -- pass 1 had mis-transcribed
+    # 1/4 as 1/2 and verification dropped those lines. Four assertions
+    # about specific ingredients cannot notice absent ones, and a plausible
+    # list that is quietly missing the salt is worse than an obvious
+    # failure. Repair should now recover these; this check is what proves
+    # it rather than assuming it.
+    PIE_EXPECTED_ENTRIES = 16
+    if len(ingredients) < PIE_EXPECTED_ENTRIES:
+        failures.append(
+            f"only {len(ingredients)} of {PIE_EXPECTED_ENTRIES} ingredient entries survived -- "
+            "something dropped lines silently"
+        )
+
+    # 4. No ingredient invented from the preparation text.
     if find("crumb"):
         failures.append("a graham cracker CRUMBS row exists -- it is only in the prep text (rule 1)")
 
-    # 4. Components were emitted at all. Checked against the RAW model
+    # 5. Components were emitted at all. Checked against the RAW model
     # output, so this reports what the model did rather than what survived
     # our own parsing -- those were conflated once already.
     if not any(i.get("component") for i in ingredients):
         failures.append("no ingredient carries a component")
 
-    # 5. Quantities decomposed into their own field rather than being left
+    # 6. Quantities decomposed into their own field rather than being left
     # inside the name ("unflavored gelatin (2 1/2 tsp.)"), which is what a
     # model does when it has lost the per-field template.
     if all(i.get("quantity") is None for i in ingredients):
