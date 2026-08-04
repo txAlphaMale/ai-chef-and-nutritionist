@@ -111,6 +111,34 @@ def test_the_prompt_defines_the_field_the_schema_forces(db_session):
     assert COMPONENT_UNSECTIONED in prompt
 
 
+def test_the_prompt_does_not_forbid_what_the_grammar_requires():
+    """Rule 1 once said "copy the quantity EXACTLY as written" and "leave
+    it null rather than invent one", while the grammar types quantity as
+    a number. Eight of the fifteen amounts in the real pie source are
+    Unicode vulgar fractions, which a JSON number cannot hold -- so on
+    those rows the two instructions were mutually unsatisfiable and rule 1
+    said which way to resolve it. The live model answered null on all
+    sixteen ingredients, twice.
+
+    A stated fraction written as a decimal is the same amount, so the rule
+    now says so. This pins the resolution, not the wording: if a future
+    edit reinstates "exactly as written" without permitting the decimal
+    form, the contradiction is back.
+    """
+    prompt = recipe_service.RECIPE_IMPORT_PROMPT
+
+    # The fractions that actually appear in the pie's ingredient list.
+    for fraction, decimal in (("¼", "0.25"), ("½", "0.5"), ("¾", "0.75")):
+        assert fraction in prompt, f"rule 1 should name {fraction} explicitly"
+        assert decimal in prompt, f"rule 1 should give {fraction} its decimal value"
+
+    # Unit fidelity is the part of rule 1 that was always right and must
+    # survive any rewording -- converting Tbsp. to cups is still wrong.
+    assert "never change the unit" in prompt
+    # The escape hatch is now conditional on the source stating nothing.
+    assert "no amount at all" in prompt
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [

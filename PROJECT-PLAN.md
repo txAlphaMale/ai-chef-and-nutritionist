@@ -1549,16 +1549,71 @@ a field was emitted and then dropped by our own parsing. It also gained a
 null-quantity check, since "every quantity null" is the signature of a
 model that has lost the field template.
 
-**prompt_chars marker: now 7057.** It has moved twice, 6659 -> 6906 ->
-7057. 6906 means the container is running the mid-session build; 6659
-means the pre-session build; anything else means a household override,
-which the boot log now names.
+### Second live run: components SOLVED, and the null quantities explained
 
-**Still not measured.** Only the author can run the live import. Work item
-3 (two-pass extraction) stays unstarted deliberately -- it is gated on a
-real measurement, and note that the last two "failures" attributed to the
-prompt were in fact one dead prompt row and one allowlist rebuild. Rule out
-our own plumbing before concluding anything about the model.
+`prompt_chars=7057`. **Every ingredient came back with a correct
+component** -- Crust, Filling and Assembly, Topping, correctly assigned
+and in source-list order. Work item 2 is measured and it worked: required
+plus non-nullable, with the meaning stated in a numbered rule rather than
+crammed into the structure line, is what it took.
+
+The OUTPUT FORMAT parenthetical was NOT the cause of the null quantities.
+That hypothesis was wrong and the second run disproved it.
+
+**The real cause was a contradiction inside rule 1.** It said *copy the
+quantity EXACTLY as written* and *leave it null rather than invent one*,
+while the grammar types `quantity` as a JSON number. **Eight of the
+fifteen amounts in the real ingredient list are Unicode vulgar
+fractions** (¼, ¾, 1¼), which a JSON number cannot hold. On those rows
+"copy exactly" and "emit a number" are mutually unsatisfiable, and rule 1
+told the model which way to resolve it: null. It then applied that
+uniformly to all sixteen rows.
+
+The model was never confused about where the amounts were. It stripped
+`12` off `graham crackers` and `1 envelope` off
+`unflavored gelatin (2½ tsp.)` -- it found each amount, then discarded it
+because the rule forbade the only form the field could accept.
+
+**Fixed by removing the contradiction, not by adding a rule.** Rule 1 now
+keeps the part that was always right (never change the unit -- "2 Tbsp."
+never becomes cups) and states that an amount written as a fraction is
+written as its decimal value, with the source's own fractions named
+explicitly. The null escape hatch is now conditional on the source
+stating no amount at all. `test_the_prompt_does_not_forbid_what_the_
+grammar_requires` pins the resolution so a future reword cannot quietly
+reinstate the contradiction.
+
+**Why this was the right call over a `quantity_text` redesign.** The
+obvious architectural move was to have the model copy the amount verbatim
+into a string and parse it in Python -- this repo already has
+`_parse_quantity_token`, which handles Unicode fractions and mixed
+numbers and scores 15/15 on these exact lines where the 9B scored 0/15.
+That option stays on the table. It was not taken first because **the 9B
+has already demonstrated this exact conversion in this exact task**: the
+earlier runs produced `0.5` from the method text's "a scant ½ cup sugar"
+and `1.75` from "¾ cup plus 2 Tbsp." The capability was never missing --
+a rule was suppressing it. Removing a self-inflicted prohibition is a
+smaller and better-targeted change than redesigning the field, and it is
+measurable in one run.
+
+**prompt_chars marker: now 7450.** The sequence is 6659 -> 6906 -> 7057
+-> 7450. Anything else means a household override, which the boot log
+names.
+
+**What remains after this run, all one problem.** Crust sugar taken from
+the method text, the phantom graham-cracker-crumbs row, and the compound
+`¾ cup plus 2 Tbsp.` not split are all the model mining the preparation
+text, which pypdf emits BEFORE the ingredient list. That is what two-pass
+extraction (work item 3) exists to fix, and it is still the right next
+move if this run leaves only those three.
+
+**Standing lesson from this sequence.** Three consecutive live runs were
+reported as prompt failures. The actual causes were: a seeded DB row that
+meant the new prompt never executed; an allowlist rebuild that discarded
+the field the grammar had just forced the model to emit; and a rule that
+forbade the only form the schema could accept. **Rule out our own
+plumbing and our own instructions before concluding anything about the
+model.**
 
 ## Session log
 
