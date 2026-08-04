@@ -74,14 +74,39 @@ def main() -> int:
         print(raw[:2000])
         return 1
 
-    ingredients = parsed.get("ingredients") or []
+    # RAW first, then coerced. A run that printed only the coerced result
+    # reported "no ingredient carries a component" when the model had in
+    # fact emitted every one and coerce_recipe_fields -- an allowlist
+    # rebuild that had never been taught the field -- discarded them. The
+    # table below could not tell "the model did not say it" apart from
+    # "we threw it away", which is the single most expensive thing this
+    # script can be vague about, since a live run is the scarce resource.
+    raw_ingredients = (recipe_service._extract_json_object(raw) or {}).get("ingredients") or []
     print(f"title: {parsed.get('title')}")
-    print(f"{len(ingredients)} ingredients\n")
-    for ing in ingredients:
-        comp = ing.get("component") or "-"
-        note = f"  ({ing['prep_note']})" if ing.get("prep_note") else ""
-        print(f"  [{comp:>22}] {ing.get('quantity')!s:>8} {ing.get('unit') or ''!s:<8} {ing['ingredient_name']}{note}")
+    print(f"{len(raw_ingredients)} ingredients straight from the model:\n")
+    for ing in raw_ingredients:
+        if not isinstance(ing, dict):
+            print(f"  !! not an object: {ing!r}")
+            continue
+        comp = ing.get("component")
+        comp = "NULL" if comp is None else str(comp)
+        note = f"  ({ing.get('prep_note')})" if ing.get("prep_note") else ""
+        print(
+            f"  [{comp:>22}] {ing.get('quantity')!s:>8} {ing.get('unit') or ''!s:<8} {ing.get('ingredient_name')}{note}"
+        )
     print()
+
+    ingredients = parsed.get("ingredients") or []
+    lost = [
+        key
+        for key in ("component", "quantity", "unit", "prep_note")
+        if any(i.get(key) is not None for i in raw_ingredients if isinstance(i, dict))
+        and all(i.get(key) is None for i in ingredients)
+    ]
+    if lost:
+        print(
+            f"!! the model emitted {', '.join(lost)} and parsing dropped every one -- this is OUR bug, not the prompt's\n"
+        )
 
     if PIE_MARKER not in source:
         print("Source is not the Pumpkin Chiffon Pie -- no assertions to run. Review the table above.")
@@ -99,6 +124,9 @@ def main() -> int:
             and (unit is None or (i.get("unit") or "").lower().startswith(unit))
         ]
 
+    # Rule numbers refer to RECIPE_IMPORT_PROMPT's numbered list. They had
+    # drifted out of date; keep them honest or drop them.
+
     # 1. The crust's sugar is 2 Tbsp., not the method's "scant 1/2 cup".
     if not find("sugar", component="crust", quantity=2):
         failures.append("crust sugar is not 2 Tbsp. -- method text is still being mined (rule 1)")
@@ -106,17 +134,25 @@ def main() -> int:
     # 2. The filling's compound amount stays two entries, never summed to 1.75.
     filling_sugar = find("sugar", component="filling")
     if len(filling_sugar) != 2:
-        failures.append(f"filling sugar should be 2 entries (3/4 cup + 2 Tbsp.), got {len(filling_sugar)} (rule 4)")
+        failures.append(f"filling sugar should be 2 entries (3/4 cup + 2 Tbsp.), got {len(filling_sugar)} (rule 2)")
     if any(i.get("quantity") == 1.75 for i in filling_sugar):
-        failures.append("filling sugar summed to 1.75 cup -- compound amount was merged (rule 4)")
+        failures.append("filling sugar summed to 1.75 cup -- compound amount was merged (rule 2)")
 
     # 3. No ingredient invented from the preparation text.
     if find("crumb"):
         failures.append("a graham cracker CRUMBS row exists -- it is only in the prep text (rule 1)")
 
-    # 4. Components were emitted at all.
-    if not any(i.get("component") for i in ingredients):
-        failures.append("no ingredient carries a component -- rule 3 produced nothing")
+    # 4. Components were emitted at all. Checked against the RAW model
+    # output, so this reports what the model did rather than what survived
+    # our own parsing -- those were conflated once already.
+    if not any(i.get("component") for i in raw_ingredients if isinstance(i, dict)):
+        failures.append("the model emitted no component on any ingredient -- rule 3 produced nothing")
+
+    # 5. Quantities decomposed into their own field rather than being left
+    # inside the name ("unflavored gelatin (2 1/2 tsp.)"), which is what a
+    # model does when it has lost the per-field template.
+    if all(i.get("quantity") is None for i in ingredients):
+        failures.append("every quantity is null -- the model stopped splitting fields, check the OUTPUT FORMAT line")
 
     if failures:
         print("FAILURES:")
@@ -124,7 +160,7 @@ def main() -> int:
             print(f"  - {f}")
         return 1
 
-    print("PASS: all four checks clean.")
+    print("PASS: every check clean.")
     return 0
 
 

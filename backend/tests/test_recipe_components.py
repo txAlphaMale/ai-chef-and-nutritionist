@@ -26,7 +26,12 @@ import pytest
 
 from app.models.recipe import Recipe, RecipeIngredient
 from app.routers.recipes import _apply_ingredients
-from app.schemas.ai_extraction import COMPONENT_UNSECTIONED, ExtractedRecipe, schema_of
+from app.schemas.ai_extraction import (
+    COMPONENT_UNSECTIONED,
+    ExtractedIngredient,
+    ExtractedRecipe,
+    schema_of,
+)
 from app.schemas.recipe import RecipeIngredientBase
 from app.services import meal_plan_service, recipe_service
 
@@ -136,6 +141,66 @@ def test_the_sentinel_is_stripped_on_the_extraction_path(db_session):
     db_session.flush()
 
     assert [i.component for i in recipe.ingredients] == [None]
+
+
+def test_coercion_carries_component_through():
+    """The drop that made the first live measurement worthless.
+
+    coerce_recipe_fields rebuilds every ingredient as an allowlist of
+    named keys, and it had never been taught `component`. So the grammar
+    forced the model to emit one, the model did, and this function threw
+    all sixteen away before anything downstream saw them -- and the run
+    was reported as "rule 3 produced nothing", blaming the prompt for a
+    bug three layers below it.
+    """
+    coerced = recipe_service.coerce_recipe_fields(
+        {
+            "title": "Pumpkin Chiffon Pie",
+            "ingredients": [
+                {"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "component": "Crust"},
+                {"ingredient_name": "sugar", "quantity": 0.75, "unit": "cup", "component": "Filling and Assembly"},
+            ],
+        }
+    )
+
+    assert [i["component"] for i in coerced["ingredients"]] == ["Crust", "Filling and Assembly"]
+
+
+def test_coercion_applies_the_unsectioned_sentinel():
+    coerced = recipe_service.coerce_recipe_fields(
+        {
+            "title": "Toast",
+            "ingredients": [{"ingredient_name": "bread", "component": COMPONENT_UNSECTIONED}],
+        }
+    )
+
+    assert coerced["ingredients"][0]["component"] is None
+
+
+def test_every_extraction_field_survives_coercion():
+    """Generalizes the two tests above: any field the grammar can emit
+    must be represented downstream, or the model is being compelled to
+    produce something this app immediately discards. Driven off the schema
+    so adding a field to ExtractedIngredient without teaching the
+    allowlist about it fails here rather than in a live run.
+    """
+    coerced = recipe_service.coerce_recipe_fields(
+        {
+            "title": "Pie",
+            "ingredients": [
+                {
+                    "ingredient_name": "sugar",
+                    "quantity": 2,
+                    "unit": "Tbsp.",
+                    "prep_note": "divided",
+                    "component": "Crust",
+                }
+            ],
+        }
+    )
+
+    missing = set(ExtractedIngredient.model_fields) - set(coerced["ingredients"][0])
+    assert not missing, f"coerce_recipe_fields silently drops {sorted(missing)}"
 
 
 def test_the_api_create_path_persists_component(db_session):

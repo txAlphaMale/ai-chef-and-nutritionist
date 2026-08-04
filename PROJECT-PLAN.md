@@ -1503,18 +1503,62 @@ update through the API, which includes the import preview -> confirm
 path. That is precisely where a multi-part recipe arrives. So the pie
 could have extracted perfectly and still lost every label on save.
 
-**prompt_chars marker: 6659 is no longer the number.** With the pie
-fixture the shipped default now renders to **6906** (`RECIPE_IMPORT_PROMPT`
-is 3503 chars, fixture 3412, `{content}` 9). Watch for 6906 in the
-`ollama_client` log line. Seeing 6659 means the container is running the
-old code; seeing neither means a household override is in force, which the
-boot log now names.
+### First live run of the above: two faults, neither of them the prompt's rules
 
-**Still not measured.** Work items 1 and 2 are landed and green, but only
-the author can run the live import. Work item 3 (two-pass extraction)
-stays unstarted deliberately -- it is gated on a real measurement of these
-two, and starting it first would repeat exactly the mistake that wasted
-the previous session.
+`prompt_chars=6906` confirmed both changes were live. The result still
+failed, and the report said *"no ingredient carries a component -- rule 3
+produced nothing"*. That verdict was wrong, and the way it was wrong is
+the point.
+
+**Fault 1 -- `coerce_recipe_fields` was discarding every component.** It
+rebuilds each ingredient as an allowlist of four named keys and had never
+been taught the fifth. So the grammar compelled the model to emit a
+component, the model very likely did, and this function threw all sixteen
+away three layers before the code that stores them. This is now the
+**fourth** site in this chain where `component` was declared but not
+copied: the schema had it, the model had to emit it, `_apply_ingredients`
+dropped it, `coerce_recipe_fields` dropped it. A field is only real once
+every consumer between the model and the database copies it, and
+`test_every_extraction_field_survives_coercion` is now driven off
+`ExtractedIngredient.model_fields` so the next added field fails in CI
+rather than in a live run.
+
+**Fault 2 -- self-inflicted, in the OUTPUT FORMAT line.** The fix for
+work item 2 put a 100-character parenthetical *containing quoted text*
+(`write "main" when...`) inside the pseudo-JSON template that tells the
+model the object's shape. Every other entry on that line is a bare type
+(`"unit" (string or null)`). The run's own output shows what that cost:
+`unflavored gelatin (2½ tsp.)`, `sugar, divided`, `kosher salt, divided`
+-- quantity and prep_note folded back into the name, **null quantity on
+all 16 rows**, where the previous run had extracted quantities. The model
+lost the per-field template. Corrected by putting the type back
+(`"component" (string, never null -- see rule 3)`) and moving the meaning
+into a numbered rule, which is where every other semantic in this prompt
+already lives. Structure line states shapes; rules state meanings.
+
+This is not a fourth speculative prompt rewrite -- the standing decision
+to stop tuning the rules holds. It is repairing a malformed template line
+introduced in this session.
+
+**Lesson worth keeping: `check_recipe_import.py` could not tell "the model
+did not emit it" from "we threw it away".** A live run is the scarce
+resource here and it burned one on a wrong conclusion that pointed at the
+prompt. The script now prints the RAW model JSON, checks the component
+assertion against raw rather than coerced output, and flags outright when
+a field was emitted and then dropped by our own parsing. It also gained a
+null-quantity check, since "every quantity null" is the signature of a
+model that has lost the field template.
+
+**prompt_chars marker: now 7057.** It has moved twice, 6659 -> 6906 ->
+7057. 6906 means the container is running the mid-session build; 6659
+means the pre-session build; anything else means a household override,
+which the boot log now names.
+
+**Still not measured.** Only the author can run the live import. Work item
+3 (two-pass extraction) stays unstarted deliberately -- it is gated on a
+real measurement, and note that the last two "failures" attributed to the
+prompt were in fact one dead prompt row and one allowlist rebuild. Rule out
+our own plumbing before concluding anything about the model.
 
 ## Session log
 

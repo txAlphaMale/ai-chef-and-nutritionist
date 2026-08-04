@@ -218,11 +218,12 @@ SOURCE:
 RULES:
 1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
 2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
-3. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
-4. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
-5. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
-6. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
-7. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
+3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it (Crust, Filling and Assembly, Topping). Use the value main when the recipe is a single dish with no named parts.
+4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
+5. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
+6. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
+7. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
+8. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
 
 EXAMPLE (a source line reused across two sections -- see rule 2):
 Source: under the heading "Filling", the ingredient list says "3/4 cup plus 2 Tbsp. sugar, divided"; a later step says "fold in ... remaining 2 Tbsp. sugar".
@@ -231,7 +232,7 @@ Correct output includes BOTH as separate ingredient entries -- never one merged 
 {"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null, "component": "Filling"}
 
 OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fences. Exactly these keys:
-{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string, never null: the source's own heading for the part this ingredient belongs to, copied as written -- write "main" when the recipe has no named parts), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
+{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string, never null -- see rule 3), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 # ^ the ONE remaining plain str.replace() at module-definition time,
 # resolving the shared nutrition-key hint into the constant once -- the
@@ -297,6 +298,15 @@ def coerce_recipe_fields(data: dict) -> dict:
                 "quantity": _safe_float(ing.get("quantity")),
                 "unit": ing.get("unit") or None,
                 "prep_note": ing.get("prep_note") or None,
+                # This rebuild is an allowlist, so a field the model was
+                # just forced to emit dies here unless it is named. That
+                # is how `component` reached a live run reporting "no
+                # ingredient carries a component" while the grammar had
+                # made a null one impossible -- the model sent it and this
+                # function threw it away, three layers before the code
+                # that stores it. Every consumer between the model and the
+                # database has to copy the field, not just the last one.
+                "component": normalize_component(ing.get("component")),
             }
         )
 
