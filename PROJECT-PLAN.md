@@ -1617,30 +1617,74 @@ noise:
 | 3654 | 16 | **all correct** | all null | 1126 |
 | 4047 | **5** | correct | **0.25 correct** | 842 |
 
-**Every character in this prompt is paid for out of the same budget.** The
-rule-1 rewrite was ~600 chars replacing ~380, and it front-loaded the
-rules with a drill of five fraction pairs (¼/½/¾/1¼/1/3 and their
-decimals). The model spent its attention on amount formatting and stopped
-before finishing the list. The *permission* was what it needed; the drill
-was what it cost.
+### Fourth live run: prompt length was the wrong theory, and it is now falsified
 
-Rule 1 is now **247 chars -- shorter than the 380 it started at** -- and
-keeps all three things that matter: unit fidelity, one worked fraction,
-and a null condition scoped to "the source states no amount".
-`test_rule_1_stays_short` pins the ceiling, because this is the easiest
-place in the file to overspend and the cost does not show up until a live
-run.
+The obvious reading of the third run was that the prompt had grown too
+long -- rule 1 went from ~380 to ~600 chars and front-loaded the rules
+with a drill of five fraction pairs. Rule 1 was cut to 247 chars, SHORTER
+than it had ever been, keeping the permission and dropping the drill.
 
-**prompt_chars marker: now 7074.** The sequence is 6659 -> 6906 -> 7057
--> 7450 -> 7074. Anything else means a household override, which the boot
-log names.
+**Completeness got worse: 4 ingredients, and the quantities went back to
+null.**
 
-**This is the strongest evidence yet for two-pass extraction.** Four
-consecutive measurements show this prompt is at capacity: every
-requirement added costs another one already met. Two-pass is not just a
-fix for method-mining -- it is what lets each call have a *small* prompt
-over a *small* input, which is the only version of this that has budget
-left for a fifth requirement.
+| prompt constant | rule 1 | ingredients | components | quantities | eval_count | prompt_eval |
+|---|---|---|---|---|---|---|
+| 3256 (pre-session) | forbids conversion | 15 | n/a | mined from prose | -- | -- |
+| 3503 | forbids | 16 | dropped by coercion | null | 1081 | 1950 |
+| 3654 | forbids | **16** | **correct** | null | 1126 | 1987 |
+| 4047 | permits, 600 chars | 5 | correct | **0.25 correct** | 842 | 2121 |
+| 3671 | permits, 247 chars | **4** | correct | null | 773 | 2006 |
+
+3654 chars returned 16 ingredients. 3671 chars returned 4, on
+near-identical input tokens. **Length is not the variable.** That theory
+was stated confidently here and pinned in a test; both are now removed.
+
+What tracks instead is whether rule 1 asks for **per-row conversion
+work**. Both runs that permitted fraction-to-decimal collapsed, at very
+different lengths, and both runs that forbade it returned all 16. A
+plausible mechanism: "leave null rather than invent one" lets the model
+emit a row having decided nothing, while "convert this fraction" adds a
+decision to every row. `eval_count` fell each time conversion was asked
+for (1126 -> 842 -> 773) -- the model generated LESS and stopped earlier,
+which is the opposite of what a too-long prompt would predict.
+
+**Kept honest:** rule 1 and the EXAMPLE note changed together in both
+permissive runs, so those two are confounded and neither was isolated. A
+fifth run could separate them. It is not worth one.
+
+### Decision: stop tuning this prompt, for real this time
+
+Four measurements at temperature 0 say **components and quantities are
+mutually exclusive on this model at this prompt size.** Every requirement
+won costs one already met. That is a capacity limit, not a wording
+problem, and it is the fourth, fifth and sixth failed attempt at tuning
+this prompt.
+
+Rule 1 and the EXAMPLE note are **reverted byte-exact to the 3654-char
+configuration** -- the best measured state, 16 of 16 ingredients with
+correct components and null quantities. That is the better half of a bad
+trade and it is held only until two-pass lands.
+`test_rule_1_is_the_configuration_that_actually_measured_best` records
+the whole table so the next reader does not re-derive it and re-lose it.
+
+**prompt_chars marker: back to 7057.** The full sequence was 6659 -> 6906
+-> 7057 -> 7450 -> 7074 -> 7057.
+
+**Two-pass extraction (work item 3) is now the only remaining move**, and
+the argument is no longer just method-mining. Pass 1 copies ingredient
+lines verbatim; pass 2 parses only those lines. Both calls get a small
+prompt over a small input, and pass 2 in particular never sees the method
+text and carries far fewer simultaneous requirements -- which is exactly
+the constraint these four runs measured.
+
+**Model selection is now part of that work.** Recipe import currently uses
+`ollama_chat_model`, so pointing it at the 27B would also move chat, meal
+planning and recipe generation onto a thinking-capable 27B on the single
+worker thread. An `ollama_extraction_model` setting defaulting to the chat
+model makes the 27B a per-task, GUI-reversible experiment instead of an
+app-wide commitment -- and two-pass has two calls of very different
+difficulty, so the copying pass can stay on the 9B while only the parsing
+pass pays for a bigger model.
 
 **What remains after this run, all one problem.** Crust sugar taken from
 the method text, the phantom graham-cracker-crumbs row, and the compound

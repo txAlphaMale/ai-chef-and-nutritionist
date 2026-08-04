@@ -111,53 +111,43 @@ def test_the_prompt_defines_the_field_the_schema_forces(db_session):
     assert COMPONENT_UNSECTIONED in prompt
 
 
-def test_the_prompt_does_not_forbid_what_the_grammar_requires():
-    """Rule 1 once said "copy the quantity EXACTLY as written" and "leave
-    it null rather than invent one", while the grammar types quantity as
-    a number. Eight of the fifteen amounts in the real pie source are
-    Unicode vulgar fractions, which a JSON number cannot hold -- so on
-    those rows the two instructions were mutually unsatisfiable and rule 1
-    said which way to resolve it. The live model answered null on all
-    sixteen ingredients, twice.
+def test_rule_1_is_the_configuration_that_actually_measured_best():
+    """Rule 1 is back to forbidding conversion, deliberately, and this
+    test exists to stop someone "fixing" it again on reasoning alone.
 
-    A stated fraction written as a decimal is the same amount, so the rule
-    now says so. This pins the resolution, not the wording: if a future
-    edit reinstates "exactly as written" without permitting the decimal
-    form, the contradiction is back.
+    The reasoning for changing it was sound and the outcome was worse.
+    Rule 1 tells the model to copy the quantity EXACTLY and to leave it
+    null rather than invent one, while the grammar types quantity as a
+    number -- and eight of the fifteen amounts in the real pie source are
+    Unicode vulgar fractions a JSON number cannot hold. That contradiction
+    is real. Permitting the decimal form fixed it and cost the extraction:
+
+        rule 1 forbids conversion, 380 chars -> 16 of 16 ingredients, null quantities
+        rule 1 permits conversion, 600 chars ->  5 of 16 ingredients, one real quantity
+        rule 1 permits conversion, 247 chars ->  4 of 16 ingredients, null quantities
+
+    All four runs at temperature 0 with deterministic sampling, so these
+    are measurements. Length was the obvious explanation and it is wrong:
+    3654 chars returned 16 and 3671 chars returned 4. What tracks is
+    whether rule 1 asks for per-row conversion work, and `eval_count` fell
+    every time it did (1126 -> 842 -> 773) -- the model generated less and
+    stopped earlier.
+
+    Caveat kept honest: the EXAMPLE note changed alongside rule 1 in both
+    permissive runs, so those two are confounded and neither was isolated.
+
+    The conclusion is not "this wording is right". It is that components
+    and quantities are mutually exclusive on this model at this prompt
+    size, which is a capacity limit and not a wording problem. This is the
+    better half of a bad trade, held only until two-pass extraction lands.
     """
     prompt = recipe_service.RECIPE_IMPORT_PROMPT
+    rule_1 = next(line for line in prompt.splitlines() if line.startswith("1. "))
 
-    # One worked fraction, not five. The first version of this fix spelled
-    # out ¼/½/¾/1¼/1/3 and their decimals; that run converted a fraction
-    # correctly and returned 5 of 16 ingredients instead of 16, at
-    # temperature 0. The permission is what the model needed; the drill
-    # was what it cost.
-    assert "write a fraction as its decimal" in prompt
-    assert "0.75" in prompt
-
-    # Unit fidelity is the part of rule 1 that was always right and must
-    # survive any rewording -- converting Tbsp. to cups is still wrong.
-    assert "without changing the unit" in prompt
-    # The escape hatch is conditional on the source stating nothing, so a
-    # stated-but-fractional amount has no null to fall back to.
-    assert "states no amount" in prompt
-
-
-def test_rule_1_stays_short():
-    """Every character in this prompt is paid for out of the same budget.
-
-    Three live runs at temperature 0 tracked prompt length against
-    completeness: 3654 chars extracted all 16 ingredients, 4047 extracted
-    5. Rule 1 is the first thing the model reads after the source and the
-    easiest place to overspend, so its length is pinned rather than left
-    to judgement. Raising this ceiling means re-measuring, not editing the
-    number.
-    """
-    rule_1 = next(line for line in recipe_service.RECIPE_IMPORT_PROMPT.splitlines() if line.startswith("1. "))
-
-    assert len(rule_1) <= 260, (
-        f"rule 1 is {len(rule_1)} chars -- it was 380 before any of this and cost completeness at 600"
-    )
+    assert "EXACTLY as written" in rule_1
+    assert "leave both null rather than invent one" in rule_1
+    # Unit fidelity is the part of rule 1 that was never in question.
+    assert "never convert between units" in rule_1
 
 
 @pytest.mark.parametrize(
