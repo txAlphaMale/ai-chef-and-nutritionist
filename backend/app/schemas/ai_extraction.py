@@ -61,7 +61,17 @@ class ExtractedIngredient(BaseModel):
     # grammar cannot make the model pick the RIGHT heading, but it does
     # make "emit a component at all" structurally available, which a
     # prompt-only instruction does not.
-    component: str | None = Field(default=None)
+    # REQUIRED, and nullable -- deliberately not `default=None`.
+    #
+    # Pydantic marks a field with a default as optional, which puts it in
+    # the grammar's `properties` but not its `required` list, and a 9B
+    # model simply never emits it: the first live run produced null
+    # components on all 16 ingredients. Requiring it forces the model to
+    # write `"component": <string|null>` for every single row, which
+    # turns "did you notice the sections?" from something it can skip
+    # into something it must answer. Null is still a legal answer for a
+    # recipe with no sections.
+    component: str | None = Field(...)
 
 
 class ExtractedNutrition(BaseModel):

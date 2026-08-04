@@ -1368,8 +1368,60 @@ single grouped shape in `ExtractedRecipe` over a `list[str] | list[...]`
 union -- a union becomes an `anyOf` in the Ollama grammar, and this model
 is not the one to hand a branching array schema to.
 
-**Verification gap to close:** the end-to-end import against a live
-Ollama has not been run. Everything above is verified by 689 passing
+### Live run result: the prompt rewrite FAILED, and why (2026-08-03)
+
+Run against the real fixture and a live Ollama. Three of four checks
+failed, identically to before the rewrite: crust sugar came back as
+`0.5 cup` (the method's "a scant 1/2 cup sugar"), the phantom
+`graham cracker crumbs, 2 Tbsp` row was still produced, and **every one
+of the 16 ingredients had a null component.**
+
+Two causes, one mechanical and one architectural.
+
+**Mechanical, fixed:** `component` had `default=None`, so pydantic left
+it out of the grammar's `required` list and the model simply never
+emitted it. It is now `Field(...)` -- required and nullable -- so the
+model must write `"component": <string|null>` on every row. Null is
+still a legal answer for an unsectioned recipe.
+
+**Architectural, open:** rule 1 is a NEGATIVE instruction ("NEVER create
+an ingredient from a sentence"), and the deployed model is `qwen3.5:9b`,
+not the `qwen3.6:27b` this repo's audit recorded. Small models drop
+negative constraints first. The rewrite was designed for a machine that
+was not running.
+
+But the model is not lost -- it emitted the ingredients in **exact
+source-list order**, crust block then filling block. It finds the list
+correctly and then *reconciles* the quantities against the prose it was
+also handed.
+
+**Decision: stop tuning this prompt.** Three attempts have now failed at
+it -- `8f315ba`, `1fd5b77`, and this one. It is the pattern the audit
+names in "Assessment of what Sonnet built": a symptom, a plausible
+mechanism, a defensive patch, and the patch becomes architecture. The
+audit's first principle applies directly -- a design that needs the model
+to voluntarily ignore part of its input fails intermittently forever.
+
+**Next: two-pass extraction.** Pass 1 asks the model to copy the
+ingredient-list lines VERBATIM, with their headings and nothing else -- a
+copying task, which small models do reliably, and one whose output can be
+checked against the source by substring. Pass 2 parses only those lines
+into structured JSON with components. The method text is never in the
+parsing context, so it cannot be mined; instructions come from a separate
+call over the remainder. Prefer this over deterministic Python
+segmentation, which is brittle across the varied sources this app
+imports (PDF, photo, URL, pasted text) -- and prefer it over moving to
+the 27B, since one worker thread serves every AI feature in the app and
+an import that monopolises the GPU budget is a real cost. The 27B is the
+fallback if two-pass underdelivers on the 9B, not the first move.
+
+Re-run after any change:
+
+    docker compose cp backend/tests/fixtures/pumpkin_chiffon_pie_pypdf.txt chef:/tmp/pie.txt && \
+    docker compose exec chef python scripts/check_recipe_import.py /tmp/pie.txt
+
+**Verification gap to close:** two-pass is not implemented, and the
+end-to-end import still fails three of four checks. Everything above is verified by 689 passing
 backend tests, a clean migration from empty to head, and the checked-in
 fixture -- but the prompt rewrite itself can only be proven by running
 the real import.
