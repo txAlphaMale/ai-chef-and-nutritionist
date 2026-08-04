@@ -1787,6 +1787,36 @@ part of the name. `1 envelope unflavored gelatin (2½ tsp.)` reads as
 quantity 1, unit `envelope`, name `unflavored gelatin`, note `2½ tsp.`.
 Nothing is discarded; it is filed where it can be matched.
 
+### The batch harness, and the assumption it exists to test
+
+`scripts/check_recipe_import_batch.py` runs the real import across a
+folder and prints one row per file: ingredients found, null quantities,
+missing components, **which pass supplied the answer**, how many lines
+pass 1 returned, how many survived verification, and how many source
+lines look like ingredient lines.
+
+It exists because of one assumption that has only ever been tested
+against the pie: **verification matches a copied line against the START of
+a source line, so it requires the source's ingredients to be on their own
+lines.** True for pypdf. Unknown for trafilatura's HTML extraction, for
+text pasted as a paragraph, or for a two-column PDF pypdf interleaves.
+
+When that assumption breaks the failure is **silent**: verification
+rejects everything, `extract_ingredients_two_pass` returns [],
+`finish_recipe_parse` keeps the single-call ingredients, and the household
+sees a plausible preview with null quantities and nothing saying so. A
+`src=A` row in the table is exactly that case, made visible.
+
+The `amounts` column is a smoke alarm, not a parser -- heuristic
+segmentation is too brittle to extract with across PDF, HTML, photo and
+pasted text, which is the whole reason for two-pass, but a false alarm
+only costs a second look. Confirmed on a synthetic paragraph-style recipe:
+zero lines start with an amount, so the alarm fires before a live run is
+even spent.
+
+Run it before trusting the importer broadly. Each file costs two model
+calls, so start with `--limit`.
+
 **What is still unproven:** transcription accuracy across OTHER sources.
 This is one recipe, one PDF, one extractor. The deterministic half is
 tested and cannot regress silently, and repair covers a one-glyph slip,
