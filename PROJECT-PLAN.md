@@ -1426,7 +1426,99 @@ backend tests, a clean migration from empty to head, and the checked-in
 fixture -- but the prompt rewrite itself can only be proven by running
 the real import.
 
+### The seeded prompt: why the last three measurements meant nothing
+
+Before any of the above could be measured, a design flaw had to go.
+
+`app/seed.py` wrote a copy of each shipped extraction prompt into the
+`system_prompts` table on first boot. `get_active_prompt` returns that row
+and the module constant is only the fallback, so **a row is an override**
+-- it beats whatever text a later release ships. An untouched seeded copy
+was byte-identical to a deliberate household edit, which meant:
+
+- every improved default shipped after an install's first boot was dead
+  on arrival for that install, forever;
+- a prompt change could be measured against the live model as "no
+  better" **when it had never executed**, which is most likely what
+  happened to at least one of the three failed attempts;
+- nothing in the UI or the logs could tell the two states apart.
+
+**Fixed by removing the ambiguity, not by patching around it.** Nothing
+seeds these four rows any more. No row means "use what this build ships",
+and the Settings box shows that text as greyed placeholder. A row exists
+only because someone pressed Save.
+
+- `app/prompt_defaults.py` holds the registry, the classification rule and
+  the boot-time repair.
+- `prune_unedited_prompt_rows` runs on **every** container start
+  (`docker-entrypoint.sh`), so an install seeded by an older build repairs
+  itself. Content equal to a text this project shipped is not an edit.
+- The digest set is **closed, not growing**. Seeding existed only between
+  `1fd5b77` and this change, so the only texts a seeded row can hold are
+  the ones live in that window -- three superseded ones, checked in
+  byte-exact under `tests/fixtures/shipped_prompts/` so the digests are
+  provable rather than asserted.
+- `GET /api/system/prompts` now reports `default_content` and
+  `has_override`; `PATCH` creates the row on first save; `DELETE` reverts.
+  Saving the shipped text back verbatim drops the override rather than
+  storing a duplicate of the default.
+- Boot logs which keys were pruned and which overrides remain in force.
+  An install silently running a different prompt is the failure this whole
+  change exists to end, so it gets announced.
+
+`main_chef` and `dietary_onboarding` are deliberately untouched and still
+seeded: they have no code-level fallback, so their row IS the value and
+deleting one would leave the chef with an empty system prompt.
+
+### `component` is now non-nullable, and the API path actually stores it
+
+Two weaker forms have now been tried against the live 9B and both produced
+a component on **zero** ingredients:
+
+| form | grammar effect | live result |
+|---|---|---|
+| `default=None` | optional -- in `properties`, not in `required` | never emitted |
+| `str \| None = Field(...)` | required, but `null` satisfies it | `null` on all 16 rows |
+| `str = Field(...)` **(now)** | required, no null branch | to be measured |
+
+A required field the model can answer with nothing is not a required
+field. `component: str` leaves no way to decline; an unsectioned recipe
+answers with the literal `COMPONENT_UNSECTIONED` (`"main"`), and
+`recipe_service.normalize_component` maps that back to NULL at
+persistence, so the database keeps meaning exactly what it meant before
+and single-component recipes are unchanged.
+
+The prompt's OUTPUT FORMAT and worked example now state `component`
+too. That is not prompt tuning -- a field the grammar **compels** the
+model to fill and the prompt never defines gets filled with something
+invented, and `ai_extraction.py`'s own first design rule is that the
+schema and the prompt must not drift. A test pins the two together.
+
+**Bug found while doing this, and it would have made work item 3
+unmeasurable:** `routers/recipes.py::_apply_ingredients` never wrote
+`component`. `RecipeIngredientBase` has accepted the field since the
+column landed and the schema comment even says it is authored data, but
+the function that persists it silently dropped it -- on every create AND
+update through the API, which includes the import preview -> confirm
+path. That is precisely where a multi-part recipe arrives. So the pie
+could have extracted perfectly and still lost every label on save.
+
+**prompt_chars marker: 6659 is no longer the number.** With the pie
+fixture the shipped default now renders to **6906** (`RECIPE_IMPORT_PROMPT`
+is 3503 chars, fixture 3412, `{content}` 9). Watch for 6906 in the
+`ollama_client` log line. Seeing 6659 means the container is running the
+old code; seeing neither means a household override is in force, which the
+boot log now names.
+
+**Still not measured.** Work items 1 and 2 are landed and green, but only
+the author can run the live import. Work item 3 (two-pass extraction)
+stays unstarted deliberately -- it is gated on a real measurement of these
+two, and starting it first would repeat exactly the mistake that wasted
+the previous session.
+
 ## Session log
+
+- **2026-08-03 (the seeded prompt, and `component` made unskippable)**: Two changes, in the order they had to happen. **First, seeding of the four extraction prompts is gone.** A `SystemPrompt` row overrides the shipped default permanently, so seeding a copy of each default made an untouched install byte-identical to an edited one -- every improved default shipped after first boot was dead on arrival, and a prompt change could be measured as "failed" when it had never executed. Nothing seeds them now: no row means "use what this build ships", the Settings box shows that text as greyed placeholder, and a row appears only on a real save. `app/prompt_defaults.py` carries the registry, an exact-content classification rule, and a boot-time prune that repairs installs seeded by older builds. Its historical-digest set is closed rather than growing -- seeding existed only between `1fd5b77` and this commit, so the candidate texts are enumerable, and the three superseded ones are checked in byte-exact under `tests/fixtures/shipped_prompts/` so the digests are proven by a test instead of asserted in a comment. `GET /api/system/prompts` gained `default_content` and `has_override`, `PATCH` creates the row on first save, `DELETE` reverts, and saving the shipped text back verbatim drops the override rather than storing a copy of it. Boot now logs what was pruned and which overrides remain in force. `main_chef` and `dietary_onboarding` are untouched and still seeded -- they have no code-level fallback, so their row is the value. **Second, `ExtractedIngredient.component` is now `str`, not `str | None`.** Required-and-nullable had already been tried live and the 9B answered `null` on all 16 ingredients; a required field the model can answer with nothing is not required. Unsectioned recipes answer with the literal `"main"`, which `recipe_service.normalize_component` maps back to NULL at persistence, so the database and single-component recipes are unchanged. The prompt's OUTPUT FORMAT and worked example now define the field, because the grammar compels it and an undefined compelled field gets filled with something invented; a test pins the schema and the prompt together. **Found while doing this:** `routers/recipes.py::_apply_ingredients` never persisted `component` at all, on any create or update through the API -- including the import preview->confirm path, which is exactly where a multi-part recipe arrives. The pie could have extracted perfectly and still lost every label on save. **Found by running it, not reading it:** the first version of `PATCH /prompts/{key}` built the row, added it, then reconsidered and deleted it, which raises "Instance is not persisted" against an object that was never flushed -- every unit test happened to seed a row first, so all of them passed; the failing case (open Settings on a clean install, paste the text you see, press Save) only appeared against a live server. Restructured to resolve the edit before touching the session, with a regression test. 724 backend tests pass (up from 689), ruff check and `ruff format --check` clean, eslint clean, `vite build` transforms 308 modules and the new UI strings and the DELETE call are present in the minified bundle. **The prompt_chars marker moved: 6659 -> 6906** with the pie fixture. **Not measured against a live model** -- Ollama is not reachable from this sandbox, and work item 3 (two-pass extraction) is deliberately left unstarted until these two are measured for real.
 
 - **2026-08-03 (architecture: reverse proxy removed, two containers become one)**: The author asked whether the reverse proxy was necessary at all. It was not. Chef now ships as ONE image and ONE container that serves both its API and its frontend. The problem the proxy addressed was genuine -- two origins and two TLS certificates for every device on the LAN -- but four facts made it the wrong shape: the app uses HashRouter so no history fallback is needed, the backend already terminates TLS, Fiduciary already serves its own frontend from `portfolio-api/static/`, and the proxy cost ~520 lines across two Node servers, a supervisor loop, a second image, a shared TLS volume and two cert poll loops -- inside which a fatal crash-loop hid for weeks (P0-8). Replaced by `app/static_files.py`: a root mount registered after every router, with an explicit cache policy (immutable for fingerprinted assets, no-cache for the unhashed entry files, since Starlette sets no Cache-Control at all by default). Deleted both Node servers, both old Dockerfiles and entrypoints, `frontend/runtime-deps/`, the frontend Compose service, the dead `/config.js` script tag, and the proxy timeouts and healthcheck added earlier the same day. Added a root multi-stage Dockerfile that FAILS THE BUILD if the app cannot import or the frontend build is missing, and a `docker build` job in CI -- the two checks whose absence let P0-8 ship. Ports are now APP_PORT/APP_HTTPS_PORT defaulting to 5173/5174, preserving existing bookmarks and firewall rules. Verified by actually running the consolidated app and curling it, not by reading the code: `/` serves the SPA, all 103 API routes stay reachable behind the root mount, cache headers are correct, and a cross-origin request gets no Access-Control-Allow-Origin. 684 backend tests pass, ruff and eslint clean.
 

@@ -27,12 +27,18 @@ class SystemPrompt(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # main_chef | dietary_onboarding | recipe_import | recipe_modify |
-    # receipt_import | vision_intake -- the last four (backlog B16.1)
-    # are the AI import/extraction prompts, seeded in
-    # app/seed.py with the same default text their code-level fallback
-    # constant carries (see recipe_service.get_recipe_import_prompt/
-    # get_recipe_modify_prompt and routers/inventory.py's
-    # get_receipt_import_prompt/get_vision_prompt).
+    # receipt_import | vision_intake.
+    #
+    # The two groups mean different things. main_chef and
+    # dietary_onboarding are seeded by app/seed.py and their row IS the
+    # value -- there is no code-level default behind them.
+    #
+    # The other four (backlog B16.1) are the AI extraction prompts, whose
+    # shipped text lives in code (recipe_service.RECIPE_IMPORT_PROMPT /
+    # RECIPE_MODIFY_INSTRUCTIONS, routers.inventory.RECEIPT_IMPORT_PROMPT
+    # / VISION_PROMPT). For those a row is an OVERRIDE and its presence
+    # is the whole signal, so nothing seeds them: a row exists only
+    # because a household saved an edit. See app/prompt_defaults.py.
     prompt_key: Mapped[str] = mapped_column(String(50), unique=True)
     content: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

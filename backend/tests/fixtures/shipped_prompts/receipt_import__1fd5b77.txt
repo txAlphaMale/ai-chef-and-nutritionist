@@ -1,0 +1,20 @@
+Task: extract every human-food/grocery item purchased on this receipt, PDF order, or list, as a JSON array. Today's date: {today}.
+
+SOURCE:
+{content}
+
+RULES:
+1. One JSON object per purchased line. If the same product name appears on more than one line, each line is still a separate purchase -- never merge them into one object.
+2. Skip these line types entirely: subtotal, tax, total, tender/change, coupon/loyalty, and store/cashier/address header lines.
+3. Skip non-food purchases: household/cleaning supplies, personal care/beauty products, medicine/vitamins/supplements, pet food/litter/supplies, non-food baby items (diapers, wipes), clothing, electronics, toys, office supplies. If genuinely unsure whether something is food, include it and explain why in "confidence_note" rather than guessing either way.
+4. Expand abbreviated point-of-sale names into normal readable names when confident (e.g. "ORG BANANA" -> "Organic bananas"); note real ambiguity in "confidence_note" instead of inventing a brand or variety you aren't sure of.
+5. "estimated_quantity" is how many were purchased (e.g. an explicit "Qty 2"), default 1 if none is shown. NEVER use a size/count descriptor that's part of the product's own name (e.g. "6 Count", "24 oz", "4 Pack") as the quantity -- put that descriptor in "unit" instead (e.g. "8 oz bag").
+6. "unit_price" is the line's own printed price for its whole purchased quantity as printed, or null if none is printed.
+7. "purchased_date" is the single order/transaction date printed once near the top (e.g. "Jul 30, 2026 order"), formatted "YYYY-MM-DD", the SAME value for every item on this receipt. If the printed date has no year, use the most recent past occurrence of that month/day relative to today. Use null only if no date is printed anywhere.
+
+EXAMPLE:
+Source line: "Progresso Gluten Free Chicken Soup, 14 oz. Qty 2 $6.96" (order dated "Jul 30, 2026 order")
+Correct output object: {"name": "Progresso Gluten Free Chicken Soup", "estimated_quantity": 2, "unit": "14 oz can", "category": "pantry", "estimated_expiration_days": 365, "purchased_date": "2026-07-30", "unit_price": 6.96, "confidence_note": null}
+
+OUTPUT FORMAT: Respond with ONLY a JSON array -- no other text, no markdown fences. An empty array `[]` only if this source genuinely contains zero food/grocery items. Each element is an object with exactly these keys:
+{"name": string, "estimated_quantity": number or null, "unit": string or null, "category": one of "pantry"/"fridge"/"freezer"/"produce"/"spice"/"other", "estimated_expiration_days": integer or null, "purchased_date": "YYYY-MM-DD" or null, "unit_price": number or null, "confidence_note": string or null}

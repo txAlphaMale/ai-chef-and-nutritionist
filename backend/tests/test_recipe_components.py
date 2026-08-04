@@ -22,7 +22,12 @@ components rather than grouping by them.
 
 from pathlib import Path
 
+import pytest
+
 from app.models.recipe import Recipe, RecipeIngredient
+from app.routers.recipes import _apply_ingredients
+from app.schemas.ai_extraction import COMPONENT_UNSECTIONED, ExtractedRecipe, schema_of
+from app.schemas.recipe import RecipeIngredientBase
 from app.services import meal_plan_service, recipe_service
 
 FIXTURE = Path(__file__).parent / "fixtures" / "pumpkin_chiffon_pie_pypdf.txt"
@@ -65,6 +70,101 @@ def test_component_defaults_to_none(db_session):
     recipe = recipe_service.create_recipe_from_parsed(db_session, parsed, source="manual")
     db_session.flush()
     assert [i.component for i in recipe.ingredients] == [None]
+
+
+def test_the_extraction_schema_leaves_the_model_no_way_to_decline(db_session):
+    """`component` must be required AND non-nullable in the grammar.
+
+    Both weaker forms were tried against the live 9B and both produced a
+    component on zero ingredients: `default=None` kept the field out of
+    `required` entirely, and `str | None` kept it in `required` but let
+    `null` satisfy it. This asserts the grammar handed to Ollama, which is
+    the only thing the model is actually constrained by.
+    """
+    schema = schema_of(ExtractedRecipe)
+    ingredient = schema["properties"]["ingredients"]["items"]
+
+    component = ingredient["properties"]["component"]
+    assert "component" in ingredient["required"]
+    assert component.get("type") == "string", "a nullable component is an escape hatch the 9B takes on every row"
+    # A nullable field reaches the grammar as anyOf[string, null], which
+    # is exactly the shape that let the model answer null on every row.
+    assert "anyOf" not in component
+
+    # Contrast: the fields that genuinely may have no answer keep their
+    # null branch. This is a targeted exception, not a change of rule.
+    assert "anyOf" in ingredient["properties"]["quantity"]
+
+
+def test_the_prompt_defines_the_field_the_schema_forces(db_session):
+    """A field the grammar compels and the prompt never mentions gets
+    filled with something invented. These two drift apart silently, so
+    the link is pinned rather than trusted."""
+    prompt = recipe_service.RECIPE_IMPORT_PROMPT
+
+    assert '"component"' in prompt
+    assert COMPONENT_UNSECTIONED in prompt
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Crust", "Crust"),
+        ("  Filling and Assembly  ", "Filling and Assembly"),
+        ("main", None),
+        ("Main", None),
+        ("MAIN", None),
+        ("  main  ", None),
+        ("", None),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_the_unsectioned_sentinel_never_reaches_the_database(raw, expected):
+    """ "main" exists only to deny the model a null. NULL stays the
+    database's word for "no named parts", which is also what every row
+    imported before the column existed says."""
+    assert recipe_service.normalize_component(raw) == expected
+
+
+def test_the_sentinel_is_stripped_on_the_extraction_path(db_session):
+    parsed = {
+        "title": "Toast",
+        "ingredients": [{"ingredient_name": "bread", "quantity": 2, "component": COMPONENT_UNSECTIONED}],
+    }
+    recipe = recipe_service.create_recipe_from_parsed(db_session, parsed, source="import_file")
+    db_session.flush()
+
+    assert [i.component for i in recipe.ingredients] == [None]
+
+
+def test_the_api_create_path_persists_component(db_session):
+    """The regression this catches: RecipeIngredientBase accepted
+    `component` from the day the column landed, but _apply_ingredients
+    never wrote it -- so every create and update through the API dropped
+    it, including the import preview->confirm path, which is exactly where
+    a multi-part recipe arrives.
+    """
+    recipe = Recipe(title="Pumpkin Chiffon Pie", default_servings=8)
+    db_session.add(recipe)
+    db_session.flush()
+
+    _apply_ingredients(
+        db_session,
+        recipe,
+        [
+            RecipeIngredientBase(ingredient_name="sugar", quantity=2, unit="Tbsp.", component="Crust"),
+            RecipeIngredientBase(ingredient_name="sugar", quantity=0.75, unit="cup", component="Filling"),
+            RecipeIngredientBase(ingredient_name="salt", quantity=1, unit="tsp.", component=COMPONENT_UNSECTIONED),
+        ],
+    )
+    db_session.flush()
+
+    assert {(i.ingredient_name, i.component) for i in recipe.ingredients} == {
+        ("sugar", "Crust"),
+        ("sugar", "Filling"),
+        ("salt", None),
+    }
 
 
 def test_grocery_merges_across_components():

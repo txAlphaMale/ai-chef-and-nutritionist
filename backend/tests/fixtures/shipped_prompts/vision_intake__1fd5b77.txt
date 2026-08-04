@@ -1,0 +1,10 @@
+Look at this photo of food items and identify each distinct item you can see.
+Respond with ONLY a JSON array (no other text, no markdown fences) where each element is an object with these keys:
+- "name": string, the food item's name
+- "estimated_quantity": number or null
+- "unit": string or null (e.g. "count", "lbs", "oz", "cans")
+- "category": one of "pantry", "fridge", "freezer", "produce", "spice", "other"
+- "estimated_expiration_days": integer number of days from today this item is likely still good for, or null if you can't estimate
+- "confidence_note": a short string noting any uncertainty, or null
+
+Example: [{"name": "milk", "estimated_quantity": 1, "unit": "gallon", "category": "fridge", "estimated_expiration_days": 7, "confidence_note": null}]

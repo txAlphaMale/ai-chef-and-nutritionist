@@ -16,7 +16,12 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models import MealTag, Recipe, RecipeIngredient
-from app.schemas.ai_extraction import ExtractedRecipe, ExtractedRecipeEdit, schema_of
+from app.schemas.ai_extraction import (
+    COMPONENT_UNSECTIONED,
+    ExtractedRecipe,
+    ExtractedRecipeEdit,
+    schema_of,
+)
 from app.services import ollama_client, recipe_image_service, unit_conversion_service
 from app.services.ai_json_extraction import extract_json_object
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
@@ -106,6 +111,29 @@ def resolve_tags(db: Session, tag_names: list[str]) -> list[MealTag]:
     return resolved
 
 
+def normalize_component(raw: str | None) -> str | None:
+    """The storage meaning of an extraction's `component`.
+
+    The extraction schema requires a non-null string on every ingredient,
+    because a nullable one is an escape hatch the 9B took on every row --
+    see ExtractedIngredient.component. So an unsectioned recipe answers
+    with the sentinel "main" rather than declining, and that sentinel
+    stops here: NULL remains what the database means by "this recipe has
+    no named parts", which is also what every row imported before the
+    column existed honestly says.
+
+    Case- and whitespace-insensitive, since the sentinel comes back from
+    a language model rather than from code. A genuine heading that reads
+    "Main" is treated as unsectioned too, which is the right call: a
+    recipe whose only part is called "Main" has no parts worth naming."""
+    if raw is None:
+        return None
+    label = raw.strip()
+    if not label or label.casefold() == COMPONENT_UNSECTIONED:
+        return None
+    return label
+
+
 def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_generated") -> Recipe:
     """Creates a Recipe (+ ingredients + tags) from a dict shaped like
     coerce_recipe_fields()'s output -- used when meal-plan generation
@@ -142,7 +170,7 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
                 quantity=ing.get("quantity"),
                 unit=ing.get("unit"),
                 prep_note=ing.get("prep_note"),
-                component=ing.get("component"),
+                component=normalize_component(ing.get("component")),
             )
         )
     recipe.tags = resolve_tags(db, parsed.get("tags") or [])
@@ -165,8 +193,13 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # cost fewer tokens per requirement stated. The requirements this prompt
 # must keep expressing: unit fidelity (never convert, never guess), an
 # ingredient name reused across sections split rather than merged (crust
-# vs. filling, "divided" quantities), the fixed tag vocabulary, and the
-# tips/copyright-respect rule.
+# vs. filling, "divided" quantities), the per-ingredient `component`
+# heading, the fixed tag vocabulary, and the tips/copyright-respect rule.
+#
+# `component` is stated here as well as in the schema because the schema
+# makes it REQUIRED and NON-NULLABLE (see ExtractedIngredient) -- a field
+# the grammar forces the model to fill but the prompt never defines gets
+# filled with something invented. The two have to move together.
 #
 # {content} is filled via plain str.replace() at each call site
 # (recipe_service._extract_via_ollama, routers/recipes.py's
@@ -192,13 +225,13 @@ RULES:
 7. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
 
 EXAMPLE (a source line reused across two sections -- see rule 2):
-Source: the ingredient list says "3/4 cup plus 2 Tbsp. sugar, divided"; a later step says "fold in ... remaining 2 Tbsp. sugar".
+Source: under the heading "Filling", the ingredient list says "3/4 cup plus 2 Tbsp. sugar, divided"; a later step says "fold in ... remaining 2 Tbsp. sugar".
 Correct output includes BOTH as separate ingredient entries -- never one merged "3/4 cup plus 2 Tbsp." entry:
-{"ingredient_name": "sugar", "quantity": 0.75, "unit": "cup", "prep_note": "divided"}
-{"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null}
+{"ingredient_name": "sugar", "quantity": 0.75, "unit": "cup", "prep_note": "divided", "component": "Filling"}
+{"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null, "component": "Filling"}
 
 OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fences. Exactly these keys:
-{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
+{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string, never null: the source's own heading for the part this ingredient belongs to, copied as written -- write "main" when the recipe has no named parts), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 # ^ the ONE remaining plain str.replace() at module-definition time,
 # resolving the shared nutrition-key hint into the constant once -- the

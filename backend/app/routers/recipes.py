@@ -128,6 +128,14 @@ def _apply_ingredients(db: Session, recipe: Recipe, ingredients: list) -> None:
                 quantity=ing.quantity,
                 unit=ing.unit,
                 prep_note=ing.prep_note,
+                # RecipeIngredientBase has accepted `component` since the
+                # column landed, but this function never wrote it -- so
+                # every create and update through the API silently dropped
+                # it, including the import preview->confirm path, which is
+                # where a multi-part recipe actually arrives. Normalized
+                # through the same sentinel rule as the extraction path so
+                # "main" never reaches the database from either direction.
+                component=recipe_service.normalize_component(ing.component),
             )
         )
 

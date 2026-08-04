@@ -643,6 +643,10 @@ export default function SettingsPage() {
       for (const p of list) {
         if (!(p.prompt_key in next)) next[p.prompt_key] = { content: p.content, is_active: p.is_active };
       }
+      // An extraction prompt with no override starts EMPTY, with the
+      // shipped text shown as placeholder. Prefilling the box with the
+      // default would make every visit look like an edit in progress and
+      // one stray Save would freeze that install on today's text.
       return next;
     });
   }
@@ -754,6 +758,31 @@ export default function SettingsPage() {
     try {
       const updated = await api.patch(`/system/prompts/${promptKey}`, edit);
       setPrompts((prev) => prev.map((p) => (p.prompt_key === promptKey ? updated : p)));
+      // Re-sync the box from the response, not from what was typed:
+      // saving the shipped text back verbatim drops the override server
+      // side, and the box has to empty out to show that it did.
+      setPromptEdits((prev) => ({
+        ...prev,
+        [promptKey]: { content: updated.content, is_active: updated.is_active },
+      }));
+      setPromptSaved((s) => ({ ...s, [promptKey]: true }));
+      setTimeout(() => setPromptSaved((s) => ({ ...s, [promptKey]: false })), 2000);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPromptSaving((s) => ({ ...s, [promptKey]: false }));
+    }
+  }
+
+  async function revertPrompt(promptKey) {
+    setPromptSaving((s) => ({ ...s, [promptKey]: true }));
+    try {
+      const updated = await api.del(`/system/prompts/${promptKey}`);
+      setPrompts((prev) => prev.map((p) => (p.prompt_key === promptKey ? updated : p)));
+      setPromptEdits((prev) => ({
+        ...prev,
+        [promptKey]: { content: updated.content, is_active: updated.is_active },
+      }));
       setPromptSaved((s) => ({ ...s, [promptKey]: true }));
       setTimeout(() => setPromptSaved((s) => ({ ...s, [promptKey]: false })), 2000);
     } catch (e) {
@@ -766,7 +795,15 @@ export default function SettingsPage() {
   // Shared by the "System prompts" and "Advanced: import & extraction
   // prompts" cards so both render the identical row shape without
   // duplicating this JSX -- see IMPORT_PROMPT_KEYS above.
+  //
+  // A prompt with a shipped default (default_content non-null) shows that
+  // text as placeholder while the box is empty, and says plainly which
+  // one is in force. Without that, an override and an untouched default
+  // looked identical here and a household could not tell which text the
+  // model was actually running.
   function renderPromptRow(p) {
+    const revertible = p.default_content != null;
+    const overriding = revertible && p.has_override && p.is_active;
     return (
       <div className="settings-row" key={p.prompt_key}>
         <label>
@@ -774,6 +811,7 @@ export default function SettingsPage() {
           <textarea
             rows={8}
             value={promptEdits[p.prompt_key]?.content ?? ""}
+            placeholder={p.default_content ?? undefined}
             onChange={(e) =>
               setPromptEdits((prev) => ({
                 ...prev,
@@ -782,6 +820,15 @@ export default function SettingsPage() {
             }
           />
         </label>
+        {revertible && (
+          <p className="hint">
+            {overriding
+              ? "Your saved text is in use. Chef's shipped default is ignored, including any improvements in future updates."
+              : p.has_override
+                ? "Your saved text is kept but inactive. Chef's shipped default is in use."
+                : "Chef's shipped default is in use, shown greyed above. Type here only to override it."}
+          </p>
+        )}
         <label className="checkbox-label">
           <input
             type="checkbox"
@@ -803,6 +850,15 @@ export default function SettingsPage() {
           >
             {promptSaving[p.prompt_key] ? "Saving..." : "Save"}
           </button>
+          {revertible && p.has_override && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => revertPrompt(p.prompt_key)}
+              disabled={promptSaving[p.prompt_key]}
+            >
+              Use Chef&apos;s default
+            </button>
+          )}
           {promptSaved[p.prompt_key] && <span className="hint">Saved.</span>}
         </div>
       </div>
@@ -1014,8 +1070,10 @@ export default function SettingsPage() {
               Instructions the AI follows when it turns a receipt, a recipe (text/PDF/photo/URL fallback), or a
               pantry photo into structured data. Most households never need to touch these -- they exist for cases
               like a different local model needing different phrasing, or a household-specific abbreviation the
-              built-in receipt prompt doesn't already expand. Uncheck &quot;Active&quot; to revert to Chef&apos;s
-              built-in default without losing your draft edit.
+              built-in receipt prompt doesn't already expand. Each box is empty until you override it, with Chef&apos;s
+              shipped text greyed out behind it. Anything you save here replaces that text permanently, including in
+              future updates -- so use &quot;Use Chef&apos;s default&quot; to hand a prompt back, or uncheck
+              &quot;Active&quot; to park a draft without running it.
             </p>
             <details>
               <summary>Show import &amp; extraction prompts</summary>

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from app import prompt_defaults
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.system import PromptUpdate, SettingUpdate
@@ -45,24 +46,92 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
     return settings_service.list_settings_for_display(db)
 
 
+def _prompt_view(prompt_key: str, row: SystemPrompt | None) -> dict:
+    """One entry of the prompts list.
+
+    `default_content` is what this build ships and is non-null only for
+    the extraction prompts, which have a code-level fallback. `main_chef`
+    and `dietary_onboarding` have none -- their row IS the value -- so
+    they report null and the UI offers no revert for them.
+
+    `has_override` is the field that actually matters and it is simply
+    "a row exists". Before this endpoint reported it, an untouched seeded
+    copy of a default looked exactly like a household edit, so nobody
+    could tell which text the model was about to run. See
+    app/prompt_defaults.py."""
+    default = prompt_defaults.IMPORT_PROMPT_DEFAULTS.get(prompt_key)
+    return {
+        "prompt_key": prompt_key,
+        "content": row.content if row else "",
+        "is_active": row.is_active if row else False,
+        "default_content": default,
+        "has_override": row is not None,
+    }
+
+
 @router.get("/prompts")
 def list_prompts(db: Session = Depends(get_db)):
-    rows = db.query(SystemPrompt).all()
-    return [{"prompt_key": r.prompt_key, "content": r.content, "is_active": r.is_active} for r in rows]
+    rows = {r.prompt_key: r for r in db.query(SystemPrompt).all()}
+    # Extraction prompts are listed whether or not a row exists, because
+    # the shipped default is a real, editable thing the Settings page has
+    # to be able to show. Any other key is listed only if it has a row.
+    keys = list(rows) + [k for k in prompt_defaults.IMPORT_PROMPT_DEFAULTS if k not in rows]
+    return [_prompt_view(k, rows.get(k)) for k in keys]
 
 
 @router.patch("/prompts/{prompt_key}")
 def update_prompt(prompt_key: str, payload: PromptUpdate, db: Session = Depends(get_db)):
     row = db.query(SystemPrompt).filter_by(prompt_key=prompt_key).first()
-    if row is None:
+    default = prompt_defaults.IMPORT_PROMPT_DEFAULTS.get(prompt_key)
+    # An extraction prompt has no row until someone saves an edit, so the
+    # first save creates one. A key with neither a row nor a shipped
+    # default is a typo or a stale frontend build -- same reasoning as
+    # update_setting above.
+    if row is None and default is None:
         raise HTTPException(status_code=404, detail=f"Unknown prompt key: {prompt_key}")
-    if payload.content is not None:
-        row.content = payload.content
-    if payload.is_active is not None:
-        row.is_active = payload.is_active
+
+    # PATCH is partial, so resolve the result of this edit BEFORE touching
+    # the session. Building the row first and reconsidering afterwards is
+    # what the first version did, and it raised "not persisted" the moment
+    # a household saved the default text with no row present: the object
+    # had been added but never flushed, so there was nothing to delete.
+    content = payload.content if payload.content is not None else (row.content if row else default)
+    is_active = payload.is_active if payload.is_active is not None else (row.is_active if row else True)
+
+    # Saving the shipped text back verbatim is a request to stop
+    # overriding, not a request to store a duplicate of the default --
+    # storing it would re-create the exact ambiguity this endpoint exists
+    # to remove.
+    if prompt_defaults.is_shipped_default(prompt_key, content):
+        if row is not None:
+            db.delete(row)
+            db.commit()
+        return _prompt_view(prompt_key, None)
+
+    if row is None:
+        row = SystemPrompt(prompt_key=prompt_key)
+        db.add(row)
+    row.content = content
+    row.is_active = is_active
     db.commit()
     db.refresh(row)
-    return {"prompt_key": row.prompt_key, "content": row.content, "is_active": row.is_active}
+    return _prompt_view(prompt_key, row)
+
+
+@router.delete("/prompts/{prompt_key}")
+def delete_prompt_override(prompt_key: str, db: Session = Depends(get_db)):
+    """Discard a household override and go back to the shipped default.
+
+    Only the extraction prompts can be reverted: main_chef and
+    dietary_onboarding have no code-level fallback, so deleting one would
+    leave the chef with an empty system prompt rather than a default."""
+    if prompt_key not in prompt_defaults.IMPORT_PROMPT_DEFAULTS:
+        raise HTTPException(status_code=404, detail=f"Prompt has no shipped default to revert to: {prompt_key}")
+    row = db.query(SystemPrompt).filter_by(prompt_key=prompt_key).first()
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return _prompt_view(prompt_key, None)
 
 
 @router.get("/status")

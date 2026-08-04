@@ -49,29 +49,46 @@ from pydantic import BaseModel, Field
 InventoryCategory = Literal["pantry", "fridge", "freezer", "produce", "spice", "other"]
 
 
+# What an extraction must say when a recipe has no named parts. A literal
+# rather than null because null is an escape hatch the model will take on
+# every row -- see ExtractedIngredient.component. Persistence maps this
+# back to NULL, so it never reaches the database or the UI.
+COMPONENT_UNSECTIONED = "main"
+
+
 class ExtractedIngredient(BaseModel):
     ingredient_name: str
     quantity: float | None = Field(default=None)
     unit: str | None = Field(default=None)
     prep_note: str | None = Field(default=None)
-    # Verbatim section heading this line sat under in the source, or None
-    # when the source has no sections. Stating it in the schema as well as
-    # the prompt gives the constraint two chances to hold -- the same
-    # reasoning as ExtractedInventoryItem.estimated_quantity below. The
-    # grammar cannot make the model pick the RIGHT heading, but it does
-    # make "emit a component at all" structurally available, which a
-    # prompt-only instruction does not.
-    # REQUIRED, and nullable -- deliberately not `default=None`.
+    # Verbatim section heading this line sat under in the source, or the
+    # literal COMPONENT_UNSECTIONED when the source has no sections.
+    # Stating it in the schema as well as the prompt gives the constraint
+    # two chances to hold -- the same reasoning as
+    # ExtractedInventoryItem.estimated_quantity below. The grammar cannot
+    # make the model pick the RIGHT heading, but it does make "emit a
+    # component at all" structurally available, which a prompt-only
+    # instruction cannot.
     #
-    # Pydantic marks a field with a default as optional, which puts it in
-    # the grammar's `properties` but not its `required` list, and a 9B
-    # model simply never emits it: the first live run produced null
-    # components on all 16 ingredients. Requiring it forces the model to
-    # write `"component": <string|null>` for every single row, which
-    # turns "did you notice the sections?" from something it can skip
-    # into something it must answer. Null is still a legal answer for a
-    # recipe with no sections.
-    component: str | None = Field(...)
+    # Required AND non-nullable, which is a deliberate exception to this
+    # module's "nullable, not optional" rule. Two live runs show why:
+    #
+    #   `default=None`  -> pydantic marks the field optional, so it lands
+    #                      in the grammar's `properties` but not its
+    #                      `required` list, and the 9B never emitted it.
+    #   `str | None`, required
+    #                   -> the field is required but `null` satisfies the
+    #                      grammar, so the model wrote null on all 16
+    #                      ingredients. A required field the model can
+    #                      answer with nothing is not a required field.
+    #
+    # `str` leaves no way to decline. "Which part is this?" stops being
+    # skippable, and an unsectioned recipe has a real answer to give
+    # instead of an escape hatch. The sentinel is mapped back to NULL at
+    # persistence -- see recipe_service.create_recipe_from_parsed -- so a
+    # single-component recipe still stores no component at all and the
+    # database keeps meaning what it meant before.
+    component: str = Field(...)
 
 
 class ExtractedNutrition(BaseModel):
