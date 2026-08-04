@@ -163,30 +163,10 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # is edited: a long prose-paragraph prompt raises the odds of a
 # capable-but-not-huge local model bailing out early, and numbered rules
 # cost fewer tokens per requirement stated. The requirements this prompt
-# must keep expressing: ingredients sourced ONLY from ingredient-list
-# lines, unit fidelity (never convert, never guess), component tagging
-# with the source's verbatim heading, compound amounts on one line kept
-# as separate entries, an ingredient name reused across sections split
-# rather than merged, the fixed tag vocabulary, and the tips/
-# copyright-respect rule.
-#
-# Rule 1 is the one to leave alone. An earlier version told the model to
-# treat "an ingredient list vs. a later 'remaining X' reference" as two
-# occurrences worth listing separately, which licensed it to mine method
-# sentences for quantities -- that is where a phantom "graham cracker
-# crumbs, 2 Tbsp" row came from, and how a crust's "2 Tbsp. sugar" got
-# overwritten by "a scant 1/2 cup sugar" out of the crust's own method.
-# It discriminates by LINE SHAPE, not by position or heading name, for a
-# verified reason: pypdf emits this app's real PDF sources with the
-# preparation text BEFORE the ingredient list, and section headings
-# appear twice (once over prep, once over ingredients). See
-# tests/test_recipe_components.py, which pins both properties of the
-# checked-in fixture.
-#
-# The worked example is deliberately NOT one of the household's real
-# recipes. The previous example was the exact pie that was failing, and
-# it still failed -- an example works as an illustration of the rule, not
-# as a lookup table for one source.
+# must keep expressing: unit fidelity (never convert, never guess), an
+# ingredient name reused across sections split rather than merged (crust
+# vs. filling, "divided" quantities), the fixed tag vocabulary, and the
+# tips/copyright-respect rule.
 #
 # {content} is filled via plain str.replace() at each call site
 # (recipe_service._extract_via_ollama, routers/recipes.py's
@@ -203,31 +183,22 @@ SOURCE:
 {content}
 
 RULES:
-1. INGREDIENTS COME ONLY FROM THE INGREDIENT LIST. An ingredient-list line is short and is not a sentence -- usually an amount followed by a name ("2 Tbsp. sugar", "3 large egg yolks", "12 graham crackers"). Preparation steps are full sentences in paragraphs. NEVER create an ingredient from a sentence, even when the sentence names an amount: "set aside 2 Tbsp. of the crumbs" or "stir in a scant 1/2 cup sugar" describes what to do with something ALREADY in the list, not another item to buy. The preparation text may appear BEFORE the ingredient list in this source -- position does not matter, line shape does.
-2. Copy each quantity and unit EXACTLY as written on that ingredient line -- never convert between units ("2 Tbsp." stays quantity 2 / unit "Tbsp.", never a fraction of a cup or any other unit). If a line states no amount, leave quantity and unit null rather than invent one.
-3. "component" -- when the ingredient list is divided under headings (Crust, Filling, Marinade, Sauce, Topping, ...), set "component" on every ingredient to the heading it sits under, copied verbatim. Use null only when the ingredient list has no headings at all. The same heading text often ALSO appears above a block of preparation steps; that block is still preparation, not ingredients (rule 1).
-4. One ingredient line stating two amounts ("3/4 cup plus 2 Tbsp. sugar") becomes TWO entries sharing the SAME component -- one per stated amount. Never add them together, never convert one into the other's unit. But a parenthetical restating one amount a second way ("1 envelope unflavored gelatin (2 1/2 tsp.)") is ONE entry.
-5. The same ingredient name under two different headings is two separate entries, each carrying ONLY the amount stated under its own heading. Never merge, average, or carry a modifier like "divided" from one onto the other.
-6. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
-7. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
-8. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
-9. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
-10. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length. Ignore subscription offers, navigation chrome, and any run of single spaced-out letters ("C O M P L E T E") -- that is page furniture, not recipe content.
+1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
+2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
+3. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
+4. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
+5. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
+6. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
+7. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
 
-EXAMPLE (a two-part dish -- note what is NOT an ingredient):
-Source ingredient list:
-  Topping
-  2 Tbsp. rolled oats
-  Base
-  1 1/2 cups plus 2 Tbsp. rolled oats, divided
-Source preparation: "Reserve 2 Tbsp. oats for garnish. Stir the remaining oats into the base."
-Correct output is THREE ingredient entries, none of them from that preparation sentence:
-{"ingredient_name": "rolled oats", "quantity": 2, "unit": "Tbsp.", "component": "Topping", "prep_note": null}
-{"ingredient_name": "rolled oats", "quantity": 1.5, "unit": "cups", "component": "Base", "prep_note": "divided"}
-{"ingredient_name": "rolled oats", "quantity": 2, "unit": "Tbsp.", "component": "Base", "prep_note": "divided"}
+EXAMPLE (a source line reused across two sections -- see rule 2):
+Source: the ingredient list says "3/4 cup plus 2 Tbsp. sugar, divided"; a later step says "fold in ... remaining 2 Tbsp. sugar".
+Correct output includes BOTH as separate ingredient entries -- never one merged "3/4 cup plus 2 Tbsp." entry:
+{"ingredient_name": "sugar", "quantity": 0.75, "unit": "cup", "prep_note": "divided"}
+{"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null}
 
 OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fences. Exactly these keys:
-{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string or null), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
+{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 # ^ the ONE remaining plain str.replace() at module-definition time,
 # resolving the shared nutrition-key hint into the constant once -- the
