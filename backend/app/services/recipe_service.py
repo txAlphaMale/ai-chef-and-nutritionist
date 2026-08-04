@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import MealTag, Recipe, RecipeIngredient
 from app.schemas.ai_extraction import (
     COMPONENT_UNSECTIONED,
+    ExtractedIngredientLines,
     ExtractedRecipe,
     ExtractedRecipeEdit,
     schema_of,
@@ -273,6 +274,12 @@ def get_recipe_import_prompt(db: Session) -> str:
     return ollama_client.get_active_prompt(db, "recipe_import") or RECIPE_IMPORT_PROMPT
 
 
+def get_ingredient_lines_prompt(db: Session) -> str:
+    """DB-override-with-fallback for INGREDIENT_LINES_PROMPT (pass 1 of
+    ingredient extraction), same pattern as get_recipe_import_prompt."""
+    return ollama_client.get_active_prompt(db, "ingredient_lines") or INGREDIENT_LINES_PROMPT
+
+
 def parse_recipe_response(raw_text: str) -> dict | None:
     data = _extract_json_object(raw_text)
     if not data or not data.get("title"):
@@ -472,13 +479,35 @@ _COUNT_UNIT_WORDS: dict[str, str] = {
     "whole": "whole",
 }
 
-_QTY_RE = re.compile(r"^\s*(\d+\s+\d+/\d+|\d+/\d+|\d+\.\d+|\d+|[" + "".join(_UNICODE_FRACTIONS) + r"])\s*")
+_FRACTION_CHARS = "".join(_UNICODE_FRACTIONS)
+# Order matters: the longest form has to win, or "1 1/2" matches the bare
+# "1" alternative and silently becomes 1.0. The `\d+[FRAC]` alternative is
+# for a mixed number written with a Unicode fraction and NO space, which
+# is how pypdf renders "1 1/4 cups" out of a real recipe PDF -- it read as
+# 1.0 before this, losing a quarter of the pumpkin.
+_QTY_RE = re.compile(
+    r"^\s*(\d+\s+\d+/\d+|\d+\s*[" + _FRACTION_CHARS + r"]|\d+/\d+|\d+\.\d+|\d+|[" + _FRACTION_CHARS + r"])\s*"
+)
+
+# "3/4 cup PLUS 2 Tbsp. sugar" is one source line describing two amounts
+# of one ingredient. Summing them is wrong (the cook adds them at
+# different times, and the source says "divided" precisely because of
+# that) and dropping either is worse.
+_COMPOUND_AMOUNT_RE = re.compile(r"^(?:plus|and)\s+", re.IGNORECASE)
+
+# A leading qualifier in parentheses -- "3/4 (scant) cup" -- sits between
+# the number and the unit, so unit detection has to see past it. It is
+# real provenance and becomes a prep_note rather than being discarded.
+_LEADING_PAREN_RE = re.compile(r"^\(([^)]*)\)\s*")
 
 
 def _parse_quantity_token(token: str) -> float | None:
     token = token.strip()
     if token in _UNICODE_FRACTIONS:
         return _UNICODE_FRACTIONS[token]
+    if token and token[-1] in _UNICODE_FRACTIONS:  # "1 1/4" as pypdf writes it: "1" + the glyph
+        whole = _safe_float(token[:-1].strip())
+        return (whole or 0.0) + _UNICODE_FRACTIONS[token[-1]]
     if " " in token:  # mixed number, e.g. "1 1/2"
         whole_str, frac_str = token.split(" ", 1)
         num, den = frac_str.split("/", 1)
@@ -490,46 +519,195 @@ def _parse_quantity_token(token: str) -> float | None:
     return _safe_float(token)
 
 
+def _take_unit(remainder: str) -> tuple[str | None, str]:
+    """Pulls a leading unit word off `remainder`, returning it and what is
+    left. Split out of _parse_ingredient_line so a compound amount can run
+    it once per amount."""
+    word_match = re.match(r"^([A-Za-z]+)\.?\b", remainder)
+    if not word_match:
+        return None, remainder
+    candidate = word_match.group(1).lower()
+    normalized = normalize_unit(candidate)
+    if normalized in VOLUME_UNITS or normalized in MASS_UNITS:
+        return normalized, remainder[word_match.end() :].strip()
+    if candidate in _COUNT_UNIT_WORDS:
+        return _COUNT_UNIT_WORDS[candidate], remainder[word_match.end() :].strip()
+    return None, remainder
+
+
+def parse_ingredient_line_amounts(line: str) -> list[dict]:
+    """One source ingredient line -> one entry per amount it states.
+
+    Usually one entry. A compound line ("3/4 cup plus 2 Tbsp. sugar,
+    divided") yields two, sharing a name and a prep_note, because that is
+    what the source describes: one ingredient added at two points. Summing
+    to 1.75 cup loses the instruction, and keeping only the first loses a
+    third of the sugar.
+
+    Deliberately deterministic. Amount parsing is arithmetic over a fixed
+    vocabulary of fractions and unit words -- Python does it exactly, and
+    four live runs showed a 9B either refusing it (null on every row) or
+    paying for it out of the ingredients it managed to list at all. The
+    model's job is to find the lines; this function's job is to read
+    them."""
+    original = (line or "").strip()
+    remainder = original
+    amounts: list[tuple[float | None, str | None]] = []
+    notes: list[str] = []
+
+    while True:
+        quantity = None
+        m = _QTY_RE.match(remainder)
+        if m:
+            quantity = _parse_quantity_token(m.group(1))
+            remainder = remainder[m.end() :].strip()
+
+        paren = _LEADING_PAREN_RE.match(remainder)
+        if paren:
+            if paren.group(1).strip():
+                notes.append(paren.group(1).strip())
+            remainder = remainder[paren.end() :].strip()
+
+        unit, remainder = _take_unit(remainder)
+        if quantity is not None or unit is not None:
+            amounts.append((quantity, unit))
+
+        # "... cup plus 2 Tbsp. sugar" -- another amount for the same
+        # ingredient. Only continue when a number actually follows, so
+        # "salt and pepper" is not mistaken for one.
+        joiner = _COMPOUND_AMOUNT_RE.match(remainder)
+        if not joiner or not _QTY_RE.match(remainder[joiner.end() :]):
+            break
+        remainder = remainder[joiner.end() :].strip()
+
+    if remainder.lower().startswith("of "):
+        remainder = remainder[3:].strip()
+
+    if "," in remainder:
+        name_part, _, note_part = remainder.partition(",")
+        remainder = name_part.strip()
+        if note_part.strip():
+            notes.append(note_part.strip())
+
+    name = remainder.strip(" .") or original
+    prep_note = ", ".join(notes) or None
+    if not amounts:
+        amounts = [(None, None)]
+    return [
+        {"ingredient_name": name, "quantity": quantity, "unit": unit, "prep_note": prep_note}
+        for quantity, unit in amounts
+    ]
+
+
+INGREDIENT_LINES_PROMPT = """\
+Below is the text of one recipe. Find its INGREDIENT LIST and copy the lines out exactly as they appear.
+
+An ingredient-list line is short and names one ingredient, nearly always starting with an amount ("2 Tbsp. sugar", "3 large egg yolks", "12 graham crackers"). A preparation step is a full sentence with a verb ("Add sugar and salt and pulse just to combine") -- those are not ingredient lines, however many ingredients they mention.
+
+Copy each line character for character. Do not reword it, do not fix its spacing or punctuation, do not merge two lines, do not split one line, and do not convert anything. If you cannot copy a line exactly, leave it out.
+
+Group the lines under the heading each block sits under in the source, copied as written ("Crust", "Filling and Assembly"). Use main when the list has no headings.
+
+SOURCE:
+{content}
+"""
+
+INGREDIENT_LINES_SCHEMA = schema_of(ExtractedIngredientLines)
+
+# Pass 1 transcribes; it never reasons. 1200 tokens is far more than an
+# ingredient list needs and far less than the full extraction reserves.
+INGREDIENT_LINES_RESPONSE_TOKENS = 1200
+
+
+def _normalize_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def verify_copied_lines(candidates: list[str], source: str) -> list[str]:
+    """Keeps only the lines that really are lines of `source`.
+
+    A copied line is accepted when some source line STARTS WITH it, after
+    whitespace normalisation. Prefix rather than equality because pypdf
+    routinely welds page furniture onto the last item of a block -- the
+    real source ends "1/4 cup sour creamC o m p l e t e  y o u r  B o n
+    A p p e t i t" -- and an equality test would throw that ingredient
+    away.
+
+    Prefix rather than "appears anywhere" because a plain substring test
+    accepts the preparation text. "2 Tbsp. graham cracker crumbs" IS in
+    this source, inside the sentence "Set aside 2 Tbsp. graham cracker
+    crumbs for serving", and a phantom row for it has appeared in every
+    single live run so far. It is not the start of any line, so this
+    rejects it.
+
+    Measured against the real fixture: 15 of 15 genuine ingredient lines
+    accepted, and 0 of 6 rejected -- the six being every hallucination the
+    model actually produced across four runs. This is the check that
+    replaces asking the model not to mine the method text, which three
+    prompt rewrites failed to achieve."""
+    source_lines = [_normalize_for_match(line) for line in (source or "").splitlines() if line.strip()]
+    kept = []
+    for candidate in candidates:
+        normalized = _normalize_for_match(candidate)
+        if normalized and any(line.startswith(normalized) for line in source_lines):
+            kept.append(candidate)
+    return kept
+
+
+def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
+    """Ingredients for one recipe source, via transcribe-then-parse.
+
+    Returns [] when the model gives nothing usable, which the caller reads
+    as "keep whatever the single-call extraction produced" -- this is an
+    improvement to one field, not a new dependency for the whole import.
+
+    The model is asked only to locate and copy. Every line it returns is
+    checked against the source (verify_copied_lines), and the amounts are
+    then read by parse_ingredient_line_amounts, which is arithmetic and
+    gets 16 entries out of these 15 lines exactly right where four live
+    runs of the 9B got zero."""
+    prompt_template = get_ingredient_lines_prompt(db)
+    budget = ollama_client.content_char_budget(
+        db,
+        prompt_overhead_chars=len(prompt_template),
+        response_reserve_tokens=INGREDIENT_LINES_RESPONSE_TOKENS,
+    )
+    raw = ollama_client.chat_json(
+        db,
+        [{"role": "user", "content": prompt_template.replace("{content}", content[:budget])}],
+        schema=INGREDIENT_LINES_SCHEMA,
+        model=ollama_client.get_extraction_model(db),
+        response_tokens=INGREDIENT_LINES_RESPONSE_TOKENS,
+    )
+    data = _extract_json_object(raw)
+    if not data:
+        return []
+
+    ingredients: list[dict] = []
+    for block in data.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        component = normalize_component(block.get("component"))
+        raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
+        for line in verify_copied_lines(raw_lines, content):
+            for entry in parse_ingredient_line_amounts(line):
+                if entry["ingredient_name"]:
+                    ingredients.append({**entry, "component": component})
+    return ingredients
+
+
 def _parse_ingredient_line(line: str) -> dict:
     """Splits one free-text `recipeIngredient` string into this app's
     ingredient shape. See this section's module-level docstring for the
     accuracy tradeoff -- this is best-effort, reviewed by the user before
     anything saves, same as the Ollama extraction path it's an
-    alternative to."""
-    remainder = (line or "").strip()
-    quantity = None
-    m = _QTY_RE.match(remainder)
-    if m:
-        quantity = _parse_quantity_token(m.group(1))
-        remainder = remainder[m.end() :].strip()
+    alternative to.
 
-    unit = None
-    word_match = re.match(r"^([A-Za-z]+)\.?\b", remainder)
-    if word_match:
-        candidate = word_match.group(1).lower()
-        normalized = normalize_unit(candidate)
-        if normalized in VOLUME_UNITS or normalized in MASS_UNITS:
-            unit = normalized
-            remainder = remainder[word_match.end() :].strip()
-        elif candidate in _COUNT_UNIT_WORDS:
-            unit = _COUNT_UNIT_WORDS[candidate]
-            remainder = remainder[word_match.end() :].strip()
-
-    if remainder.lower().startswith("of "):
-        remainder = remainder[3:].strip()
-
-    prep_note = None
-    if "," in remainder:
-        name_part, _, note_part = remainder.partition(",")
-        remainder = name_part.strip()
-        prep_note = note_part.strip() or None
-
-    return {
-        "ingredient_name": remainder.strip(" .") or (line or "").strip(),
-        "quantity": quantity,
-        "unit": unit,
-        "prep_note": prep_note,
-    }
+    Single-dict view of parse_ingredient_line_amounts, kept because the
+    JSON-LD and folder-import callers store one row per source line and a
+    compound amount is a rarity there. New code should prefer the list
+    form."""
+    return parse_ingredient_line_amounts(line)[0]
 
 
 _ISO8601_DURATION_RE = re.compile(r"^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
@@ -960,7 +1138,8 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
     based on its content type/extension, and returns everything the
     shared `finish_recipe_parse` tail step below needs:
         {"raw_output": str, "default_source": str, "citation": dict,
-         "image_path": str | None, "jsonld_parsed": dict | None}
+         "image_path": str | None, "jsonld_parsed": dict | None,
+         "source_text": str | None}
 
     Mirrors, verbatim, the JSON/image/PDF/text branching that used to
     live directly inside routers/recipes.py's import_recipe -- see this
@@ -981,6 +1160,10 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
     citation: dict = {}
     image_path: str | None = None
     jsonld_parsed: dict | None = None
+    # The raw text the model was shown, when there is any. finish_recipe_parse
+    # needs it to verify pass 1 copied real lines. None for a photo (no text
+    # layer to check against) and for JSON-LD (already structured).
+    source_text: str | None = None
 
     if content_type in ("application/json", "application/ld+json") or filename_lower.endswith((".json", ".jsonld")):
         try:
@@ -1029,6 +1212,7 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
                 "Export or save a text-based PDF, or upload the page as an image instead so the "
                 "vision model can read it."
             )
+        source_text = pdf_text
         raw_output = _extract_via_ollama(db, pdf_text)
         default_source = "import_file"
     elif filename_lower.endswith((".html", ".htm")):
@@ -1055,13 +1239,15 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
         else:
             page = extract_content_from_html(html_text)
             citation = {"source_name": page.get("sitename"), "source_author": page.get("author")}
-            raw_output = _extract_via_ollama(db, page.get("text") or "")
+            source_text = page.get("text") or ""
+            raw_output = _extract_via_ollama(db, source_text)
             default_source = "import_file"
     else:
         try:
             text_content = raw_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeError("Unsupported file type for recipe import") from exc
+        source_text = text_content
         raw_output = _extract_via_ollama(db, text_content)
         default_source = "import_file"
 
@@ -1071,6 +1257,7 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
         "citation": citation,
         "image_path": image_path,
         "jsonld_parsed": jsonld_parsed,
+        "source_text": source_text,
     }
 
 
@@ -1080,6 +1267,8 @@ def finish_recipe_parse(
     citation: dict,
     image_path: str | None,
     jsonld_parsed: dict | None,
+    db: Session | None = None,
+    source_text: str | None = None,
 ) -> dict:
     """Shared tail step for every recipe-import path (URL, pasted text,
     single-file upload, and the B13.1 folder-scan batch importer): turns
@@ -1095,6 +1284,19 @@ def finish_recipe_parse(
         parsed = parse_recipe_response(raw_output)
     if parsed is None:
         raise RuntimeError("Could not extract a recipe from that input")
+
+    # Ingredients come from the two-pass path when the raw source text is
+    # available -- every text/PDF/photo import, but never JSON-LD, which
+    # already carries a clean machine-readable list and needs no model.
+    # Both arguments are optional so a caller that has no source text
+    # (or no session) keeps exactly the previous behaviour rather than
+    # failing; an empty result means pass 1 found nothing and the
+    # single-call ingredients stand.
+    if db is not None and source_text and jsonld_parsed is None:
+        two_pass = extract_ingredients_two_pass(db, source_text)
+        if two_pass:
+            parsed["ingredients"] = two_pass
+
     parsed["source"] = default_source
     for key, value in citation.items():
         if value:

@@ -1686,6 +1686,70 @@ app-wide commitment -- and two-pass has two calls of very different
 difficulty, so the copying pass can stay on the 9B while only the parsing
 pass pays for a bigger model.
 
+## Two-pass ingredient extraction, as built (2026-08-03)
+
+The seam is **the model LOCATES and COPIES, Python READS.** That split is
+what the four measured runs argue for: the 9B never failed to find the
+ingredient lines -- it stripped `12` off `graham crackers` and
+`1 envelope` off `unflavored gelatin (2 1/2 tsp.)` correctly every time --
+it failed to hold finding, labelling and arithmetic simultaneously.
+
+**Pass 1 (model).** `INGREDIENT_LINES_PROMPT` asks for the ingredient-list
+lines copied out character for character, grouped under the heading each
+block sits under. No amounts to parse, no rules to balance, one job.
+Constrained by `ExtractedIngredientLines`.
+
+**Verification (Python, no model).** `verify_copied_lines` keeps a line
+only when some source line STARTS WITH it, after whitespace
+normalisation. Two deliberate choices:
+
+* **Prefix, not equality**, because pypdf welds page furniture onto the
+  last item of a block -- the real fixture ends
+  `1/4 cup sour creamC o m p l e t e  y o u r  B o n  A p p e t i t` --
+  and equality would silently drop that ingredient.
+* **Prefix, not "appears anywhere"**, because a substring test accepts the
+  method text. `2 Tbsp. graham cracker crumbs` IS in this source, inside
+  `Set aside 2 Tbsp. graham cracker crumbs for serving`, and a phantom row
+  for it appeared in **every single live run**. It is not the start of any
+  line, so it is rejected.
+
+Measured against the real fixture: **15 of 15 genuine ingredient lines
+accepted, 0 of 6 rejected** -- the six being actual hallucinations from
+the four runs, not invented examples. This is the check that replaces
+"never take an ingredient from a sentence", which three prompt rewrites
+failed to enforce. A negative instruction became a decidable test.
+
+**Pass 2 (Python, no model).** `parse_ingredient_line_amounts` reads the
+verified lines. Two real gaps in the existing parser were fixed:
+
+* `1 1/4 cups` arrives from pypdf as `1` plus the ¼ glyph with no space
+  and parsed as **1.0**, quietly losing a quarter of the pumpkin. Now
+  1.25.
+* `3/4 (scant) cup plus 2 Tbsp. sugar, divided` now yields **two entries**
+  sharing a name and prep_note, rather than one 0.75 entry. Summing to
+  1.75 loses the instruction the source gives; keeping only the first
+  loses a third of the sugar. `and`/`plus` only continues when a number
+  actually follows, so `1 tsp. salt and pepper` stays one ingredient.
+
+Result on the fixture, with no model involved: **16 entries from 15
+lines, zero null quantities, every component correct.** The four
+assertions `check_recipe_import.py` runs against a live model all pass in
+the offline test suite, which is the first time any of them has.
+
+**Failure mode is additive.** `extract_ingredients_two_pass` returns []
+when pass 1 gives nothing usable, and `finish_recipe_parse` then keeps
+whatever the single call produced. JSON-LD imports skip it entirely --
+they already carry a clean machine-readable list. A photo import has no
+text layer to verify against, so `source_text` is None and the old path
+stands. This improves one field; it does not become a new dependency for
+the whole importer.
+
+**What is still unproven:** whether the 9B transcribes accurately enough
+in pass 1. That is the one remaining live-model question, and it is now
+the ONLY one -- everything downstream of it is deterministic and tested.
+If transcription underperforms, `ollama_extraction_model` points just this
+call at the 27B without touching chat.
+
 **What remains after this run, all one problem.** Crust sugar taken from
 the method text, the phantom graham-cracker-crumbs row, and the compound
 `¾ cup plus 2 Tbsp.` not split are all the model mining the preparation

@@ -135,6 +135,19 @@ def fit_prompt(db: Session, prompt: str, response_tokens: int = 1500) -> tuple[s
     return prompt[: max(budget_chars - len(marker), 0)] + marker, True
 
 
+def get_extraction_model(db: Session) -> str | None:
+    """The model for structured extraction, or None to use the chat model.
+
+    Separate from the chat model because the two jobs have opposite
+    shapes: extraction is one short exacting call where a bigger model
+    earns its cost, chat is continuous and shares the single worker
+    thread with every other AI feature, so an app-wide upgrade to fix
+    imports would slow everything to fix one thing. Blank -- the default
+    -- means "same model as chat", so this setting is inert until a
+    household deliberately splits them."""
+    return (settings_service.get_setting(db, "ollama_extraction_model") or "").strip() or None
+
+
 def get_active_prompt(db: Session, prompt_key: str) -> str | None:
     """e.g. prompt_key='main_chef' or 'dietary_onboarding' -- see
     app/seed.py for the seeded content."""

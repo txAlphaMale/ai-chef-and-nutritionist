@@ -78,6 +78,24 @@ SETTING_SPECS: list[SettingSpec] = [
         env_fallback="OLLAMA_CHAT_MODEL",
     ),
     SettingSpec(
+        key="ollama_extraction_model",
+        label="Ollama extraction model (optional)",
+        is_secret=False,
+        default="",
+        description=(
+            "Ollama model used for structured extraction from a recipe or "
+            "document -- reading an ingredient list out of a PDF, photo or "
+            "pasted text. Leave blank to use the chat model. "
+            "Set it when extraction and conversation want different models: "
+            "extraction is a short, exacting, schema-constrained job that a "
+            "larger model does better, while chat is long-running and shares "
+            "the same single worker thread, so making every message pay for a "
+            "bigger model to fix imports is a poor trade. Blank is the safe "
+            "default and changes nothing."
+        ),
+        env_fallback="OLLAMA_EXTRACTION_MODEL",
+    ),
+    SettingSpec(
         key="ollama_vision_model",
         label="Ollama vision model",
         is_secret=False,

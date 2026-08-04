@@ -347,3 +347,158 @@ def test_fixture_shape_the_prompt_must_survive():
     # is fabricated.
     assert "2 Tbsp. graham cracker crumbs" in text
     assert "graham cracker crumbs\n" not in text
+
+
+# --- Two-pass ingredient extraction -----------------------------------
+#
+# The single-call extraction was measured four times against the live 9B
+# and never got all four checks. Each requirement it won cost one it had
+# already met: components arrived and every quantity went null, quantities
+# arrived and eleven of sixteen ingredients vanished. Two-pass splits the
+# job at the seam -- the model LOCATES and COPIES, Python READS -- so the
+# tests below can prove the reading half without a model at all.
+
+
+def _pie_ingredient_lines() -> dict[str, list[str]]:
+    """The pie's real ingredient blocks, exactly as they appear in the
+    checked-in pypdf output. This is what pass 1 is asked to return."""
+    text = FIXTURE.read_text(encoding="utf-8")
+    block = text.split("overmix.Crust")[1].split("C o m p l e t e")[0]
+    blocks: dict[str, list[str]] = {"Crust": []}
+    current = "Crust"
+    for raw in block.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line == "Filling and Assembly":
+            current = line
+            blocks[current] = []
+            continue
+        blocks[current].append(line)
+    return blocks
+
+
+def test_pass_1_lines_are_the_real_source_lines():
+    blocks = _pie_ingredient_lines()
+    assert list(blocks) == ["Crust", "Filling and Assembly"]
+    assert len(blocks["Crust"]) == 4
+    assert len(blocks["Filling and Assembly"]) == 11
+
+
+def test_verification_accepts_every_real_line_and_rejects_every_hallucination():
+    """The check that replaces "never take an ingredient from a sentence".
+
+    Three prompt rewrites tried to forbid method-mining and all three
+    failed, because a negative constraint is the first thing a small model
+    drops. A copied line either is the start of a real source line or it
+    is not, and that is decidable here.
+
+    The rejected list is not invented: every entry is something the live
+    model actually produced across the four measured runs.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    real = [line for lines in _pie_ingredient_lines().values() for line in lines]
+
+    hallucinated = [
+        # In the prep text ("Set aside 2 Tbsp. graham cracker crumbs for
+        # serving"), never in an ingredient list. Appeared in every run.
+        "2 Tbsp. graham cracker crumbs",
+        # The method's sugar, which became the crust's 0.5 cup.
+        "a scant ½ cup sugar",
+        # A whole method sentence returned as an ingredient name.
+        "sour cream, remaining 2 Tbsp. sugar, and ¼ tsp. salt just to combine",
+        # Reworded rather than copied.
+        "graham cracker crumbs (reserved)",
+        "1 cup sugar",
+    ]
+
+    assert recipe_service.verify_copied_lines(real, source) == real
+    assert recipe_service.verify_copied_lines(hallucinated, source) == []
+
+
+def test_verification_keeps_a_line_pypdf_welded_page_furniture_onto():
+    """The real fixture ends the filling block with
+    "1/4 cup sour creamC o m p l e t e  y o u r  B o n  A p p e t i t".
+    An equality test would drop that ingredient; prefix matching keeps it.
+    """
+    source = FIXTURE.read_text(encoding="utf-8")
+    assert recipe_service.verify_copied_lines(["¼ cup sour cream"], source) == ["¼ cup sour cream"]
+
+
+def test_deterministic_parse_gets_every_amount_the_live_model_could_not():
+    """The whole point, provable without Ollama.
+
+    Four live runs produced a null quantity on every ingredient. These are
+    the same fifteen lines, read by arithmetic instead.
+    """
+    blocks = _pie_ingredient_lines()
+    parsed = [
+        entry
+        for component, lines in blocks.items()
+        for line in lines
+        for entry in recipe_service.parse_ingredient_line_amounts(line)
+    ]
+
+    assert all(e["quantity"] is not None for e in parsed), "a null quantity is the failure this replaces"
+    assert len(parsed) == 16, "15 source lines, one of which states two amounts"
+
+
+def test_the_four_live_checks_pass_on_deterministically_parsed_lines():
+    """The four assertions check_recipe_import.py runs against a live
+    model, run here against the two-pass result. Every one of them failed
+    on every live run of the single-call extraction.
+    """
+    ingredients = []
+    for component, lines in _pie_ingredient_lines().items():
+        for line in lines:
+            for entry in recipe_service.parse_ingredient_line_amounts(line):
+                ingredients.append({**entry, "component": component})
+
+    def find(name, component=None, quantity=None, unit=None):
+        return [
+            i
+            for i in ingredients
+            if name in i["ingredient_name"].lower()
+            and (component is None or (i.get("component") or "").lower().startswith(component))
+            and (quantity is None or i["quantity"] == quantity)
+            and (unit is None or (i["unit"] or "").lower().startswith(unit))
+        ]
+
+    # 1. The crust's sugar is 2 Tbsp., not the method's "scant 1/2 cup".
+    assert find("sugar", component="crust", quantity=2), "crust sugar came from the method text"
+
+    # 2. The filling's compound amount stays two entries, never summed.
+    filling_sugar = find("sugar", component="filling")
+    assert len(filling_sugar) == 2, f"expected 3/4 cup and 2 Tbsp. separately, got {len(filling_sugar)}"
+    assert not any(i["quantity"] == 1.75 for i in filling_sugar), "compound amount was merged"
+
+    # 3. Nothing invented from the preparation text.
+    assert not find("crumb"), "a graham cracker crumbs row exists and is only in the prep text"
+
+    # 4. Every ingredient carries a component.
+    assert all(i["component"] for i in ingredients)
+
+
+def test_the_mixed_unicode_fraction_pypdf_emits():
+    """ "1 1/4 cups" arrives from pypdf as "1" followed by the ¼ glyph with
+    no space. It parsed as 1.0 before, quietly losing a quarter of the
+    pumpkin -- the kind of wrong that never looks wrong."""
+    assert recipe_service.parse_ingredient_line_amounts("1¼ cups pumpkin purée")[0]["quantity"] == 1.25
+
+
+def test_a_compound_line_is_split_not_summed():
+    entries = recipe_service.parse_ingredient_line_amounts("¾ (scant) cup plus 2 Tbsp. sugar , divided")
+
+    assert [(e["quantity"], e["unit"]) for e in entries] == [(0.75, "cup"), (2.0, "tbsp")]
+    assert all(e["ingredient_name"] == "sugar" for e in entries)
+    # "scant" is genuinely on the ingredient line, so it is provenance.
+    assert all("scant" in (e["prep_note"] or "") for e in entries)
+
+
+def test_and_is_only_a_compound_joiner_when_a_number_follows():
+    """ "salt and pepper" is one ingredient with a two-word name, not two
+    amounts. The joiner only continues when a quantity actually follows."""
+    entries = recipe_service.parse_ingredient_line_amounts("1 tsp. salt and pepper")
+
+    assert len(entries) == 1
+    assert entries[0]["ingredient_name"] == "salt and pepper"

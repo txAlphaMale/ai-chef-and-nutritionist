@@ -46,7 +46,11 @@ from sqlalchemy.orm import Session
 
 from app.models import SystemPrompt
 from app.routers.inventory import RECEIPT_IMPORT_PROMPT, VISION_PROMPT
-from app.services.recipe_service import RECIPE_IMPORT_PROMPT, RECIPE_MODIFY_INSTRUCTIONS
+from app.services.recipe_service import (
+    INGREDIENT_LINES_PROMPT,
+    RECIPE_IMPORT_PROMPT,
+    RECIPE_MODIFY_INSTRUCTIONS,
+)
 
 # The prompts whose shipped text lives in code and is therefore safe to
 # fall back to. `main_chef` and `dietary_onboarding` are deliberately NOT
@@ -54,6 +58,7 @@ from app.services.recipe_service import RECIPE_IMPORT_PROMPT, RECIPE_MODIFY_INST
 # their row IS the value, and seed.py still creates them.
 IMPORT_PROMPT_DEFAULTS: dict[str, str] = {
     "recipe_import": RECIPE_IMPORT_PROMPT,
+    "ingredient_lines": INGREDIENT_LINES_PROMPT,
     "recipe_modify": RECIPE_MODIFY_INSTRUCTIONS,
     "receipt_import": RECEIPT_IMPORT_PROMPT,
     "vision_intake": VISION_PROMPT,
@@ -65,6 +70,9 @@ IMPORT_PROMPT_DEFAULTS: dict[str, str] = {
 _HISTORICAL_SHIPPED_SHA256: dict[str, set[str]] = {
     # the prompt rewrite introduced at 1660aa3 and reverted at abc621d, 4728 chars
     "recipe_import": {"23210b196c08e655b02f059c2317f52f2c4d2a4456a428621ac9b0012cffd4ff"},
+    # Introduced after seeding was removed, so no row can ever hold an
+    # older copy of it.
+    "ingredient_lines": set(),
     "recipe_modify": set(),
     # the text live at 1fd5b77, superseded at 759bb06, 2676 chars
     "receipt_import": {"567155fba97694e08385683fa4ba4ee5b68d5e1ac4a5da3c21106e1714dd2db7"},

@@ -56,6 +56,35 @@ InventoryCategory = Literal["pantry", "fridge", "freezer", "produce", "spice", "
 COMPONENT_UNSECTIONED = "main"
 
 
+class ExtractedIngredientBlock(BaseModel):
+    """One heading from the source and the ingredient lines under it,
+    copied out verbatim. Pass 1 of ingredient extraction."""
+
+    component: str
+    lines: list[str]
+
+
+class ExtractedIngredientLines(BaseModel):
+    """Pass 1's whole answer: the ingredient list, transcribed.
+
+    This asks the model for a COPY, not an interpretation, and that is the
+    entire point. Four live runs of the single-call extraction measured a
+    9B that could satisfy any one requirement at the cost of another --
+    components arrived and quantities became null, quantities arrived and
+    eleven of sixteen ingredients disappeared. None of those requirements
+    were hard individually; holding them simultaneously was.
+
+    Copying is the one thing a small model does reliably, and it is also
+    the one thing that can be CHECKED: every line it returns must match
+    the start of a real line of the source, so anything reworded, merged
+    or invented is detectable in Python rather than forbidden in prose.
+    What the copied lines mean -- amount, unit, prep note -- is then
+    arithmetic over a fixed vocabulary, which is recipe_service.
+    parse_ingredient_line_amounts' job and needs no model at all."""
+
+    blocks: list[ExtractedIngredientBlock]
+
+
 class ExtractedIngredient(BaseModel):
     ingredient_name: str
     quantity: float | None = Field(default=None)

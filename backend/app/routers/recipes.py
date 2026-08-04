@@ -218,6 +218,10 @@ async def import_recipe(
             citation: dict = {}
             image_path: str | None = None
             jsonld_parsed: dict | None = None
+            # The text the model was shown, for two-pass ingredient
+            # verification. Stays None for a photo import (no text layer
+            # to check a copied line against) and for JSON-LD.
+            source_text: str | None = None
             if url:
                 try:
                     html = recipe_service.fetch_html(url)
@@ -260,10 +264,12 @@ async def import_recipe(
                     )
                     default_source = "import_url_jsonld"
                 else:
-                    raw_output = _run_text_extraction(db, page["text"])
+                    source_text = page["text"]
+                    raw_output = _run_text_extraction(db, source_text)
                     default_source = "import_url"
             elif text:
-                raw_output = _run_text_extraction(db, text)
+                source_text = text
+                raw_output = _run_text_extraction(db, source_text)
                 default_source = "import_text"
             else:
                 # JSON/image/PDF/text/HTML branching lives in
@@ -277,13 +283,22 @@ async def import_recipe(
                 citation = file_result["citation"]
                 image_path = file_result["image_path"]
                 jsonld_parsed = file_result["jsonld_parsed"]
+                source_text = file_result["source_text"]
 
             # Backlog B13.1: this tail (raw model output or a structured
             # JSON-LD dict -> a final RecipeCreate-shaped dict, with
             # source/citation/image_path folded in) is likewise shared
             # with the folder-scan batch importer now -- see
             # recipe_service.finish_recipe_parse's docstring.
-            parsed = recipe_service.finish_recipe_parse(raw_output, default_source, citation, image_path, jsonld_parsed)
+            parsed = recipe_service.finish_recipe_parse(
+                raw_output,
+                default_source,
+                citation,
+                image_path,
+                jsonld_parsed,
+                db=db,
+                source_text=source_text,
+            )
 
             # Backlog B3.1: check the parsed-but-not-yet-saved ingredients
             # against the household's current restrictions BEFORE the user

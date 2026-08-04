@@ -149,6 +149,8 @@ def scan_and_parse(db: Session, folder_path: str) -> dict:
                 file_result["citation"],
                 file_result["image_path"],
                 file_result["jsonld_parsed"],
+                db=db,
+                source_text=file_result["source_text"],
             )
             items.append(
                 {"filename": path.name, "relative_path": relative_path, "status": "ok", "recipe": parsed, "error": None}

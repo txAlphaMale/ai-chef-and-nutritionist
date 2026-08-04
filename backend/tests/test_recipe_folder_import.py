@@ -109,9 +109,10 @@ def test_scan_and_parse_builds_ok_items_from_successful_files(tmp_path, monkeypa
             "citation": {},
             "image_path": None,
             "jsonld_parsed": None,
+            "source_text": None,
         }
 
-    def fake_finish_parse(raw_output, default_source, citation, image_path, jsonld_parsed):
+    def fake_finish_parse(raw_output, default_source, citation, image_path, jsonld_parsed, **kwargs):
         return {"title": "Chili", "ingredients": [], "instructions": [], "source": default_source}
 
     monkeypatch.setattr(rfi.recipe_service, "parse_recipe_file_content", fake_parse_file_content)
@@ -142,6 +143,7 @@ def test_scan_and_parse_reports_relative_path_for_nested_files(tmp_path, monkeyp
             "citation": {},
             "image_path": None,
             "jsonld_parsed": None,
+            "source_text": None,
         },
     )
     monkeypatch.setattr(
@@ -165,6 +167,7 @@ def test_scan_and_parse_isolates_one_files_failure_from_the_rest(tmp_path, monke
             "citation": {},
             "image_path": None,
             "jsonld_parsed": None,
+            "source_text": None,
         }
 
     monkeypatch.setattr(rfi.recipe_service, "parse_recipe_file_content", fake_parse_file_content)

@@ -25,6 +25,7 @@ const PROMPT_LABELS = {
   main_chef: "Main chef system prompt",
   dietary_onboarding: "Dietary onboarding prompt",
   recipe_import: "Recipe import (text/PDF/photo/URL fallback)",
+  ingredient_lines: "Recipe import: copy out the ingredient list (pass 1)",
   recipe_modify: "Recipe chat: propose an edit",
   receipt_import: "Receipt/list import",
   vision_intake: "Pantry/fridge photo intake",
@@ -42,7 +43,7 @@ const PROMPT_LABELS = {
 // household-specific abbreviation the receipt prompt doesn't expand,
 // etc.) -- without a second API round trip or a second card fetching the
 // same /api/system/prompts list.
-const IMPORT_PROMPT_KEYS = ["recipe_import", "recipe_modify", "receipt_import", "vision_intake"];
+const IMPORT_PROMPT_KEYS = ["recipe_import", "ingredient_lines", "recipe_modify", "receipt_import", "vision_intake"];
 
 // Backlog B12.1 -- these four settings are written automatically by
 // google_calendar_service.py's OAuth flow, never hand-typed, so they're

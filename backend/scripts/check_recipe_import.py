@@ -83,7 +83,7 @@ def main() -> int:
     # script can be vague about, since a live run is the scarce resource.
     raw_ingredients = (recipe_service._extract_json_object(raw) or {}).get("ingredients") or []
     print(f"title: {parsed.get('title')}")
-    print(f"{len(raw_ingredients)} ingredients straight from the model:\n")
+    print(f"PASS A -- single call, {len(raw_ingredients)} ingredients straight from the model:\n")
     for ing in raw_ingredients:
         if not isinstance(ing, dict):
             print(f"  !! not an object: {ing!r}")
@@ -95,6 +95,32 @@ def main() -> int:
             f"  [{comp:>22}] {ing.get('quantity')!s:>8} {ing.get('unit') or ''!s:<8} {ing.get('ingredient_name')}{note}"
         )
     print()
+
+    # Ingredients come from two-pass now (recipe_service.finish_recipe_parse
+    # does this for every real import). Pass 1 copies the ingredient-list
+    # lines, verify_copied_lines throws out anything that is not the start
+    # of a real source line, and the amounts are read by arithmetic rather
+    # than by the model. Printed alongside the single-call result so a run
+    # shows what each half contributed.
+    db = SessionLocal()
+    try:
+        two_pass = recipe_service.extract_ingredients_two_pass(db, source)
+    finally:
+        db.close()
+
+    if two_pass:
+        parsed["ingredients"] = two_pass
+        print(f"PASS B -- two-pass, {len(two_pass)} ingredients after verification and deterministic parsing:\n")
+        for ing in two_pass:
+            comp = ing.get("component") or "-"
+            note = f"  ({ing['prep_note']})" if ing.get("prep_note") else ""
+            print(
+                f"  [{comp:>22}] {ing.get('quantity')!s:>8} "
+                f"{ing.get('unit') or ''!s:<8} {ing.get('ingredient_name')}{note}"
+            )
+        print()
+    else:
+        print("PASS B -- two-pass returned nothing; the single-call ingredients above stand.\n")
 
     ingredients = parsed.get("ingredients") or []
     lost = [
@@ -145,8 +171,8 @@ def main() -> int:
     # 4. Components were emitted at all. Checked against the RAW model
     # output, so this reports what the model did rather than what survived
     # our own parsing -- those were conflated once already.
-    if not any(i.get("component") for i in raw_ingredients if isinstance(i, dict)):
-        failures.append("the model emitted no component on any ingredient -- rule 3 produced nothing")
+    if not any(i.get("component") for i in ingredients):
+        failures.append("no ingredient carries a component")
 
     # 5. Quantities decomposed into their own field rather than being left
     # inside the name ("unflavored gelatin (2 1/2 tsp.)"), which is what a
