@@ -1840,6 +1840,122 @@ forbade the only form the schema could accept. **Rule out our own
 plumbing and our own instructions before concluding anything about the
 model.**
 
+## First batch run: the assumption broke, and it took a worse defect with it (2026-08-04)
+
+Four files, real corpus, live 9B.
+
+    file                           ingr null_q no_comp src  p1 kept amounts
+    Brussel Sprout Kimchi Fermenta    1      1       0   B  24    1       0
+    GF Chicken Parm.txt              10     10       0   B  10   10       0
+    Gluten-free pizza recipe- look    5      5       5   A   0    0       4
+    Herb Slamon and Asparagus.json    8      1       8  LD   0    0       0
+
+**The corpus tested a different axis than intended, and found something
+bigger.** It contains no `.html` at all, so trafilatura -- the extractor
+this run was staged to probe -- is still completely untested. What broke
+instead was **pypdf, on a source shape the pie never represented.**
+
+### The assumption is false, and not for the reason we expected
+
+Both PDFs are **browser print-to-PDF of a web page**, not publisher PDFs.
+pypdf does not emit one ingredient per line on those. It emits **one line
+per layout block**. The kimchi file is 17,443 chars in **28 lines**; the
+pizza file is 14,012 chars in **56 lines**. The entire kimchi ingredient
+list, both components, as pypdf actually returns it:
+
+    Ingredients2 1/2 lbs brussel sprouts1 medium daikon radish1 1/2
+    tablespoons diced ginger1 tablespoon diced garlic4 tablespoons Korean
+    red pepperpowder1 tablespoon Gsh sauce or shrimp sauce(I excluded
+    this)Brine2 tablespoons sea salt4 cups water
+
+One line, 240 chars, no separators. `amounts=0` was that fact, reported
+correctly, one layer too late to change the outcome.
+
+Measured against it, every line the model transcribed **correctly** scores
+0.320-0.560 as a prefix, against a 0.90 threshold. The model found and
+split the welded list perfectly and verification destroyed all of it. The
+failure was never transcription.
+
+**Same library, same version, opposite shape.** The discriminator is not
+the file type and not the extractor -- it is the extractor and the
+document together. Any strategy table keyed on extractor identity would
+have been wrong on day one.
+
+### The worse defect: partial is not additive
+
+`finish_recipe_parse` gated on `if two_pass:` -- **truthiness**. So the
+kimchi import's one surviving line out of 24 replaced the entire
+single-call ingredient list, and the household would have got a
+one-ingredient kimchi recipe with nothing said. The plan claimed the
+failure mode was additive. It is additive **only at exactly zero**;
+between 1 and complete it is silent data loss, and strictly worse than
+the null quantities two-pass was built to fix. A null quantity is visible
+in the preview. Seven absent ingredients are not.
+
+### Shipped
+
+**A welded fallback, behind prefix, guarded structurally.**
+`find_welded_run` matches a block's lines in order as a forward-only chain
+inside ONE source line. `reconcile_block` runs prefix first and prefix
+wins ties, so a line-structured source never reaches the fallback and the
+pie is untouched.
+
+The guards are structural, not numeric, and they have to be:
+`2 Tbsp. graham cracker crumbs` really is inside `Set aside 2 Tbsp. graham
+cracker crumbs for serving` and scores **1.000** as a substring -- no
+similarity threshold can ever reject it, which is precisely why prefix was
+chosen. It is rejected because a lone match is not a list (`MIN_RUN`) and
+because matches must be tightly packed (`MAX_GAP`). Measured: kimchi 8/8
+with gaps 0,0,0,0,0,22,0; pizza 6/6 with gaps 0,0,0,0,1; **0 of the 6
+known pie hallucinations accepted.**
+
+Accepted text is still sliced from the source, so the safety property
+holds: nothing returned can contain a character the source does not have.
+The model sent `fish sauce`; pypdf's ligature damage means the source says
+`Gsh sauce`, and the source wins. Windows are trimmed by alignment rather
+than by length -- a fixed window took the next item's leading `1` onto the
+pepper line and lost the fish sauce's own, which is a corrupted quantity
+on two rows, not a cosmetic edge.
+
+**The completeness gate, in both halves.** Below `_TWO_PASS_MIN_COVERAGE`
+(0.6) of pass 1's lines verifying, `extract_ingredients_two_pass` returns
+[] and says so in the log. And `finish_recipe_parse` now requires two-pass
+to be comparably complete before it replaces the single call's list. 0.6
+sits between the measured disaster (1/24 = 0.04) and every measured
+success (15/15, 10/10, 8/8, 6/6 = 1.00).
+
+**Truncation is no longer silent.** The pizza row is a third, independent
+failure: pass 1 ran to exactly `INGREDIENT_LINES_RESPONSE_TOKENS` (1200)
+with `done_reason='length'`, its JSON was cut mid-array, `p1=0`, silent
+fallback. `chat_json_with_reason` surfaces `done_reason`, and a truncated
+pass 1 declines rather than salvaging a fragment -- constrained decoding
+plus bracket salvage can turn a cut-off response into a well-formed object
+quietly missing most of its array, so the text alone cannot reveal this.
+
+**Two rows were being misread as failures.** `GF Chicken Parm.txt` is the
+corpus's clean success -- 10 of 10 verified -- and its source genuinely
+lists no amounts (`Ground flaxseed`, `Kosher salt`). `null_q` conflated
+"we lost the amount" with "the source states none" and flagged all four
+files. The harness now reports `lost_q` separately, plus a `how` column
+naming the strategy (prefix / welded / CUT / trailing `!` for verified but
+refused), and mirrors the app's gate -- it has its own copy of the
+matching logic, so a table that reports a policy the app no longer follows
+is worse than no table.
+
+### Still open
+
+- **trafilatura is untested.** Two `.html` files exist now. Worth a run.
+- **`Gsh sauce`** -- pypdf mangles the `fi` ligature, so the stored
+  ingredient name is wrong in a way no amount of verification catches,
+  because the source really does say that. Ingredient name is the join
+  key, so this matters. Not fixed here.
+- **Raw headings become component labels.** `INGREDIENTS YOU'LL NEED:` was
+  stored as a component on a single-component recipe. `normalize_component`
+  only maps the `main` sentinel to NULL. This is the label instability the
+  plan named as the trigger for reaching for the `RecipeComponent` table.
+- Two new fixtures are checked in: `brussel_sprout_kimchi_pypdf.txt` and
+  `leopard_crust_pizza_pypdf.txt`, real pypdf 5.0.1 output, same as the pie.
+
 ## Session log
 
 - **2026-08-03 (the seeded prompt, and `component` made unskippable)**: Two changes, in the order they had to happen. **First, seeding of the four extraction prompts is gone.** A `SystemPrompt` row overrides the shipped default permanently, so seeding a copy of each default made an untouched install byte-identical to an edited one -- every improved default shipped after first boot was dead on arrival, and a prompt change could be measured as "failed" when it had never executed. Nothing seeds them now: no row means "use what this build ships", the Settings box shows that text as greyed placeholder, and a row appears only on a real save. `app/prompt_defaults.py` carries the registry, an exact-content classification rule, and a boot-time prune that repairs installs seeded by older builds. Its historical-digest set is closed rather than growing -- seeding existed only between `1fd5b77` and this commit, so the candidate texts are enumerable, and the three superseded ones are checked in byte-exact under `tests/fixtures/shipped_prompts/` so the digests are proven by a test instead of asserted in a comment. `GET /api/system/prompts` gained `default_content` and `has_override`, `PATCH` creates the row on first save, `DELETE` reverts, and saving the shipped text back verbatim drops the override rather than storing a copy of it. Boot now logs what was pruned and which overrides remain in force. `main_chef` and `dietary_onboarding` are untouched and still seeded -- they have no code-level fallback, so their row is the value. **Second, `ExtractedIngredient.component` is now `str`, not `str | None`.** Required-and-nullable had already been tried live and the 9B answered `null` on all 16 ingredients; a required field the model can answer with nothing is not required. Unsectioned recipes answer with the literal `"main"`, which `recipe_service.normalize_component` maps back to NULL at persistence, so the database and single-component recipes are unchanged. The prompt's OUTPUT FORMAT and worked example now define the field, because the grammar compels it and an undefined compelled field gets filled with something invented; a test pins the schema and the prompt together. **Found while doing this:** `routers/recipes.py::_apply_ingredients` never persisted `component` at all, on any create or update through the API -- including the import preview->confirm path, which is exactly where a multi-part recipe arrives. The pie could have extracted perfectly and still lost every label on save. **Found by running it, not reading it:** the first version of `PATCH /prompts/{key}` built the row, added it, then reconsidered and deleted it, which raises "Instance is not persisted" against an object that was never flushed -- every unit test happened to seed a row first, so all of them passed; the failing case (open Settings on a clean install, paste the text you see, press Save) only appeared against a live server. Restructured to resolve the edit before touching the session, with a regression test. 724 backend tests pass (up from 689), ruff check and `ruff format --check` clean, eslint clean, `vite build` transforms 308 modules and the new UI strings and the DELETE call are present in the minified bundle. **The prompt_chars marker moved: 6659 -> 6906** with the pie fixture. **Not measured against a live model** -- Ollama is not reachable from this sandbox, and work item 3 (two-pass extraction) is deliberately left unstarted until these two are measured for real.

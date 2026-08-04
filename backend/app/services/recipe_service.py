@@ -661,6 +661,13 @@ INGREDIENT_LINES_SCHEMA = schema_of(ExtractedIngredientLines)
 # ingredient list needs and far less than the full extraction reserves.
 INGREDIENT_LINES_RESPONSE_TOKENS = 1200
 
+# Below this share of pass 1's copied lines surviving verification,
+# two-pass declines entirely rather than handing back what it salvaged.
+# See the gate in extract_ingredients_two_pass for why partial is worse
+# than nothing. 0.6 sits between the measured disaster (1/24 = 0.04) and
+# every measured success (15/15, 10/10, 8/8, 6/6 = 1.00).
+_TWO_PASS_MIN_COVERAGE = 0.6
+
 
 def _normalize_for_match(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
@@ -725,6 +732,129 @@ def verify_copied_lines(candidates: list[str], source: str) -> list[str]:
     return reconcile_copied_lines(candidates, source)[0]
 
 
+# --- Welded sources: when the extractor gives no line structure ---------
+#
+# Prefix matching above assumes the source puts each ingredient on its own
+# line. That is a property of the EXTRACTOR AND THE DOCUMENT TOGETHER, not
+# of the file type, and pypdf 5.0.1 produces both shapes:
+#
+#   publisher PDF (Bon Appetit pie)  -> one ingredient per line, 57 lines
+#   browser print-to-PDF of a blog   -> the whole list welded into ONE line
+#
+# A real measured example, the entire kimchi ingredient list as pypdf
+# returns it -- both components, 240 chars, no separators:
+#
+#   Ingredients2 1/2 lbs brussel sprouts1 medium daikon radish1 1/2
+#   tablespoons diced ginger...Brine2 tablespoons sea salt4 cups water
+#
+# Against that, every correctly copied line scores 0.32-0.56 as a prefix
+# and all of them are dropped -- measured, not estimated. The model had
+# transcribed the list perfectly and verification destroyed it.
+#
+# The fallback below matches a block's lines IN ORDER as a forward-only
+# chain inside ONE source line. Two structural guards, not numeric ones,
+# keep it from re-opening the hole prefix matching exists to close:
+#
+#   MIN_RUN  a lone match is not a list. `2 Tbsp. graham cracker crumbs`
+#            really is inside `Set aside 2 Tbsp. graham cracker crumbs for
+#            serving` and scores 1.000 -- NO similarity threshold can ever
+#            reject it, which is exactly why prefix was chosen. It is
+#            rejected here because no second phantom sits next to it.
+#   MAX_GAP  matches must be tightly packed. A welded list has gaps of 0;
+#            words scattered through a paragraph of prose are not a list.
+#
+# Measured: kimchi 8/8 (gaps 0,0,0,0,0,22,0), pizza 6/6 (gaps 0,0,0,0,1),
+# and 0 of the 6 known pie hallucinations accepted.
+_WELD_SLACK = 6
+_WELD_MIN_RUN = 2
+_WELD_MAX_GAP = 40
+_WELD_ANCHOR_WORD = re.compile(r"[A-Za-z]{4,}")
+
+
+def _trim_to_alignment(normalized: str, window: str) -> tuple[str | None, float]:
+    """Shrink `window` to the span that actually aligns with `normalized`.
+
+    A fixed-length window cannot be right when the model's transcription
+    and the source differ in length, and the error is not cosmetic: it
+    took the next item's leading digit (`...red pepperpowder1`) and lost
+    its own (` tablespoon Gsh sauce...`), which is a corrupted quantity on
+    two ingredients."""
+    blocks = [b for b in difflib.SequenceMatcher(None, normalized, window).get_matching_blocks() if b.size > 1]
+    if not blocks:
+        return None, 0.0
+    trimmed = window[blocks[0].b : blocks[-1].b + blocks[-1].size]
+    return trimmed, difflib.SequenceMatcher(None, normalized, trimmed).ratio()
+
+
+def _walk_within_line(candidates: list[str], line: str) -> list[dict]:
+    """Candidates matched in order, never backtracking, inside one line."""
+    hits: list[dict] = []
+    cursor = 0
+    for candidate in candidates:
+        normalized = _normalize_for_match(candidate)
+        if not normalized:
+            continue
+        best_text, best_ratio, best_start, best_end = None, 0.0, -1, -1
+        for word in sorted(_WELD_ANCHOR_WORD.findall(normalized), key=len, reverse=True)[:3]:
+            offset = normalized.lower().find(word.lower())
+            search_from = 0
+            while True:
+                found = line.lower().find(word.lower(), search_from)
+                if found < 0:
+                    break
+                start = max(cursor, found - offset - _WELD_SLACK)
+                window = line[start : start + len(normalized) + 2 * _WELD_SLACK]
+                trimmed, ratio = _trim_to_alignment(normalized, window)
+                if trimmed and ratio > best_ratio:
+                    absolute = start + window.find(trimmed)
+                    if absolute >= cursor:
+                        best_text, best_ratio = trimmed, ratio
+                        best_start, best_end = absolute, absolute + len(trimmed)
+                search_from = found + 1
+        if best_text is not None and best_ratio >= _REPAIR_THRESHOLD:
+            hits.append({"text": best_text, "start": best_start, "end": best_end})
+            cursor = best_end
+    return hits
+
+
+def find_welded_run(candidates: list[str], source: str) -> list[str]:
+    """The copied block recovered from a source that has no line structure.
+
+    Returns source-sliced text, same safety property as
+    reconcile_copied_lines: nothing here contains a character the source
+    does not have. Returns [] when the candidates do not form a tightly
+    packed ordered run inside a single source line."""
+    best: list[dict] = []
+    for raw_line in (line for line in (source or "").splitlines() if line.strip()):
+        hits = _walk_within_line(candidates, _normalize_for_match(raw_line))
+        if len(hits) < _WELD_MIN_RUN:
+            continue
+        gaps = [hits[i + 1]["start"] - hits[i]["end"] for i in range(len(hits) - 1)]
+        if gaps and max(gaps) > _WELD_MAX_GAP:
+            continue
+        if len(hits) > len(best):
+            best = hits
+    return [hit["text"] for hit in best]
+
+
+def reconcile_block(candidates: list[str], source: str) -> tuple[list[str], list[str], str]:
+    """One block reconciled against the source, by whichever strategy the
+    evidence supports. Returns (accepted, rejected, strategy).
+
+    Prefix ALWAYS runs first and wins ties. On a line-structured source it
+    accepts everything, the welded walk never runs, and the pie's phantom
+    row stays rejected exactly as before. The fallback is reached only
+    where prefix has already failed, which is the source shape it was
+    built for."""
+    accepted, rejected = reconcile_copied_lines(candidates, source)
+    if not rejected:
+        return accepted, rejected, "prefix"
+    welded = find_welded_run(candidates, source)
+    if len(welded) > len(accepted):
+        return welded, [], "welded"
+    return accepted, rejected, "prefix"
+
+
 def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     """Ingredients for one recipe source, via transcribe-then-parse.
 
@@ -743,24 +873,42 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
         prompt_overhead_chars=len(prompt_template),
         response_reserve_tokens=INGREDIENT_LINES_RESPONSE_TOKENS,
     )
-    raw = ollama_client.chat_json(
+    raw, done_reason = ollama_client.chat_json_with_reason(
         db,
         [{"role": "user", "content": prompt_template.replace("{content}", content[:budget])}],
         schema=INGREDIENT_LINES_SCHEMA,
         model=ollama_client.get_extraction_model(db),
         response_tokens=INGREDIENT_LINES_RESPONSE_TOKENS,
     )
+    if done_reason == "length":
+        # Measured on a 24-page printed blog page: pass 1 ran to exactly
+        # INGREDIENT_LINES_RESPONSE_TOKENS and its JSON was cut mid-array.
+        # A truncated transcription is a partial one, and the whole point
+        # of the completeness gate below is that partial is worse than
+        # nothing -- so decline here too rather than salvage a fragment.
+        print(
+            "[recipe_import] two-pass DECLINED: pass 1 hit the response token cap "
+            f"({INGREDIENT_LINES_RESPONSE_TOKENS}) and its output is truncated. "
+            "Keeping the single-call ingredients.",
+            flush=True,
+        )
+        return []
     data = _extract_json_object(raw)
     if not data:
         return []
 
     ingredients: list[dict] = []
+    returned = verified = 0
+    strategies: set[str] = set()
     for block in data.get("blocks") or []:
         if not isinstance(block, dict):
             continue
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
-        kept, discarded = reconcile_copied_lines(raw_lines, content)
+        kept, discarded, strategy = reconcile_block(raw_lines, content)
+        returned += len(raw_lines)
+        verified += len(kept)
+        strategies.add(strategy)
         if discarded:
             print(
                 f"[recipe_import] pass 1 returned {len(discarded)} line(s) not found in the source, dropped: "
@@ -771,6 +919,27 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
             for entry in parse_ingredient_line_amounts(line):
                 if entry["ingredient_name"]:
                     ingredients.append({**entry, "component": component})
+
+    # The completeness gate. Returning a PARTIAL list is worse than
+    # returning nothing, because the caller replaces the single call's
+    # ingredients wholesale and nothing tells the household. Measured: a
+    # kimchi import verified 1 of 24 copied lines and that one line became
+    # the entire recipe. A null quantity is visible in the preview; seven
+    # absent ingredients are not.
+    if returned and verified / returned < _TWO_PASS_MIN_COVERAGE:
+        print(
+            f"[recipe_import] two-pass DECLINED: only {verified} of {returned} copied line(s) verified "
+            f"against the source (strategy={'+'.join(sorted(strategies)) or 'none'}). "
+            "Keeping the single-call ingredients rather than replacing them with a partial list.",
+            flush=True,
+        )
+        return []
+    if ingredients:
+        print(
+            f"[recipe_import] two-pass supplied {len(ingredients)} ingredient(s) from "
+            f"{verified}/{returned} verified line(s), strategy={'+'.join(sorted(strategies))}",
+            flush=True,
+        )
     return ingredients
 
 
@@ -1372,8 +1541,20 @@ def finish_recipe_parse(
     # single-call ingredients stand.
     if db is not None and source_text and jsonld_parsed is None:
         two_pass = extract_ingredients_two_pass(db, source_text)
-        if two_pass:
+        single_call_count = len(parsed.get("ingredients") or [])
+        # Second half of the completeness gate, and the only place both
+        # counts are visible. Two-pass earns the replacement by being at
+        # least comparably complete; it does not get to shrink a recipe.
+        # `if two_pass:` alone -- truthiness -- let one verified line
+        # replace a full ingredient list.
+        if two_pass and (single_call_count == 0 or len(two_pass) >= single_call_count * _TWO_PASS_MIN_COVERAGE):
             parsed["ingredients"] = two_pass
+        elif two_pass:
+            print(
+                f"[recipe_import] two-pass returned {len(two_pass)} ingredient(s) against the single call's "
+                f"{single_call_count}; keeping the single call's list.",
+                flush=True,
+            )
 
     parsed["source"] = default_source
     for key, value in citation.items():

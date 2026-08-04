@@ -340,6 +340,33 @@ def chat_json(
     JSON matching the schema by construction. When it doesn't, this
     degrades to an unconstrained response and the caller's
     ai_json_extraction fallback handles it."""
+    return chat_json_with_reason(
+        db,
+        messages,
+        schema,
+        model=model,
+        response_tokens=response_tokens,
+        extra_options=extra_options,
+    )[0]
+
+
+def chat_json_with_reason(
+    db: Session,
+    messages: list[dict],
+    schema: dict,
+    model: str | None = None,
+    response_tokens: int = 2000,
+    extra_options: dict | None = None,
+) -> tuple[str, str | None]:
+    """chat_json, plus the `done_reason` the server sent.
+
+    `done_reason == "length"` means the model was CUT OFF at the token
+    cap, so whatever JSON came back is truncated by definition. A caller
+    that cannot act on a partial answer needs to know that, and it cannot
+    infer it from the text: constrained decoding plus bracket salvage can
+    turn a truncated response into a well-formed object that is quietly
+    missing most of its array. That is exactly how a 24-page PDF produced
+    an empty pass 1 and a silent fallback."""
     options = {**EXTRACTION_OPTIONS, **(extra_options or {})}
     response = chat(
         db,
@@ -349,7 +376,8 @@ def chat_json(
         response_tokens=response_tokens,
         response_schema=schema,
     )
-    return extract_content(response)
+    reason = response.get("done_reason") if hasattr(response, "get") else None
+    return extract_content(response), reason
 
 
 def describe_image(
