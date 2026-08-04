@@ -1596,9 +1596,51 @@ a rule was suppressing it. Removing a self-inflicted prohibition is a
 smaller and better-targeted change than redesigning the field, and it is
 measurable in one run.
 
-**prompt_chars marker: now 7450.** The sequence is 6659 -> 6906 -> 7057
--> 7450. Anything else means a household override, which the boot log
-names.
+### Third live run: the fraction fix works, and prompt length has a price
+
+At 7450 the model returned `0.25 tsp.` for the crust's `¼ tsp. kosher
+salt` -- the first correct quantity in three runs, and proof that the
+rule-1 contradiction was the cause. It also returned **5 ingredients
+instead of 16**, dropping the entire Filling and Assembly section, with
+`done_reason='stop'` and `eval_count` down from 1126 to 842. It stopped
+early of its own accord.
+
+`EXTRACTION_OPTIONS` is `temperature 0.0, top_p 1.0`. Sampling is
+deterministic, so run-to-run differences are caused by the prompt and
+nothing else. That makes this table readable as measurement rather than
+noise:
+
+| prompt constant | ingredients | components | quantities | eval_count |
+|---|---|---|---|---|
+| 3256 (pre-session) | 15 | n/a | present, mined from prose | -- |
+| 3503 | 16 | dropped by coercion | all null | 1081 |
+| 3654 | 16 | **all correct** | all null | 1126 |
+| 4047 | **5** | correct | **0.25 correct** | 842 |
+
+**Every character in this prompt is paid for out of the same budget.** The
+rule-1 rewrite was ~600 chars replacing ~380, and it front-loaded the
+rules with a drill of five fraction pairs (¼/½/¾/1¼/1/3 and their
+decimals). The model spent its attention on amount formatting and stopped
+before finishing the list. The *permission* was what it needed; the drill
+was what it cost.
+
+Rule 1 is now **247 chars -- shorter than the 380 it started at** -- and
+keeps all three things that matter: unit fidelity, one worked fraction,
+and a null condition scoped to "the source states no amount".
+`test_rule_1_stays_short` pins the ceiling, because this is the easiest
+place in the file to overspend and the cost does not show up until a live
+run.
+
+**prompt_chars marker: now 7074.** The sequence is 6659 -> 6906 -> 7057
+-> 7450 -> 7074. Anything else means a household override, which the boot
+log names.
+
+**This is the strongest evidence yet for two-pass extraction.** Four
+consecutive measurements show this prompt is at capacity: every
+requirement added costs another one already met. Two-pass is not just a
+fix for method-mining -- it is what lets each call have a *small* prompt
+over a *small* input, which is the only version of this that has budget
+left for a fifth requirement.
 
 **What remains after this run, all one problem.** Crust sugar taken from
 the method text, the phantom graham-cracker-crumbs row, and the compound

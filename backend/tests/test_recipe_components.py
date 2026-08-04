@@ -127,16 +127,37 @@ def test_the_prompt_does_not_forbid_what_the_grammar_requires():
     """
     prompt = recipe_service.RECIPE_IMPORT_PROMPT
 
-    # The fractions that actually appear in the pie's ingredient list.
-    for fraction, decimal in (("¼", "0.25"), ("½", "0.5"), ("¾", "0.75")):
-        assert fraction in prompt, f"rule 1 should name {fraction} explicitly"
-        assert decimal in prompt, f"rule 1 should give {fraction} its decimal value"
+    # One worked fraction, not five. The first version of this fix spelled
+    # out ¼/½/¾/1¼/1/3 and their decimals; that run converted a fraction
+    # correctly and returned 5 of 16 ingredients instead of 16, at
+    # temperature 0. The permission is what the model needed; the drill
+    # was what it cost.
+    assert "write a fraction as its decimal" in prompt
+    assert "0.75" in prompt
 
     # Unit fidelity is the part of rule 1 that was always right and must
     # survive any rewording -- converting Tbsp. to cups is still wrong.
-    assert "never change the unit" in prompt
-    # The escape hatch is now conditional on the source stating nothing.
-    assert "no amount at all" in prompt
+    assert "without changing the unit" in prompt
+    # The escape hatch is conditional on the source stating nothing, so a
+    # stated-but-fractional amount has no null to fall back to.
+    assert "states no amount" in prompt
+
+
+def test_rule_1_stays_short():
+    """Every character in this prompt is paid for out of the same budget.
+
+    Three live runs at temperature 0 tracked prompt length against
+    completeness: 3654 chars extracted all 16 ingredients, 4047 extracted
+    5. Rule 1 is the first thing the model reads after the source and the
+    easiest place to overspend, so its length is pinned rather than left
+    to judgement. Raising this ceiling means re-measuring, not editing the
+    number.
+    """
+    rule_1 = next(line for line in recipe_service.RECIPE_IMPORT_PROMPT.splitlines() if line.startswith("1. "))
+
+    assert len(rule_1) <= 260, (
+        f"rule 1 is {len(rule_1)} chars -- it was 380 before any of this and cost completeness at 600"
+    )
 
 
 @pytest.mark.parametrize(
