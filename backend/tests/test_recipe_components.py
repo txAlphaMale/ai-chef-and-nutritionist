@@ -591,3 +591,34 @@ def test_repair_recovers_the_full_ingredient_list_from_a_slipped_transcription()
     assert all(e["quantity"] is not None for e in entries)
     salt = [e for e in entries if e["ingredient_name"] == "kosher salt" and e["component"] == "Crust"]
     assert salt and salt[0]["quantity"] == 0.25, "the slipped 1/4 tsp. must come back as 0.25, not 0.5"
+
+
+def test_a_packaging_word_becomes_the_unit_not_part_of_the_name():
+    """Ingredient name is this app's join key -- inventory rows, grocery
+    lines and price lookups are all reconciled by string match, which the
+    audit names as the source of every silent-wrong-answer bug in the data
+    layer. "envelope unflavored gelatin" matches nothing anywhere, so the
+    packaging word has to land in `unit` where it belongs.
+    """
+    entry = recipe_service.parse_ingredient_line_amounts("1 envelope unflavored gelatin (2½ tsp.)")[0]
+
+    assert entry["quantity"] == 1.0
+    assert entry["unit"] == "envelope"
+    assert entry["ingredient_name"] == "unflavored gelatin"
+    # The secondary measure is kept -- it is real provenance, just not part
+    # of the name.
+    assert entry["prep_note"] == "2½ tsp."
+
+
+def test_a_trailing_parenthetical_is_a_note_not_part_of_the_name():
+    entry = recipe_service.parse_ingredient_line_amounts("1¼ cups unsweetened pumpkin purée (from one 15-oz. can)")[0]
+
+    assert entry["ingredient_name"] == "unsweetened pumpkin purée"
+    assert entry["prep_note"] == "from one 15-oz. can"
+
+
+def test_a_parenthetical_is_kept_when_it_is_the_whole_name():
+    """Stripping has to stop short of leaving nothing behind."""
+    entry = recipe_service.parse_ingredient_line_amounts("2 (whatever)")[0]
+
+    assert entry["ingredient_name"]

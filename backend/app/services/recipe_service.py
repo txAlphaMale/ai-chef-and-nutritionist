@@ -478,7 +478,43 @@ _COUNT_UNIT_WORDS: dict[str, str] = {
     "medium": "medium",
     "small": "small",
     "whole": "whole",
+    # Packaging words a recipe counts in. Without these the word lands in
+    # the ingredient NAME, and ingredient name is this app's join key --
+    # "envelope unflavored gelatin" matches nothing in inventory, on a
+    # grocery line or in a price lookup, which is the silent-wrong-answer
+    # class the audit calls out. Measured on the pie: "1 envelope
+    # unflavored gelatin" was arriving with "envelope" glued to the name.
+    "envelope": "envelope",
+    "envelopes": "envelope",
+    "packet": "packet",
+    "packets": "packet",
+    "jar": "jar",
+    "jars": "jar",
+    "bottle": "bottle",
+    "bottles": "bottle",
+    "box": "box",
+    "boxes": "box",
+    "bag": "bag",
+    "bags": "bag",
+    "container": "container",
+    "containers": "container",
+    "sheet": "sheet",
+    "sheets": "sheet",
+    "stalk": "stalk",
+    "stalks": "stalk",
+    "ear": "ear",
+    "ears": "ear",
+    "fillet": "fillet",
+    "fillets": "fillet",
+    "loaf": "loaf",
+    "loaves": "loaf",
 }
+
+# A trailing parenthetical is a note about the ingredient, not part of its
+# name: "unflavored gelatin (2 1/2 tsp.)", "pumpkin puree (from one 15-oz.
+# can)". Leaving it in the name breaks matching for the same reason a unit
+# word does, and the content is worth keeping, so it becomes a prep_note.
+_TRAILING_PAREN_RE = re.compile(r"\s*\(([^()]*)\)\s*$")
 
 _FRACTION_CHARS = "".join(_UNICODE_FRACTIONS)
 # Order matters: the longest form has to win, or "1 1/2" matches the bare
@@ -589,6 +625,12 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
         remainder = name_part.strip()
         if note_part.strip():
             notes.append(note_part.strip())
+
+    trailing = _TRAILING_PAREN_RE.search(remainder)
+    if trailing and _TRAILING_PAREN_RE.sub("", remainder).strip(" ."):
+        if trailing.group(1).strip():
+            notes.append(trailing.group(1).strip())
+        remainder = _TRAILING_PAREN_RE.sub("", remainder)
 
     name = remainder.strip(" .") or original
     prep_note = ", ".join(notes) or None

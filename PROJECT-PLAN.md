@@ -1744,11 +1744,56 @@ text layer to verify against, so `source_text` is None and the old path
 stands. This improves one field; it does not become a new dependency for
 the whole importer.
 
-**What is still unproven:** whether the 9B transcribes accurately enough
-in pass 1. That is the one remaining live-model question, and it is now
-the ONLY one -- everything downstream of it is deterministic and tested.
-If transcription underperforms, `ollama_extraction_model` points just this
-call at the 27B without touching chat.
+### Live result: every check clean, 16 of 16 (2026-08-03)
+
+The Pumpkin Chiffon Pie import is correct. Crust sugar `2 Tbsp.` (was
+`0.5 cup` mined from the method), filling sugar as two entries `0.75 cup`
+and `2 Tbsp.` (was merged to `1.75`), no phantom crumbs row, every
+component right, no null quantities.
+
+Two results worth keeping beyond "it passed":
+
+**Repair fired and is visible in the log.** Pass 1 returned
+`"\\u00bd tsp. kosher salt"` -- the model sent ½ where the source has ¼ --
+and the output is `0.25 tsp kosher salt`. Same for nutmeg and sour cream.
+Without repair that run returned 12 of 16 and reported "every check
+clean", because four assertions about named ingredients cannot notice
+absent ones. The completeness check exists because of that run.
+
+**Two-pass beat the single call on components, not just on amounts.** The
+single call invented a "Topping" section and filed heavy cream and sour
+cream under it. The source's ingredient list has two headings; both belong
+to "Filling and Assembly", which is what two-pass produced. Copy-then-check
+did not merely avoid an error, it corrected one the single call was making
+confidently.
+
+**Cost:** pass 1 is `eval_count=207` against the main call's 1126, on a
+4248-char prompt against 7057. Roughly a fifth, which matters on the one
+worker thread.
+
+### Ingredient name is the join key, so packaging words cannot live in it
+
+The first clean run still produced `envelope unflavored gelatin (2½ tsp.)`
+and `unsweetened pumpkin purée (from one 15-oz. can)`. Both are correct
+readings of the line and both are unusable: inventory rows, grocery lines
+and price lookups reconcile by string match on the name (audit section 1,
+third architectural property), and neither of those matches anything.
+
+`_COUNT_UNIT_WORDS` gained the packaging words a recipe counts in
+(envelope, packet, jar, bottle, box, bag, container, sheet, stalk, ear,
+fillet, loaf -- can/clove/slice/package were already there, which ruff
+caught), and a trailing parenthetical now becomes a prep_note rather than
+part of the name. `1 envelope unflavored gelatin (2½ tsp.)` reads as
+quantity 1, unit `envelope`, name `unflavored gelatin`, note `2½ tsp.`.
+Nothing is discarded; it is filed where it can be matched.
+
+**What is still unproven:** transcription accuracy across OTHER sources.
+This is one recipe, one PDF, one extractor. The deterministic half is
+tested and cannot regress silently, and repair covers a one-glyph slip,
+but a source that numbers its ingredient lines differently, or a photo
+import (no text layer, so two-pass is skipped by design), has not been
+exercised. `ollama_extraction_model` points pass 1 at the 27B without
+touching chat if transcription proves to be the weak link elsewhere.
 
 **What remains after this run, all one problem.** Crust sugar taken from
 the method text, the phantom graham-cracker-crumbs row, and the compound
