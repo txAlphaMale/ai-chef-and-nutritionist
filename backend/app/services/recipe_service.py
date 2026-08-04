@@ -855,6 +855,42 @@ def reconcile_block(candidates: list[str], source: str) -> tuple[list[str], list
     return accepted, rejected, "prefix"
 
 
+def _split_headings_from_ingredients(entries: list[dict], component: str | None) -> list[dict]:
+    """A welded source hides its section headings INSIDE the ingredient run.
+
+    Measured on the kimchi file: the source line reads
+    `...shrimp sauce(I excluded this)Brine2 tablespoons sea salt...`, so
+    `Brine` is real source text, is copied correctly, verifies correctly,
+    and then becomes an ingredient named "Brine" with no quantity. That is
+    a junk row on the app's join key, which is the thing that has to stay
+    clean (audit section 1, third architectural property).
+
+    "Has no amount" cannot be the test on its own -- plenty of real
+    recipes list `Kosher salt` with no amount and mean it. The test is
+    whether THIS block states amounts at all: when most of its entries
+    carry a quantity, one that carries neither quantity nor unit is not an
+    ingredient. A block that states no amounts anywhere (blog and social
+    recipes, very common) is left completely alone.
+
+    A clean alphabetic label is PROMOTED to the component of everything
+    after it, which is what the source meant by writing it -- the kimchi's
+    salt and water really do belong to `Brine`. Anything else is dropped."""
+    with_amounts = sum(1 for entry in entries if entry["quantity"] is not None)
+    if with_amounts <= len(entries) / 2:
+        return [{**entry, "component": component} for entry in entries]
+
+    current = component
+    kept: list[dict] = []
+    for entry in entries:
+        if entry["quantity"] is None and not entry["unit"]:
+            label = entry["ingredient_name"].strip()
+            if label.replace(" ", "").isalpha() and len(label.split()) <= 3:
+                current = normalize_component(label)
+            continue
+        kept.append({**entry, "component": current})
+    return kept
+
+
 def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     """Ingredients for one recipe source, via transcribe-then-parse.
 
@@ -940,10 +976,10 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
             continue
         verified += len(kept)
         strategies.add(strategy)
-        for line in kept:
-            for entry in parse_ingredient_line_amounts(line):
-                if entry["ingredient_name"]:
-                    ingredients.append({**entry, "component": component})
+        block_entries = [
+            entry for line in kept for entry in parse_ingredient_line_amounts(line) if entry["ingredient_name"]
+        ]
+        ingredients.extend(_split_headings_from_ingredients(block_entries, component))
 
     if ingredients:
         print(

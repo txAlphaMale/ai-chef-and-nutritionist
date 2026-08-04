@@ -1994,8 +1994,61 @@ be a genuinely rare fallback rather than the main HTML path. Testing it
 needs a saved page that has NO JSON-LD, which now has to be sought
 deliberately rather than collected incidentally.
 
+### Third run: the per-block gate lands, and the last row is a heading
+
+    file                           ingr null_q lost_q no_comp src  how          p1 kept
+    Brussel Sprout Kimchi Fermenta    9      1      0       0   B   welded-1b   24    9
+    GF Chicken Parm.txt              10     10      0       0   B   prefix      10   10
+    Gluten-Free Brownies - Mama Kn    9      0      0       9  LD   -            0    0
+    Gluten-free pizza recipe- look    5      5      0       5   A   CUT          0    0
+    Herb Slamon and Asparagus.json    8      1      0       8  LD   -            0    0
+    Sweet 'n' Sour Bitter Melon an   10      0      0      10  LD   -            0    0
+
+Kimchi is `B / welded-1b`: the welded run supplied the ingredients and one
+block (15 of the 24 copied lines, the method) was dropped whole. That is
+the per-block gate doing exactly what it was rebuilt to do.
+
+**But 9 ingredients, and the recipe has 8.** Reproduced offline against
+the fixture, no model: the ninth is a **section heading welded into the
+run**. The source line reads
+
+    ...shrimp sauce(I excluded this)Brine2 tablespoons sea salt...
+
+so `Brine` is genuine source text, is copied correctly, verifies
+correctly, and becomes an ingredient named "Brine" with a null quantity --
+a junk row on the app's join key. Both `Brine` and `(I excluded this)`
+reproduce the live signature exactly (9 kept, 9 ingredients, one null with
+no digits), so which one occurred does not need to be known and the fix
+handles either.
+
+**"Has no amount" cannot be the test.** `GF Chicken Parm.txt` lists
+`Ground flaxseed` and `Kosher salt` and means them; ten of ten verified
+and all ten must survive. The test is whether the BLOCK states amounts at
+all: when most of a block's entries carry a quantity, one carrying neither
+quantity nor unit is not an ingredient. A block that states no amounts
+anywhere is left completely alone.
+
+A clean alphabetic label is **promoted to the component** of everything
+after it, rather than merely dropped, because that is what the source
+meant by writing it. Measured on the fixture: the kimchi's sea salt and
+water now come back as component `Brine`, the first six as `Ingredients`.
+Multi-component extraction, on a source with no line structure at all.
+
+**`lost_q` was over-forgiving, in the direction that hides defects.** The
+pizza row reported all 5 nulls as explained, on a source whose own
+`amounts` column said 4. The digit test only means something when the
+ingredient text IS the source's -- two-pass text is verified source text
+and JSON-LD strings are the source, but single-call text is authored by
+the model, and a model that loses an amount loses its digits with it. A
+null on model-authored text is now counted as unexplained, which is the
+honest reading. Expect the pizza row to return to `lost_q=5`.
+
 ### Still open
 
+- **The kimchi's `Gsh sauce`.** pypdf mangles the `fi` ligature, so the
+  stored ingredient name is wrong in a way verification cannot catch,
+  because the source really does say that. Ingredient name is the join
+  key. Untouched.
 - **trafilatura is untested**, and cannot be tested with an ordinary saved
   recipe page -- see above. Needs a page without schema.org markup.
 - **The pizza file still fails.** `CUT` at exactly 1200 tokens on a

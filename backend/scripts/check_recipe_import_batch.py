@@ -131,11 +131,17 @@ def check_one(db, path: Path) -> dict:
                 blocks_dropped += 1
                 continue
             strategies.add(strategy)
-            for line in accepted:
-                kept += 1
-                for entry in recipe_service.parse_ingredient_line_amounts(line):
-                    if entry["ingredient_name"]:
-                        two_pass.append({**entry, "component": component})
+            kept += len(accepted)
+            block_entries = [
+                entry
+                for line in accepted
+                for entry in recipe_service.parse_ingredient_line_amounts(line)
+                if entry["ingredient_name"]
+            ]
+            # Headings welded into the run are source text and verify
+            # correctly, so they have to be split out here too or this
+            # table reports one more ingredient than the app stores.
+            two_pass.extend(recipe_service._split_headings_from_ingredients(block_entries, component))
         if strategies:
             row["how"] = "+".join(sorted(strategies))
         if blocks_dropped:
@@ -154,17 +160,29 @@ def check_one(db, path: Path) -> dict:
     ingredients = parsed.get("ingredients") or []
     row["ingr"] = len(ingredients)
     row["null_q"] = sum(1 for i in ingredients if i.get("quantity") is None)
-    # A null this pipeline can EXPLAIN: no digit survives anywhere on the
-    # ingredient, so the source stated no amount and null is the correct
-    # reading. "Kosher salt" and "Salt and black pepper to taste" are
-    # right; a null beside a digit means we saw a number and lost it.
-    # Counted off the ingredient itself so it works on the JSON-LD path
-    # too, which has no verified lines to count.
+    # A null this pipeline can EXPLAIN: the ingredient text came from the
+    # SOURCE and carries no digit anywhere, so the source stated no amount
+    # and null is the correct reading -- "Kosher salt", "Salt and black
+    # pepper to taste".
+    #
+    # The "from the source" half is not a technicality. Two-pass text is
+    # verified source text and JSON-LD strings ARE the source, so a
+    # missing digit there means the source had none. Single-call text is
+    # authored by the model, and a model that loses an amount loses its
+    # digits with it: the pizza row reported all 5 nulls as explained on a
+    # source whose own amounts column said 4. Where the text is not the
+    # source's, unexplained is the honest reading.
+    source_derived = used_two_pass or file_result["jsonld_parsed"] is not None
     row["lost_q"] = sum(
         1
         for i in ingredients
         if i.get("quantity") is None
-        and any(ch.isdigit() for ch in " ".join(str(i.get(k) or "") for k in ("ingredient_name", "unit", "prep_note")))
+        and (
+            not source_derived
+            or any(
+                ch.isdigit() for ch in " ".join(str(i.get(k) or "") for k in ("ingredient_name", "unit", "prep_note"))
+            )
+        )
     )
     row["no_comp"] = sum(1 for i in ingredients if not i.get("component"))
     # LD is not a failure: a schema.org source already carries a clean

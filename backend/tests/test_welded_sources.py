@@ -283,3 +283,52 @@ def test_a_block_is_dropped_whole_rather_than_partially_kept():
     source = PIE.read_text(encoding="utf-8")
     with _stub_pass1([("main", PIE_HALLUCINATIONS * 3 + ["12 graham crackers"])]):
         assert recipe_service.extract_ingredients_two_pass(None, source) == []
+
+
+def test_a_heading_welded_into_the_run_becomes_a_component_not_an_ingredient():
+    """The kimchi source reads `...shrimp sauce(I excluded this)Brine2
+    tablespoons sea salt...`, so `Brine` is real source text, copies
+    correctly and verifies correctly -- and then became a ninth
+    "ingredient" with no quantity, on the app's join key.
+
+    Both `Brine` and `(I excluded this)` reproduce the observed live
+    signature (9 kept lines, 9 ingredients, one null with no digits), so
+    the fix has to handle either without knowing which occurred."""
+    source = KIMCHI.read_text(encoding="utf-8")
+    for stray in ("Brine", "(I excluded this)"):
+        lines = [*KIMCHI_COPIED[:6], stray, *KIMCHI_COPIED[6:]]
+        with _stub_pass1([("Ingredients", lines)]):
+            result = recipe_service.extract_ingredients_two_pass(None, source)
+        assert len(result) == 8, stray
+        assert all(i["quantity"] is not None for i in result), stray
+        assert not any(stray.strip("()") in i["ingredient_name"] for i in result), stray
+
+
+def test_a_promoted_heading_carries_its_component_to_what_follows():
+    """Dropping the row would be enough to stop the junk ingredient, but
+    the source MEANT something by writing `Brine`: the salt and the water
+    belong to it. This is the multi-component feature working on a source
+    that has no line structure at all."""
+    source = KIMCHI.read_text(encoding="utf-8")
+    lines = [*KIMCHI_COPIED[:6], "Brine", *KIMCHI_COPIED[6:]]
+    with _stub_pass1([("Ingredients", lines)]):
+        result = recipe_service.extract_ingredients_two_pass(None, source)
+
+    by_name = {i["ingredient_name"]: i["component"] for i in result}
+    assert by_name["sea salt"] == "Brine"
+    assert by_name["water"] == "Brine"
+    assert by_name["brussel sprouts"] == "Ingredients"
+
+
+def test_a_source_that_states_no_amounts_is_left_completely_alone():
+    """`GF Chicken Parm.txt` lists `Ground flaxseed`, `Kosher salt`,
+    `Dried oregano` and means every one of them. "Has no amount" cannot
+    be the heading test on its own, and this is the file that proves it --
+    10 of 10 verified, and all 10 must survive."""
+    entries = [
+        {"ingredient_name": name, "quantity": None, "unit": None, "prep_note": None}
+        for name in ("Ground flaxseed", "Kosher salt", "Dried oregano")
+    ]
+    kept = recipe_service._split_headings_from_ingredients(entries, "INGREDIENTS YOU'LL NEED:")
+    assert len(kept) == 3
+    assert [i["ingredient_name"] for i in kept] == ["Ground flaxseed", "Kosher salt", "Dried oregano"]
