@@ -29,8 +29,10 @@ lost on the way, rather than a pass/fail. Read the columns:
               welded = source has no line structure (browser print-to-PDF,
                        pasted paragraph); recovered as an ordered run
               CUT    = pass 1 hit the response token cap, output truncated
-              trailing ! = lines verified but the completeness gate
-                       REFUSED to use them; single call stands
+              -Nb    = N whole blocks dropped: too few of their lines
+                       verified for them to be an ingredient list
+              trailing ! = lines verified but two-pass was still refused
+                       because it came back thinner than the single call
     p1        lines pass 1 returned
     kept      of those, how many matched a real source line
     amounts   source lines that LOOK like ingredient lines (start with an
@@ -94,7 +96,7 @@ def check_one(db, path: Path) -> dict:
     # misreport the cost of an import.
     p1 = kept = 0
     row["how"] = "-"
-    no_amount_lines = 0
+    used_two_pass = False
     if source and file_result["jsonld_parsed"] is None:
         raw, done_reason = recipe_service.ollama_client.chat_json_with_reason(
             db,
@@ -113,49 +115,57 @@ def check_one(db, path: Path) -> dict:
             row["how"] = "CUT"
         two_pass = []
         strategies = set()
+        blocks_dropped = 0
         for block in data.get("blocks") or []:
             if not isinstance(block, dict):
                 continue
             component = recipe_service.normalize_component(block.get("component"))
             lines = [ln for ln in (block.get("lines") or []) if isinstance(ln, str)]
+            if not lines:
+                continue
             p1 += len(lines)
             accepted, _rejected, strategy = recipe_service.reconcile_block(lines, source)
+            # Same per-block gate the app applies. A table that reports a
+            # policy the app no longer follows is worse than no table.
+            if len(accepted) / len(lines) < recipe_service._TWO_PASS_MIN_COVERAGE:
+                blocks_dropped += 1
+                continue
             strategies.add(strategy)
             for line in accepted:
                 kept += 1
-                # A source line with no digit in it cannot yield a
-                # quantity, so a null from it is the SOURCE saying
-                # nothing, not this pipeline losing something. Without
-                # this split, a correctly imported recipe that lists no
-                # amounts (very common on blog/social recipes) reads as
-                # a total failure in the null_q column.
-                if not any(ch.isdigit() for ch in line):
-                    no_amount_lines += 1
                 for entry in recipe_service.parse_ingredient_line_amounts(line):
                     if entry["ingredient_name"]:
                         two_pass.append({**entry, "component": component})
         if strategies:
             row["how"] = "+".join(sorted(strategies))
-        # Mirror the app's completeness gate exactly -- a partial
-        # verification must not replace a fuller single-call list, and
-        # this table is worthless if it reports a policy the app no
-        # longer follows.
-        covered = bool(p1) and kept / p1 >= recipe_service._TWO_PASS_MIN_COVERAGE
+        if blocks_dropped:
+            row["how"] = f"{row['how']}-{blocks_dropped}b"
         single_call_count = len(parsed.get("ingredients") or [])
         big_enough = single_call_count == 0 or len(two_pass) >= single_call_count * (
             recipe_service._TWO_PASS_MIN_COVERAGE
         )
-        if two_pass and covered and big_enough:
+        if two_pass and big_enough:
             parsed["ingredients"] = two_pass
+            used_two_pass = True
         elif two_pass:
-            row["how"] = f"{row['how']}!"  # verified something, refused to use it
+            row["how"] = f"{row['how']}!"  # verified lines, refused to use them
     row["p1"], row["kept"] = p1, kept
 
     ingredients = parsed.get("ingredients") or []
     row["ingr"] = len(ingredients)
     row["null_q"] = sum(1 for i in ingredients if i.get("quantity") is None)
-    # Nulls this pipeline cannot explain by the source stating no amount.
-    row["lost_q"] = max(0, row["null_q"] - no_amount_lines)
+    # A null this pipeline can EXPLAIN: no digit survives anywhere on the
+    # ingredient, so the source stated no amount and null is the correct
+    # reading. "Kosher salt" and "Salt and black pepper to taste" are
+    # right; a null beside a digit means we saw a number and lost it.
+    # Counted off the ingredient itself so it works on the JSON-LD path
+    # too, which has no verified lines to count.
+    row["lost_q"] = sum(
+        1
+        for i in ingredients
+        if i.get("quantity") is None
+        and any(ch.isdigit() for ch in " ".join(str(i.get(k) or "") for k in ("ingredient_name", "unit", "prep_note")))
+    )
     row["no_comp"] = sum(1 for i in ingredients if not i.get("component"))
     # LD is not a failure: a schema.org source already carries a clean
     # machine-readable ingredient list, so two-pass is skipped by design.
@@ -163,7 +173,11 @@ def check_one(db, path: Path) -> dict:
     if file_result["jsonld_parsed"] is not None:
         row["src"] = "LD"
     else:
-        row["src"] = "B" if kept else "A"
+        # Whether two-pass ACTUALLY supplied the ingredients, not whether
+        # it verified something. Those came apart the moment the gate
+        # landed: a row read "src=B ... how=prefix+welded!", claiming
+        # two-pass supplied a list it had just been refused.
+        row["src"] = "B" if used_two_pass else "A"
     return row
 
 

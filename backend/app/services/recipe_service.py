@@ -897,6 +897,22 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     if not data:
         return []
 
+    # The completeness gate, applied PER BLOCK.
+    #
+    # A block is one section of one ingredient list, and that is the unit
+    # the gate has to judge. Measuring coverage across the whole response
+    # averages unrelated things together, and it does real harm in both
+    # directions -- measured, on the same file, one run apart:
+    #
+    #   run 1  1 of 24 lines verified, no gate. That single line replaced
+    #          the entire single-call list. A one-ingredient kimchi.
+    #   run 2  10 of 24 verified with a GLOBAL gate at 0.6 -> 0.417, so
+    #          everything was refused, including a block that had verified
+    #          completely. The model is not wrong to also copy a block
+    #          this app then rejects; being punished for it is our bug.
+    #
+    # Per block, a section that verifies stands on its own and a section
+    # that does not is dropped without taking its neighbours with it.
     ingredients: list[dict] = []
     returned = verified = 0
     strategies: set[str] = set()
@@ -905,39 +921,35 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
             continue
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
+        if not raw_lines:
+            continue
         kept, discarded, strategy = reconcile_block(raw_lines, content)
         returned += len(raw_lines)
-        verified += len(kept)
-        strategies.add(strategy)
         if discarded:
             print(
                 f"[recipe_import] pass 1 returned {len(discarded)} line(s) not found in the source, dropped: "
                 f"{discarded}",
                 flush=True,
             )
+        if len(kept) / len(raw_lines) < _TWO_PASS_MIN_COVERAGE:
+            print(
+                f"[recipe_import] block {component or 'main'!r} DROPPED: {len(kept)} of "
+                f"{len(raw_lines)} copied line(s) verified. Not a section of an ingredient list.",
+                flush=True,
+            )
+            continue
+        verified += len(kept)
+        strategies.add(strategy)
         for line in kept:
             for entry in parse_ingredient_line_amounts(line):
                 if entry["ingredient_name"]:
                     ingredients.append({**entry, "component": component})
 
-    # The completeness gate. Returning a PARTIAL list is worse than
-    # returning nothing, because the caller replaces the single call's
-    # ingredients wholesale and nothing tells the household. Measured: a
-    # kimchi import verified 1 of 24 copied lines and that one line became
-    # the entire recipe. A null quantity is visible in the preview; seven
-    # absent ingredients are not.
-    if returned and verified / returned < _TWO_PASS_MIN_COVERAGE:
-        print(
-            f"[recipe_import] two-pass DECLINED: only {verified} of {returned} copied line(s) verified "
-            f"against the source (strategy={'+'.join(sorted(strategies)) or 'none'}). "
-            "Keeping the single-call ingredients rather than replacing them with a partial list.",
-            flush=True,
-        )
-        return []
     if ingredients:
         print(
             f"[recipe_import] two-pass supplied {len(ingredients)} ingredient(s) from "
-            f"{verified}/{returned} verified line(s), strategy={'+'.join(sorted(strategies))}",
+            f"{verified} verified line(s) of {returned} copied, "
+            f"strategy={'+'.join(sorted(strategies))}",
             flush=True,
         )
     return ingredients

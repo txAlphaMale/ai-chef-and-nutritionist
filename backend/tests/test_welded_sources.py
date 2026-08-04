@@ -254,3 +254,32 @@ def test_a_truncated_pass_1_declines_instead_of_salvaging_a_fragment():
     source = KIMCHI.read_text(encoding="utf-8")
     with _stub_pass1([("main", KIMCHI_COPIED)], done_reason="length"):
         assert recipe_service.extract_ingredients_two_pass(None, source) == []
+
+
+def test_a_verified_block_survives_a_junk_block_beside_it():
+    """The gate's own regression, measured one run apart on the same file.
+
+    A global coverage gate scored 10 verified of 24 copied = 0.417 and
+    refused EVERYTHING, including a block that had verified completely.
+    The model copying a block this app then rejects is not a reason to
+    discard a section that checked out."""
+    source = PIE.read_text(encoding="utf-8")
+    with _stub_pass1(
+        [
+            ("Crust", ["12 graham crackers", "¼ tsp. kosher salt"]),
+            ("main", PIE_HALLUCINATIONS * 3),
+        ]
+    ):
+        result = recipe_service.extract_ingredients_two_pass(None, source)
+
+    assert [i["ingredient_name"] for i in result] == ["graham crackers", "kosher salt"]
+    assert {i["component"] for i in result} == {"Crust"}
+
+
+def test_a_block_is_dropped_whole_rather_than_partially_kept():
+    """Half a section is not a section. The lines that DO verify in a
+    mostly-rejected block are the ones most likely to be method text that
+    happens to appear in the source."""
+    source = PIE.read_text(encoding="utf-8")
+    with _stub_pass1([("main", PIE_HALLUCINATIONS * 3 + ["12 graham crackers"])]):
+        assert recipe_service.extract_ingredients_two_pass(None, source) == []

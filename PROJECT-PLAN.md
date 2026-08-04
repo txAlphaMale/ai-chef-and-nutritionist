@@ -1942,9 +1942,67 @@ refused), and mirrors the app's gate -- it has its own copy of the
 matching logic, so a table that reports a policy the app no longer follows
 is worse than no table.
 
+### Second run, six files: the gate worked and was WRONG
+
+    file                           ingr null_q lost_q no_comp src  how              p1 kept
+    Brussel Sprout Kimchi Fermenta    6      6      4       6   B   prefix+welded!  24   10
+    GF Chicken Parm.txt              10     10      0       0   B   prefix          10   10
+    Gluten-Free Brownies - Mama Kn    9      0      0       9  LD   -                0    0
+    Gluten-free pizza recipe- look    5      5      5       5   A   CUT              0    0
+    Herb Slamon and Asparagus.json    8      1      1       8  LD   -                0    0
+    Sweet 'n' Sour Bitter Melon an   10      0      0      10  LD   -                0    0
+
+Three things confirmed, two of them mine to fix.
+
+**The welded fallback works.** Kimchi went from 1 verified line to 10, and
+`how=prefix+welded` says the fallback did it. `GF Chicken Parm` reports
+`lost_q=0` -- its ten nulls are the source stating no amounts, which is
+now visible instead of reading as total failure.
+
+**The GLOBAL coverage gate was the wrong unit, and it cost the file it was
+meant to save.** 10 verified of 24 copied = 0.417, under 0.6, so
+everything was refused -- including a block that had verified completely.
+The kimchi import fell back to the single call's 6 null-quantity
+ingredients when the welded run had recovered a full section. One run
+earlier the same file lost data by keeping too little; this run it lost
+data by discarding too much. **The gate is now per BLOCK**, which is the
+unit that actually means "one section of one ingredient list". A section
+that verifies stands on its own; a section that does not is dropped
+without taking its neighbours with it. The model copying a block this app
+then rejects is not a reason to discard a section that checked out.
+
+**`src` contradicted `how`.** The kimchi row read `src=B` -- "two-pass
+supplied the ingredients" -- next to a `!` meaning it had just been
+refused. `src` was computed from whether anything VERIFIED, not from
+whether two-pass was USED. Those were the same thing until the gate
+landed. Fixed, plus a `-Nb` marker naming how many whole blocks were
+dropped.
+
+**`lost_q` was wrong on the JSON-LD path.** It was derived from verified
+pass-1 lines, and JSON-LD has none, so every LD null read as lost --
+`Salt and black pepper to taste` counted as a defect. It is now computed
+from the ingredient itself: a null with no digit anywhere on it is the
+source stating no amount. The Herb Salmon row should read `lost_q=0`.
+
+**trafilatura STILL has not run.** Both new `.html` files carry
+`application/ld+json` with `"@type":"Recipe"`, so both took the schema.org
+path (`src=LD`) and never reached `extract_content_from_html`. Both
+imported clean -- 9 and 10 ingredients, zero nulls. That is three attempts
+to exercise trafilatura and three misses, and the misses are themselves a
+finding: real recipe sites embed schema.org, so the trafilatura branch may
+be a genuinely rare fallback rather than the main HTML path. Testing it
+needs a saved page that has NO JSON-LD, which now has to be sought
+deliberately rather than collected incidentally.
+
 ### Still open
 
-- **trafilatura is untested.** Two `.html` files exist now. Worth a run.
+- **trafilatura is untested**, and cannot be tested with an ordinary saved
+  recipe page -- see above. Needs a page without schema.org markup.
+- **The pizza file still fails.** `CUT` at exactly 1200 tokens on a
+  24-page printed blog post. Truncation is now labelled rather than
+  silent, but the remedy is unbuilt. The input, not the cap, is the
+  suspect: pass 1 is handed 14k chars of prose, comments and FAQ to find
+  ~400 chars of ingredients in.
 - **`Gsh sauce`** -- pypdf mangles the `fi` ligature, so the stored
   ingredient name is wrong in a way no amount of verification catches,
   because the source really does say that. Ingredient name is the join
