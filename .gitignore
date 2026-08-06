@@ -23,6 +23,10 @@ backend/tests/test_prompt_len_tmp.py
 PROJECT-PLAN.md
 AUDIT-*.md
 
+# Local-only Compose overrides (dev corpus bind mounts, host paths).
+# Compose merges this automatically; it must never ship to a clone.
+docker-compose.override.yml
+
 # Data (persisted via volume, not committed)
 data/*
 !data/.gitkeep
