@@ -119,6 +119,12 @@ def suspect_component(label: str) -> bool:
         return True
     if any(word in key for word in _SUSPECT_COMPONENT_WORDS):
         return True
+    # A section heading is written as one: `Brine`, `Crust`, `Filling`.
+    # An all-lowercase label is usually a fragment that got mistaken for a
+    # heading -- `powder`, the tail of a wrapped ingredient, was stored as
+    # a component and this column did not flag it.
+    if not any(ch.isupper() for ch in label):
+        return True
     return len(key.split()) > 4 or len(label) > 40
 
 

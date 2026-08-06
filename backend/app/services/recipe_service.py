@@ -1094,6 +1094,62 @@ def _split_headings_from_ingredients(entries: list[dict], component: str | None)
     return kept
 
 
+# A continuation line starts lowercase, or with a bracket, and is short.
+# A new ingredient starts with an amount; a heading starts capitalised.
+_CONTINUATION_START = re.compile(r"^[a-z(\[]")
+_CONTINUATION_MAX_WORDS = 3
+
+
+def rejoin_wrapped_lines(text: str) -> str:
+    """Put an ingredient the page wrapped back onto one line.
+
+    pdfplumber returns the lines a page SHOWS, so an ingredient too long
+    for the column arrives split. Measured in the kimchi fixture:
+
+        4 tablespoons Korean red pepper
+        powder
+        1 tablespoon Gsh sauce or shrimp sauce
+        (I excluded this)
+
+    Every downstream attempt to cope with this has cost something. Joining
+    at match time let method steps verify, because they wrap too. Leaving
+    it alone truncated `Korean red pepper` and, when the model copied the
+    fragment as its own line, promoted `powder` to a section HEADING --
+    it is short, alphabetic and amountless, which is precisely what
+    `Brine` looks like.
+
+    Repairing it here instead means the model never sees the split, the
+    matcher never sees it, and the heading rule never sees an orphan. One
+    place, one rule, using the only fact that is actually available: two
+    lines were adjacent in the source.
+
+    The rule is deliberately narrow, because the failure it must not cause
+    is welding a real amountless ingredient onto the line above it:
+
+        2 cups flour
+        Salt to taste        <- capitalised, so NOT joined
+
+    A continuation starts lowercase or with a bracket, is at most
+    _CONTINUATION_MAX_WORDS long, and follows a line that starts with an
+    amount. `Salt to taste` fails the first test, `Brine` fails it too,
+    and a following ingredient fails it by starting with a digit."""
+    lines = (text or "").split("\n")
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if (
+            out
+            and stripped
+            and _AMOUNT_START.match(out[-1])
+            and _CONTINUATION_START.match(stripped)
+            and len(stripped.split()) <= _CONTINUATION_MAX_WORDS
+        ):
+            out[-1] = f"{out[-1]} {stripped}"
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def dedupe_blocks(blocks: list) -> list[dict]:
     """Collapse blocks the model emitted more than once, verbatim.
 
@@ -1133,6 +1189,11 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     then read by parse_ingredient_line_amounts, which is arithmetic and
     gets 16 entries out of these 15 lines exactly right where four live
     runs of the 9B got zero."""
+    # Repaired ONCE, here, so that pass 1's prompt and the verification it
+    # is checked against are the same text. Doing it at the extractor
+    # would also change receipts, bloodwork and knowledge files, which
+    # have their own line shapes and no measured need for this.
+    content = rejoin_wrapped_lines(content)
     prompt_template = get_ingredient_lines_prompt(db)
     budget = ollama_client.content_char_budget(
         db,

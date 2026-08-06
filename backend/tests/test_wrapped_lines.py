@@ -36,6 +36,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.services import recipe_service
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -113,6 +115,53 @@ def test_a_line_wrapped_in_the_source_verifies():
     assert rejected == []
     assert "4 tablespoons Korean red pepper powder" in accepted
     assert "1 tablespoon Gsh sauce or shrimp sauce (I excluded this)" in accepted
+
+
+def test_the_source_wrap_is_repaired_before_anything_else_sees_it():
+    """Joining at match time was the second-best place to fix this and the
+    fourth attempt overall. Repairing the source once means the model
+    never sees the split, the matcher never sees it, and the heading rule
+    never sees an orphan."""
+    rejoined = recipe_service.rejoin_wrapped_lines(KIMCHI_PLUMBER.read_text(encoding="utf-8")).split("\n")
+    assert "4 tablespoons Korean red pepper powder" in rejoined
+    assert "1 tablespoon Gsh sauce or shrimp sauce (I excluded this)" in rejoined
+    # The fragments are gone, so nothing downstream can mistake one for a
+    # heading -- which is exactly what happened to `powder`.
+    assert "powder" not in rejoined
+    assert "(I excluded this)" not in rejoined
+    # A real heading is NOT a continuation and must survive untouched.
+    assert "Brine" in rejoined
+
+
+@pytest.mark.parametrize(
+    ("text", "joined"),
+    [
+        # The measured wrap.
+        ("4 tablespoons Korean red pepper\npowder", True),
+        ("1 tablespoon Gsh sauce or shrimp sauce\n(I excluded this)", True),
+        # The failure this rule must never cause: an amountless ingredient
+        # welded onto the line above it. Capitalised, so it is safe.
+        ("2 cups flour\nSalt to taste", False),
+        # The next ingredient starts with an amount.
+        ("2 cups flour\n1 tsp. salt", False),
+        # A heading does not follow an amount, and is capitalised anyway.
+        ("Brine\n2 tablespoons sea salt", False),
+        # Method steps wrap too, and must not be rejoined into ingredients.
+        ("B. Slice the brussel sprouts in half\nlengthwise", False),
+        # A long continuation is prose, not an ingredient tail.
+        ("2 1/2 lbs brussel sprouts\nand a very long continuation of many words", False),
+    ],
+)
+def test_only_a_short_lowercase_tail_after_an_amount_is_rejoined(text, joined):
+    assert ("\n" not in recipe_service.rejoin_wrapped_lines(text)) is joined
+
+
+def test_a_source_with_no_wraps_is_returned_untouched():
+    """The pie is a publisher PDF and has none. A repair that rewrites a
+    source it was not built for is a repair that will eventually corrupt
+    one."""
+    pie = PIE.read_text(encoding="utf-8")
+    assert recipe_service.rejoin_wrapped_lines(pie) == pie
 
 
 def test_method_steps_never_reach_the_wider_window():
