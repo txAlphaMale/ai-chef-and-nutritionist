@@ -772,6 +772,36 @@ def _normalize_for_match(text: str) -> str:
 # empty band rather than being a round number someone liked.
 _REPAIR_THRESHOLD = 0.90
 
+# How many consecutive source lines one copied line may span.
+#
+# pdfplumber returns the lines the PAGE shows, which means an ingredient
+# too long for the column arrives wrapped. Measured in
+# `brussel_sprout_kimchi_pdfplumber.txt`:
+#
+#     74 | 4 tablespoons Korean red pepper
+#     75 | powder
+#     76 | 1 tablespoon Gsh sauce or shrimp sauce
+#     77 | (I excluded this)
+#
+# The model copies what a reader sees -- one ingredient -- and sent
+# `1 tablespoon Gsh sauce or shrimp sauce\n(I excluded this)`, which
+# matched no single source line and was dropped. That is an ingredient
+# deleted, which is worse than the welded name it replaced.
+#
+# find_welded_run solves the mirror case: MANY candidates inside ONE
+# source line. This is ONE candidate across SEVERAL source lines, and the
+# two are complementary rather than alternatives.
+#
+# Note this is a strict superset of the old behaviour, not a change to it:
+# for any candidate shorter than its first source line, the prefix of the
+# join IS the prefix of that line, so every previously-matching case
+# matches identically. Only candidates too long for one line can reach the
+# joined windows at all.
+#
+# 3 covers a two-line wrap with a line to spare. It is deliberately small:
+# every extra line widens the text a hallucination could match against.
+_MAX_WRAP_LINES = 3
+
 
 def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str], list[str]]:
     """Match each copied line to the source line it came from.
@@ -782,8 +812,11 @@ def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str
     That property is what makes repairing safe: a too-generous threshold
     can at worst pick the wrong real line, and can never invent one.
 
-    Matching is against the leading substring of each source line, not the
-    whole line, because pypdf welds page furniture onto the last item of a
+    Matching is against the leading substring of each source line AND of
+    each join of up to _MAX_WRAP_LINES consecutive lines, because an
+    ingredient too long for the page column arrives wrapped -- see that
+    constant. Not the whole line, because pypdf welds page furniture onto
+    the last item of a
     block -- the real fixture ends `1/4 cup sour creamC o m p l e t e  y o
     u r  B o n  A p p e t i t`. Prefix rather than "appears anywhere",
     because a substring test accepts the method text: `2 Tbsp. graham
@@ -807,11 +840,20 @@ def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str
         if not normalized:
             continue
         best_text, best_ratio = None, 0.0
-        for line in source_lines:
-            prefix = line[: len(normalized)]
-            ratio = difflib.SequenceMatcher(None, normalized, prefix).ratio()
-            if ratio > best_ratio:
-                best_text, best_ratio = prefix, ratio
+        for start in range(len(source_lines)):
+            joined = source_lines[start]
+            for extra in range(_MAX_WRAP_LINES):
+                if extra:
+                    joined = f"{joined} {source_lines[start + extra]}"
+                prefix = joined[: len(normalized)]
+                ratio = difflib.SequenceMatcher(None, normalized, prefix).ratio()
+                if ratio > best_ratio:
+                    best_text, best_ratio = prefix, ratio
+                # Joining further cannot help once the window is already
+                # longer than what is being matched, and there is nothing
+                # left to join at the end of the source.
+                if len(joined) >= len(normalized) or start + extra + 1 >= len(source_lines):
+                    break
         if best_text is not None and best_ratio >= _REPAIR_THRESHOLD:
             accepted.append(best_text)
         else:
