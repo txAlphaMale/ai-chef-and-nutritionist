@@ -9,6 +9,8 @@ import difflib
 import io
 import json
 import re
+from collections import Counter
+from itertools import pairwise
 
 import httpx
 import lxml.html
@@ -145,12 +147,12 @@ _COMPONENT_GENERIC = frozenset(
 )
 # Requires whitespace after "for", so "Formaggio" and "Forcemeat" are safe.
 _COMPONENT_FOR_PREFIX = re.compile(r"^for\s+(?:the\s+)?", re.IGNORECASE)
-_COMPONENT_EDGE_PUNCT = " \t:;,.!-–—"
+_COMPONENT_EDGE_PUNCT = " \t:;,.!-–—"  # noqa: RUF001 -- the en/em dashes are the point: they are stripped
 
 
 def _component_key(label: str) -> str:
     """Folded form used only for comparison, never for storage."""
-    folded = label.casefold().replace("’", "").replace("'", "")
+    folded = label.casefold().replace("’", "").replace("'", "")  # noqa: RUF001 -- both apostrophe forms occur in real headings
     return re.sub(r"[^a-z0-9]+", " ", folded).strip()
 
 
@@ -253,6 +255,22 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # cost fewer tokens per requirement stated. The requirements this prompt
 # must keep expressing: unit fidelity (never convert, never guess), an
 # ingredient name reused across sections split rather than merged (crust
+# Rules 3 and 4 name NO example section headings, and that is deliberate.
+# They used to read `(Crust, Filling and Assembly, Topping)` and
+# `(crust, filling, assembly, topping, etc.)`. On the Bon Appetit pie --
+# whose ingredient list and method BOTH have exactly two headings, `Crust`
+# and `Filling and Assembly` -- the model returned instructions labelled
+# `Crust`, `Filling and Assembly` and `Topping`, in that order. The string
+# `topping` occurs ZERO times in that source; counted, 2026-08-06. The
+# first two examples were the recipe's real headings, so the model
+# completed the list with the third.
+#
+# The ingredient path is immune to this because its components come from
+# blocks of COPIED source lines (see extract_ingredients_two_pass); the
+# instruction path has nothing holding it to the page, so the prompt is
+# the only place the constraint can live. It now states the constraint
+# instead of illustrating the field, and a test pins the absence.
+#
 # vs. filling, "divided" quantities), the per-ingredient `component`
 # heading, the fixed tag vocabulary, and the tips/copyright-respect rule.
 #
@@ -278,8 +296,8 @@ SOURCE:
 RULES:
 1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
 2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
-3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it (Crust, Filling and Assembly, Topping). Use the value main when the recipe is a single dish with no named parts.
-4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one. Each entry carries the same "component" the ingredients of that section carry, spelled identically, or the literal main when the recipe has no sections.
+3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it. Use ONLY headings the source actually prints. If it prints two, there are exactly two -- inventing a third because it would be a natural name for those ingredients is an error. Use the value main when the recipe is a single dish with no named parts.
+4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section -- not just the first one. Each entry carries the heading of the section it appears under, spelled identically to rule 3's, or the literal main when the recipe has no sections. Rule 3's constraint applies here too: never introduce a heading the source does not print.
 5. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
 6. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
 7. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
@@ -396,6 +414,111 @@ def coerce_recipe_fields(data: dict) -> dict:
     }
 
 
+# --- Two page elements written through each other ------------------------
+#
+# Measured on the Bon Appetit pie, page 2 (2026-08-06). pdfplumber groups
+# characters into lines by baseline and orders them by x, which is correct
+# until two INDEPENDENT elements share a baseline. That page's
+# subscription ad sits on top of the final instruction, and the two arrive
+# shredded together, character by character:
+#
+#   and 1/4 tsp. salt just to combine. Usings uab lasrcgreip stipoono na,n
+#   ddo lgloept asi xge FnReEroEu gsi aftms!ount of whipped cream in the
+#
+# That is `Using a large spoon, dollop a generous amount of whipped cream
+# in the center` interleaved with `subscription and get six FREE gifts!`.
+# `dollop` and `spoon` do not survive as words at all, so nothing
+# downstream can recover them: the import rendered that step as `Pipe a
+# mound of whipped cream`, a different technique needing different
+# equipment, and that was the model doing its best with rubble.
+#
+# Ingredients were untouched because they are all on page 1 -- which is
+# why this hid until the ingredients stopped being the problem.
+#
+# The two runs are trivially separable because they are set in different
+# fonts. Separation is done by pdfplumber's own `filter` + `extract_text`
+# and NOT by re-joining characters by hand: the page path already knows
+# how to infer spaces from geometry, and a hand-rolled join loses every
+# space on the line (measured, first attempt).
+#
+# The discriminator is INTERLEAVING, not merely mixing fonts. A bold word
+# inside a sentence, or a table row whose cells are set differently, is a
+# handful of contiguous runs; two overlapping elements alternate on nearly
+# every character. Measured across both PDFs to hand -- 161 lines, 37 of
+# them multi-font:
+#
+#     legitimate multi-font lines    2-5 alternations
+#     the two overlaid lines         37 and 49
+#
+# 12 sits in a 32-wide empty band. The ratio is the second half of the
+# test: an alternation COUNT alone would eventually fire on a long table
+# row that changes font once per cell, so the alternation must also be
+# dense. The overlaid lines change style every 2-3 characters (0.41,
+# 0.33); no legitimate line measured here exceeds 0.12 at a comparable
+# length.
+#
+# The overlay text is APPENDED, not discarded. It is page furniture and
+# almost certainly noise, but "almost certainly" is not the standard this
+# module holds itself to anywhere else -- see the pypdf-fallback comment
+# below on why an empty result is never silently swallowed either.
+#
+# CAVEAT, stated because the corpus is thin: two PDFs is not a corpus, and
+# extract_pdf_text is shared with bloodwork import, receipt import and
+# knowledge files. So the guard is conservative and a page with no
+# detected interleaving takes exactly the old path -- a test pins that the
+# result is byte-identical in that case.
+_OVERLAY_MIN_ALTERNATIONS = 12
+_OVERLAY_MIN_ALTERNATION_RATIO = 0.25
+
+
+def _char_style(obj) -> tuple:
+    return (obj.get("fontname"), round(obj.get("size") or 0, 1))
+
+
+def _interleaved_overlay_styles(page) -> set:
+    """Character styles woven THROUGH another element's text on this page.
+
+    Returns the styles belonging to the intruding element(s), or an empty
+    set when the page has no line that alternates hard enough to be two
+    things at once. The majority style on such a line is taken to be the
+    text being written over; everything else on it is the overlay."""
+    overlay: set = set()
+    for line in page.extract_text_lines():
+        chars = sorted(line.get("chars") or [], key=lambda c: c["x0"])
+        styles = [_char_style(c) for c in chars]
+        if len(set(styles)) < 2:
+            continue
+        alternations = 1 + sum(1 for a, b in pairwise(styles) if a != b)
+        if alternations < _OVERLAY_MIN_ALTERNATIONS:
+            continue
+        if alternations / len(chars) < _OVERLAY_MIN_ALTERNATION_RATIO:
+            continue
+        counts = Counter(styles)
+        written_over = counts.most_common(1)[0][0]
+        overlay.update(style for style in counts if style != written_over)
+    return overlay
+
+
+def _page_text_unweaving_overlays(page) -> str:
+    """One page's text, with any element written through another one pulled
+    out of it and moved to the end rather than left shredded into it."""
+    overlay = _interleaved_overlay_styles(page)
+    if not overlay:
+        return page.extract_text() or ""
+    print(
+        f"[recipe_import] page {page.page_number}: {len(overlay)} character style(s) found interleaved "
+        f"through the text ({sorted(overlay)}). Separating them; the overlay is kept, at the end.",
+        flush=True,
+    )
+
+    def is_overlay_char(obj) -> bool:
+        return obj.get("object_type") == "char" and _char_style(obj) in overlay
+
+    main = page.filter(lambda obj: not is_overlay_char(obj)).extract_text() or ""
+    aside = page.filter(is_overlay_char).extract_text() or ""
+    return "\n".join(part for part in (main, aside) if part)
+
+
 def extract_pdf_text(pdf_bytes: bytes) -> str:
     """PDF text, via pdfplumber, with pypdf kept only as a crash net.
 
@@ -429,7 +552,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
     other's, and hide the scan."""
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+            return "\n".join(_page_text_unweaving_overlays(page) for page in pdf.pages)
     except Exception as exc:
         print(f"[recipe_import] pdfplumber failed ({type(exc).__name__}: {exc}); falling back to pypdf.", flush=True)
         reader = PdfReader(io.BytesIO(pdf_bytes))

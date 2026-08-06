@@ -100,6 +100,7 @@ class RecipeBase(BaseModel):
     @classmethod
     def _accept_plain_strings(cls, value):
         return InstructionStep.coerce(value)
+
     # Per-serving estimate -- keys are app.services.food_data_service.
     # NUTRITION_KEYS (calories/protein_g/carbs_g/fat_g/fiber_g/sodium_mg/
     # cholesterol_mg/saturated_fat_g/sugars_g), informal by design, see

@@ -40,7 +40,6 @@ from __future__ import annotations
 import argparse
 import io
 import logging
-import sys
 from pathlib import Path
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)

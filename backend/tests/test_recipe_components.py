@@ -661,3 +661,25 @@ def test_a_parenthetical_is_kept_when_it_is_the_whole_name():
     entry = recipe_service.parse_ingredient_line_amounts("2 (whatever)")[0]
 
     assert entry["ingredient_name"]
+
+
+def test_the_prompt_names_no_example_section_headings():
+    """Measured 2026-08-06, on the pie.
+
+    Rules 3 and 4 used to illustrate `component` with
+    `(Crust, Filling and Assembly, Topping)`. The pie's ingredient list
+    and its method each have exactly TWO headings, and they are the first
+    two of those three. The import came back with instructions labelled
+    `Crust`, `Filling and Assembly` and `Topping` -- and `topping` does
+    not occur anywhere in that source, not once.
+
+    An example that happens to match the document in front of the model
+    is not an example, it is a suggestion. Rules 3 and 4 state the
+    constraint now. Do not put example headings back."""
+    prompt = recipe_service.RECIPE_IMPORT_PROMPT
+    rules = prompt[prompt.index("RULES:") : prompt.index("EXAMPLE (")]
+
+    assert "opping" not in rules
+    # ...and the constraint the examples were replaced with is present.
+    assert "ONLY headings the source actually prints" in rules
+    assert "never introduce a heading the source does not print" in rules

@@ -94,10 +94,14 @@ extend-immutable-calls = [
 # left alone in tests: the fixture builders here take ~15 keyword
 # arguments each and the call form reads better than a quoted-key
 # literal, which is the only thing C408 is arguing about.
-"tests/*" = ["F401", "F811", "C408"]
+"tests/*" = ["F401", "F811", "C408", "RUF001"]
 # Models are imported purely so SQLAlchemy's registry and Alembic's
 # autogenerate see them -- that IS the point of the module.
 "app/models/__init__.py" = ["F401"]
+# Standalone operational scripts must extend sys.path to the repo root
+# BEFORE they can import `app` at all -- they are run as files, not as
+# part of the package. E402 is describing that requirement, not a defect.
+"scripts/*" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
