@@ -206,9 +206,31 @@ class RecipeRead(RecipeBase):
     updated_at: datetime
 
 
+class IngredientProvenance(BaseModel):
+    """How the previewed ingredients were produced -- see
+    recipe_service.INGREDIENT_PROVENANCE_KEY for why this is on the wire
+    at all rather than only in the log.
+
+    `path`   two_pass | jsonld | single_call
+    `reason` why verification did not happen, when path is single_call:
+             no_source_text (a photo -- nothing to check a copy against),
+             nothing_verified (no block survived the coverage gate), or
+             fewer_than_single_call (a block did, but too few lines to
+             earn the replacement).
+    """
+
+    path: str
+    reason: str | None = None
+    verified: int | None = None
+    single_call: int | None = None
+
+
 class RecipeImportResponse(BaseModel):
     recipe: RecipeCreate
     raw_model_output: str
+    # Null only for a response built by an older build; every import path
+    # sets one now.
+    ingredient_provenance: IngredientProvenance | None = None
     # Backlog B3.1 -- checked against the parsed-but-not-yet-saved
     # ingredients so a conflict is visible in the review step, before the
     # user ever confirms the import (see routers/recipes.py's import_recipe).

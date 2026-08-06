@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, backendOrigin } from "../api";
+import IngredientProvenance from "../components/IngredientProvenance";
 import RecipeForm from "../components/RecipeForm";
 import RestrictionWarnings from "../components/RestrictionWarnings";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
@@ -27,6 +28,10 @@ export default function RecipesPage() {
   // parsed recipe, computed against current household restrictions at
   // import time so a conflict is visible before the recipe is ever saved.
   const [importWarnings, setImportWarnings] = useState(null);
+  // Whether the ingredients in the preview were checked against a source
+  // or only produced by a model -- stated on the review screen rather
+  // than only in the container log. See IngredientProvenance.jsx.
+  const [importProvenance, setImportProvenance] = useState(null);
   const [importText, setImportText] = useState("");
   const [importUrl, setImportUrl] = useState("");
 
@@ -37,6 +42,7 @@ export default function RecipesPage() {
       matches: importJob.result.restriction_warnings,
       crossContactMatches: importJob.result.cross_contact_warnings,
     });
+    setImportProvenance(importJob.result.ingredient_provenance || null);
     importJob.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importJob.result]);
@@ -202,6 +208,7 @@ export default function RecipesPage() {
     await uploadImageIfNeeded(created.id, imageFile);
     setImportPreview(null);
     setImportWarnings(null);
+    setImportProvenance(null);
     setImportText("");
     setImportUrl("");
     refresh();
@@ -291,6 +298,7 @@ export default function RecipesPage() {
       {importPreview && (
         <div className="card">
           <h3>Review imported recipe</h3>
+          <IngredientProvenance provenance={importProvenance} />
           {importWarnings && (
             <RestrictionWarnings
               matches={importWarnings.matches}
@@ -304,6 +312,7 @@ export default function RecipesPage() {
             onCancel={() => {
               setImportPreview(null);
               setImportWarnings(null);
+              setImportProvenance(null);
             }}
           />
         </div>

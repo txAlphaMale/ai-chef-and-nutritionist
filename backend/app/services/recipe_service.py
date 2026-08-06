@@ -1913,6 +1913,38 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
     }
 
 
+# How the ingredients in a preview were actually arrived at, stated to the
+# household instead of only to the container log.
+#
+# Recorded because the silence was measured. On 2026-08-06 a capture of
+# THIS APP'S OWN REVIEW FORM was imported as if it were a recipe. Pass 1
+# dutifully copied its rows -- `graham crackers 12 unit prep note X`,
+# placeholders and delete button and all -- both blocks failed
+# verification at 0 of 4 and 0 of 12, which is the correct answer because
+# a form is not an ingredient list, and two-pass declined. The single
+# call's unverified guesses were then presented in a review screen
+# indistinguishable from a verified one, and the only record that anything
+# had been refused was a print line nobody reads.
+#
+# The form's whole job is judging what the importer got right. It cannot
+# do that without knowing whether any of it was checked.
+#
+# `_`-prefixed so RecipeCreate drops it exactly the way JSON-LD's own
+# private keys are dropped (see coerce_recipe_fields); a caller that wants
+# it pops it deliberately.
+INGREDIENT_PROVENANCE_KEY = "_ingredient_provenance"
+
+
+def _provenance(path: str, *, reason: str | None = None, verified: int | None = None, single_call: int | None = None):
+    """One provenance record. `path` is how the stored ingredients were
+    produced (`two_pass`, `jsonld`, `single_call`); `reason` says why
+    verification did not happen when it did not. Counts are included
+    because "6 verified against a single call of 12" is the shape of the
+    judgement the gate made, and a human reviewing the rows deserves the
+    same numbers it used."""
+    return {"path": path, "reason": reason, "verified": verified, "single_call": single_call}
+
+
 def finish_recipe_parse(
     raw_output: str,
     default_source: str,
@@ -1944,7 +1976,16 @@ def finish_recipe_parse(
     # (or no session) keeps exactly the previous behaviour rather than
     # failing; an empty result means pass 1 found nothing and the
     # single-call ingredients stand.
-    if db is not None and source_text and jsonld_parsed is None:
+    if jsonld_parsed is not None:
+        parsed[INGREDIENT_PROVENANCE_KEY] = _provenance("jsonld")
+    elif db is None or not source_text:
+        # A photo import has no text layer, so there is nothing a copied
+        # line could be checked against. Unverified for a reason that is
+        # not a failure, and the review form says so in those words.
+        parsed[INGREDIENT_PROVENANCE_KEY] = _provenance(
+            "single_call", reason="no_source_text", single_call=len(parsed.get("ingredients") or [])
+        )
+    else:
         two_pass = extract_ingredients_two_pass(db, source_text)
         single_call_count = len(parsed.get("ingredients") or [])
         # Second half of the completeness gate, and the only place both
@@ -1954,11 +1995,21 @@ def finish_recipe_parse(
         # replace a full ingredient list.
         if two_pass and (single_call_count == 0 or len(two_pass) >= single_call_count * _TWO_PASS_MIN_COVERAGE):
             parsed["ingredients"] = two_pass
-        elif two_pass:
-            print(
-                f"[recipe_import] two-pass returned {len(two_pass)} ingredient(s) against the single call's "
-                f"{single_call_count}; keeping the single call's list.",
-                flush=True,
+            parsed[INGREDIENT_PROVENANCE_KEY] = _provenance(
+                "two_pass", verified=len(two_pass), single_call=single_call_count
+            )
+        else:
+            if two_pass:
+                print(
+                    f"[recipe_import] two-pass returned {len(two_pass)} ingredient(s) against the single call's "
+                    f"{single_call_count}; keeping the single call's list.",
+                    flush=True,
+                )
+            parsed[INGREDIENT_PROVENANCE_KEY] = _provenance(
+                "single_call",
+                reason="fewer_than_single_call" if two_pass else "nothing_verified",
+                verified=len(two_pass),
+                single_call=single_call_count,
             )
 
     parsed["source"] = default_source

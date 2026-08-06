@@ -993,6 +993,34 @@ tr.urgency-low td {
   padding-left: var(--spacing-3);
 }
 
+/* Import-provenance banner (IngredientProvenance.jsx). Same shape as the
+   restriction warnings directly above so the review screen has one visual
+   language for "read this before you save", differing only in hue:
+   --color-secondary when the ingredients were verified, --color-accent
+   when they were not. Both tokens are defined by every theme. */
+.provenance-note {
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.provenance-note p {
+  margin: var(--spacing-1) 0 0;
+  font-size: var(--font-sm);
+}
+
+.provenance-ok {
+  background: color-mix(in srgb, var(--color-secondary) 12%, transparent);
+  border: 1px solid var(--color-secondary);
+  color: var(--color-text);
+}
+
+.provenance-warn {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text);
+}
+
 .restriction-conflict-dialog {
   margin-top: var(--spacing-2);
 }

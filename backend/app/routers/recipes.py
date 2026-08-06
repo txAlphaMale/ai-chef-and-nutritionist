@@ -307,9 +307,14 @@ async def import_recipe(
             restriction_check = allergen_service.check_household_restrictions(
                 db, [ing.get("ingredient_name", "") for ing in parsed.get("ingredients", [])]
             )
+            # Popped rather than left for RecipeCreate to ignore: this is
+            # about the import, not about the recipe, and nothing should
+            # be able to carry it into a saved row by accident.
+            provenance = parsed.pop(recipe_service.INGREDIENT_PROVENANCE_KEY, None)
             return RecipeImportResponse(
                 recipe=RecipeCreate(**parsed),
                 raw_model_output=raw_output,
+                ingredient_provenance=provenance,
                 restriction_warnings=[vars(m) for m in restriction_check.matches],
                 cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
             ).model_dump()
