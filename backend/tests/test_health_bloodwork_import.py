@@ -27,7 +27,10 @@ def test_extract_bloodwork_text_csv_by_extension():
     assert "LDL" in result and "110" in result
 
 
-def test_extract_bloodwork_text_pdf_dispatches_to_pypdf(monkeypatch):
+def test_extract_bloodwork_text_pdf_dispatches_to_the_pdf_extractor(monkeypatch):
+    """Named for the seam, not the library behind it: extract_pdf_text
+    moved from pypdf to pdfplumber on 2026-08-06 and this test is about
+    the dispatch, which did not change."""
     called = {}
 
     def fake_extract_pdf_text(pdf_bytes):

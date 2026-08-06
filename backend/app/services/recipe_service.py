@@ -12,6 +12,7 @@ import re
 
 import httpx
 import lxml.html
+import pdfplumber
 import trafilatura
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
@@ -396,8 +397,43 @@ def coerce_recipe_fields(data: dict) -> dict:
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+    """PDF text, via pdfplumber, with pypdf kept only as a crash net.
+
+    Measured on both browser print-to-PDF fixtures, 2026-08-06
+    (scripts/compare_pdf_extractors.py):
+
+                        chars   lines   longest line
+        kimchi  pypdf   17443      29           7404
+                plumber 17937     534             50
+        pizza   pypdf   14012      56            897
+                plumber 14325     345             67
+
+    pypdf returns one line per LAYOUT BLOCK, which is why a 7,404-character
+    "line" exists at all and why find_welded_run had to be written.
+    pdfplumber returns the lines the page actually shows, and restores the
+    spacing pypdf drops inside them: `320gCaputo` becomes `320g Caputo`,
+    and the pizza's `+Chickpea flour` -- a sixth ingredient this app was
+    silently storing as part of the fifth -- becomes its own line.
+
+    It does not fix everything, and two things are worth not forgetting:
+    a wrapped ingredient still arrives as `Korean red pepper` + `powder` on
+    two lines, and the `fi` ligature still reads `Gsh`, because that glyph
+    is mapped to `G` in the PDF's own font encoding. Two independent
+    libraries returning the same wrong character from the same bytes is
+    what proves it is the file rather than the reader.
+
+    pypdf remains the fallback for an EXCEPTION only, never for an empty
+    result: empty is meaningful here. A PDF with no text layer is a scan,
+    and the callers read "" as the signal to try the vision path instead.
+    Falling back on empty would turn one library's silence into the
+    other's, and hide the scan."""
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+    except Exception as exc:
+        print(f"[recipe_import] pdfplumber failed ({type(exc).__name__}: {exc}); falling back to pypdf.", flush=True)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
 # --- URL import -----------------------------------------------------

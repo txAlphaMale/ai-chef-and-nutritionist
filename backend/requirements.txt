@@ -8,6 +8,12 @@ httpx==0.27.2
 ollama==0.6.2
 tavily-python==0.5.0
 cryptography==43.0.1
+# Primary PDF text extraction. Chosen over PyMuPDF on licence -- this repo
+# is MIT and pdfplumber is MIT, while PyMuPDF is AGPL with a separate
+# commercial licence, which is not a reasonable thing to hand to someone
+# cloning a home meal planner. Pulls in pdfminer.six and Pillow.
+pdfplumber==0.11.9
+# Kept as the crash net inside extract_pdf_text, not as the primary reader.
 pypdf==5.0.1
 trafilatura==1.12.2
 lxml-html-clean==0.4.1
