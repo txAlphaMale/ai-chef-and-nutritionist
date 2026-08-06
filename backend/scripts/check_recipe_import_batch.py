@@ -20,7 +20,15 @@ lost on the way, rather than a pass/fail. Read the columns:
               real defect count. A blog recipe that lists "Kosher salt"
               with no amount is correctly imported with a null, and
               reading null_q alone calls that a total failure.
-    no_comp   how many carry no component
+    no_comp   how many carry no component. NOT a defect count on its own:
+              an unsectioned recipe correctly stores NULL on every row.
+    bad_c     how many carry a component that reads like a HEADING rather
+              than a part of the dish. no_comp answers "is a label there",
+              which stopped being the interesting question once labels
+              were reliably populated -- a recipe filed entirely under
+              `INGREDIENTS YOU'LL NEED:` scored no_comp=0 and looked
+              clean. Every label is also printed verbatim below the
+              table, because a count is what hid this in the first place.
     src       B = two-pass supplied the ingredients (what you want)
               A = two-pass declined, single-call ingredients stand -- THE row to look at
               LD = schema.org data, two-pass skipped by design, not a failure
@@ -52,9 +60,16 @@ so start with --limit on a big folder.
 """
 
 import argparse
+import logging
 import re
 import sys
 from pathlib import Path
+
+# pypdf logs `Ignoring wrong pointing object ...` at WARNING for every
+# malformed object in a browser print-to-PDF, which is most of them. They
+# are not errors, they interleave between the table header and the first
+# row, and they make the table hard to read. Real failures still surface.
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -70,6 +85,41 @@ _LOOKS_LIKE_AMOUNT = re.compile(r"^\s*(\d|\d+/\d+|[¼-¾⅐-⅞])")
 
 def looks_like_ingredient_lines(source: str) -> int:
     return sum(1 for line in (source or "").splitlines() if _LOOKS_LIKE_AMOUNT.match(line))
+
+
+# Words that mean a label is announcing a list or a section of the METHOD
+# rather than naming a part of the dish. `normalize_component` already
+# drops the variants that have actually been measured; this exists to
+# catch the next one, which is the whole reason the column is here --
+# `INGREDIENTS YOU'LL NEED:` sat on ten ingredients for four runs while
+# `no_comp=0` reported it as a clean result.
+_SUSPECT_COMPONENT_WORDS = (
+    "ingredient",
+    "youll need",
+    "you will need",
+    "what you",
+    "shopping",
+    "grocery",
+    "instruction",
+    "direction",
+    "method",
+    "step",
+    "note",
+)
+
+
+def suspect_component(label: str) -> bool:
+    """Is this a heading that should never have become a component?
+
+    A part of a dish is named in a word or three -- Crust, Filling, Brine,
+    Pico de Gallo. Anything long, or anything that talks about ingredients
+    or instructions instead of being one, is a heading that leaked."""
+    key = recipe_service._component_key(label)
+    if not key:
+        return True
+    if any(word in key for word in _SUSPECT_COMPONENT_WORDS):
+        return True
+    return len(key.split()) > 4 or len(label) > 40
 
 
 def check_one(db, path: Path) -> dict:
@@ -185,6 +235,12 @@ def check_one(db, path: Path) -> dict:
         )
     )
     row["no_comp"] = sum(1 for i in ingredients if not i.get("component"))
+    # no_comp counts whether a component is PRESENT. It cannot tell a part
+    # of the dish from a heading, so it reported a clean 0 on a recipe
+    # whose every ingredient was filed under `INGREDIENTS YOU'LL NEED:`.
+    # These two report what the labels actually SAY.
+    row["labels"] = sorted({str(i["component"]) for i in ingredients if i.get("component")})
+    row["bad_c"] = sum(1 for i in ingredients if i.get("component") and suspect_component(str(i["component"])))
     # LD is not a failure: a schema.org source already carries a clean
     # machine-readable ingredient list, so two-pass is skipped by design.
     # Without this it would show as a fallback and read like a defect.
@@ -219,7 +275,7 @@ def main() -> int:
 
     print(f"{len(files)} file(s) under {folder}\n")
     header = (
-        f"{'file':<30} {'ingr':>4} {'null_q':>6} {'lost_q':>6} {'no_comp':>7} "
+        f"{'file':<30} {'ingr':>4} {'null_q':>6} {'lost_q':>6} {'no_comp':>7} {'bad_c':>5} "
         f"{'src':>3} {'how':>7} {'p1':>3} {'kept':>4} {'amounts':>7}"
     )
     print(header)
@@ -239,7 +295,7 @@ def main() -> int:
             else:
                 print(
                     f"{row['file'][:30]:<30} {row['ingr']:>4} {row['null_q']:>6} {row['lost_q']:>6} "
-                    f"{row['no_comp']:>7} {row['src']:>3} {row['how']:>7} {row['p1']:>3} "
+                    f"{row['no_comp']:>7} {row['bad_c']:>5} {row['src']:>3} {row['how']:>7} {row['p1']:>3} "
                     f"{row['kept']:>4} {row['amounts']:>7}"
                 )
     finally:
@@ -266,6 +322,21 @@ def main() -> int:
             + (f"  <- {[r['file'] for r in with_nulls]}" if with_nulls else "")
         )
         print(f"  pass 1 looks thin     : {len(thin)}" + (f"  <- {[r['file'] for r in thin]}" if thin else ""))
+        bad_labels = [r for r in ok if r.get("bad_c")]
+        print(
+            f"  suspect components    : {len(bad_labels)}"
+            + (f"  <- {[r['file'] for r in bad_labels]}" if bad_labels else "")
+        )
+        # Printed in full, not counted. A count is what let
+        # `INGREDIENTS YOU'LL NEED:` pass review four runs running.
+        labelled = [r for r in ok if r.get("labels")]
+        if labelled:
+            print()
+            print("  components stored, verbatim:")
+            for r in labelled:
+                for label in r["labels"]:
+                    mark = "   <-- SUSPECT" if suspect_component(label) else ""
+                    print(f"    {r['file'][:30]:<30} {label}{mark}")
         print()
         print("  A fell-back or thin row is the one to open by hand:")
         print("    docker compose exec chef python scripts/check_recipe_import.py <that file>")

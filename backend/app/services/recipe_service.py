@@ -113,6 +113,46 @@ def resolve_tags(db: Session, tag_names: list[str]) -> list[MealTag]:
     return resolved
 
 
+# A heading that announces the ingredient list is not the name of a part
+# of the dish. Sources write these constantly -- the measured one is
+# `INGREDIENTS YOU'LL NEED:`, which was stored as the component on all ten
+# ingredients of a single-component recipe. Matched on a folded key rather
+# than literally, so punctuation and curly apostrophes do not each need
+# their own entry.
+_COMPONENT_GENERIC = frozenset(
+    {
+        COMPONENT_UNSECTIONED,
+        "ingredient",
+        "ingredients",
+        "ingredient list",
+        "ingredients list",
+        "all ingredients",
+        "main ingredients",
+        "base ingredients",
+        "other ingredients",
+        "ingredients youll need",
+        "ingredients you will need",
+        "what youll need",
+        "what you will need",
+        "what you need",
+        "youll need",
+        "you will need",
+        "recipe",
+        "shopping list",
+        "grocery list",
+    }
+)
+# Requires whitespace after "for", so "Formaggio" and "Forcemeat" are safe.
+_COMPONENT_FOR_PREFIX = re.compile(r"^for\s+(?:the\s+)?", re.IGNORECASE)
+_COMPONENT_EDGE_PUNCT = " \t:;,.!-–—"
+
+
+def _component_key(label: str) -> str:
+    """Folded form used only for comparison, never for storage."""
+    folded = label.casefold().replace("’", "").replace("'", "")
+    return re.sub(r"[^a-z0-9]+", " ", folded).strip()
+
+
 def normalize_component(raw: str | None) -> str | None:
     """The storage meaning of an extraction's `component`.
 
@@ -124,14 +164,31 @@ def normalize_component(raw: str | None) -> str | None:
     no named parts", which is also what every row imported before the
     column existed honestly says.
 
+    Two things beyond the sentinel mean the same thing and are treated the
+    same way, both measured on the real corpus rather than imagined:
+
+    A GENERIC HEADING is not a part. `INGREDIENTS YOU'LL NEED:` and plain
+    `Ingredients` announce the list; `Brine`, `Crust` and `Filling` name a
+    part of the dish. Only the second kind is worth storing, and the first
+    kind is worse than nothing because component is half of how a reader
+    tells two sections apart.
+
+    `For the Crust` and `Crust` are the SAME part, written by two sources.
+    The prefix is dropped so they land on one label. This is deliberately
+    narrow -- it is the label instability that makes components hard to
+    compare across recipes, and every additional guess here (case folding,
+    singularising) risks mangling a real name like `Pico de Gallo`.
+
     Case- and whitespace-insensitive, since the sentinel comes back from
     a language model rather than from code. A genuine heading that reads
     "Main" is treated as unsectioned too, which is the right call: a
     recipe whose only part is called "Main" has no parts worth naming."""
     if raw is None:
         return None
-    label = raw.strip()
-    if not label or label.casefold() == COMPONENT_UNSECTIONED:
+    label = _COMPONENT_FOR_PREFIX.sub("", raw.strip()).strip(_COMPONENT_EDGE_PUNCT)
+    if not label:
+        return None
+    if _component_key(label) in _COMPONENT_GENERIC:
         return None
     return label
 

@@ -317,7 +317,11 @@ def test_a_promoted_heading_carries_its_component_to_what_follows():
     by_name = {i["ingredient_name"]: i["component"] for i in result}
     assert by_name["sea salt"] == "Brine"
     assert by_name["water"] == "Brine"
-    assert by_name["brussel sprouts"] == "Ingredients"
+    # NOT "Ingredients". That heading announces the list rather than naming
+    # a part, so normalize_component reads it as unsectioned -- which is
+    # the honest description of this recipe: one named part, Brine, and a
+    # main body. See test_recipe_components.py for the general rule.
+    assert by_name["brussel sprouts"] is None
 
 
 def test_a_source_that_states_no_amounts_is_left_completely_alone():

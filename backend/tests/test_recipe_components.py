@@ -171,6 +171,45 @@ def test_the_unsectioned_sentinel_never_reaches_the_database(raw, expected):
     assert recipe_service.normalize_component(raw) == expected
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Measured, not imagined: this heading was stored as the component
+        # on all ten ingredients of a single-component recipe, and the
+        # batch harness reported no_comp=0 and called it clean.
+        ("INGREDIENTS YOU'LL NEED:", None),
+        ("INGREDIENTS YOU’LL NEED:", None),
+        ("Ingredients", None),
+        ("ingredients:", None),
+        ("Ingredient List", None),
+        ("What You Need", None),
+        ("For the ingredients", None),
+        (":", None),
+        # Real parts are untouched, including the ones a cleverer
+        # normalisation would mangle.
+        ("Brine", "Brine"),
+        ("Crust", "Crust"),
+        ("Pico de Gallo", "Pico de Gallo"),
+        ("Filling and Assembly", "Filling and Assembly"),
+        # The same part written two ways lands on one label, because
+        # component is how a reader tells two sections apart and how
+        # anything downstream compares them across recipes.
+        ("For the Crust", "Crust"),
+        ("For the Filling:", "Filling"),
+        ("For Serving", "Serving"),
+        # "for" is only a prefix when a word follows it.
+        ("Formaggio", "Formaggio"),
+        ("Forcemeat", "Forcemeat"),
+    ],
+)
+def test_a_heading_that_announces_the_list_is_not_a_part_of_the_dish(raw, expected):
+    """`Brine`, `Crust` and `Filling` name a part. `Ingredients` and
+    `INGREDIENTS YOU'LL NEED:` announce the list, and storing them puts
+    noise on the column that exists to distinguish sections -- worse than
+    the NULL an unsectioned recipe honestly deserves."""
+    assert recipe_service.normalize_component(raw) == expected
+
+
 def test_the_sentinel_is_stripped_on_the_extraction_path(db_session):
     parsed = {
         "title": "Toast",
