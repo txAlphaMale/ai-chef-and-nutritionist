@@ -108,6 +108,11 @@ def main() -> int:
     finally:
         db.close()
 
+    # Captured BEFORE two-pass replaces it: the dropped-field check below
+    # is about the single call's own coercion, and comparing it against
+    # two-pass output compares two different pipelines.
+    single_call = list(parsed.get("ingredients") or [])
+
     if two_pass:
         parsed["ingredients"] = two_pass
         print(f"PASS B -- two-pass, {len(two_pass)} ingredients after verification and deterministic parsing:\n")
@@ -125,15 +130,35 @@ def main() -> int:
         print("PASS B -- two-pass returned nothing; the single-call ingredients above stand.\n")
 
     ingredients = parsed.get("ingredients") or []
+
+    # Does a field the model emitted survive OUR coercion of the same
+    # answer? Two corrections, both from false alarms this printed on
+    # 2026-08-06:
+    #
+    # 1. Compared against `single_call`, not the final list. Two-pass reads
+    #    amounts from verified source text by arithmetic and does not
+    #    produce prep_note the way the single call does, so "the model said
+    #    prep_note and the final result has none" is two pipelines
+    #    differing, not a field being thrown away.
+    # 2. `component` is judged AFTER normalize_component. A generic heading
+    #    like `INGREDIENTS YOU'LL NEED:` and the `main` sentinel are
+    #    SUPPOSED to become NULL, so an all-NULL component column is the
+    #    correct outcome when that is all the model sent.
+    def expected_to_survive(key: str) -> bool:
+        values = [i.get(key) for i in raw_ingredients if isinstance(i, dict)]
+        if key == "component":
+            return any(recipe_service.normalize_component(v) is not None for v in values)
+        return any(v is not None for v in values)
+
     lost = [
         key
         for key in ("component", "quantity", "unit", "prep_note")
-        if any(i.get(key) is not None for i in raw_ingredients if isinstance(i, dict))
-        and all(i.get(key) is None for i in ingredients)
+        if expected_to_survive(key) and all(i.get(key) is None for i in single_call)
     ]
     if lost:
         print(
-            f"!! the model emitted {', '.join(lost)} and parsing dropped every one -- this is OUR bug, not the prompt's\n"
+            f"!! the model emitted {', '.join(lost)} and the SINGLE-CALL coercion dropped every one "
+            "-- this is OUR bug, not the prompt's\n"
         )
 
     if PIE_MARKER not in source:
