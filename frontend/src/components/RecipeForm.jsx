@@ -4,6 +4,30 @@ import { api, backendOrigin } from "../api";
 const emptyIngredient = { ingredient_name: "", quantity: "", unit: "", prep_note: "", component: "" };
 const emptyStep = { component: "", text: "" };
 
+/** Consecutive rows sharing a component, with the flat indices they came
+ * from.
+ *
+ * Sections are a VIEW over the flat list, not a second source of truth:
+ * `component` still lives on each row, which is what the API stores and
+ * what the recipe page groups by. Deriving sections here means there is
+ * nothing to keep in sync -- rename a section and every row in it is
+ * rewritten, because the rows ARE the data.
+ *
+ * Runs rather than a group-by: a recipe writes crust before filling and
+ * that order carries meaning, so two separate `Topping` runs stay
+ * separate because the source said so. */
+function sectionsOf(rows) {
+  const sections = [];
+  rows.forEach((row, index) => {
+    const component = row.component || "";
+    if (!sections.length || sections.at(-1).component !== component) {
+      sections.push({ component, indices: [] });
+    }
+    sections.at(-1).indices.push(index);
+  });
+  return sections;
+}
+
 /** A textarea that is exactly as tall as its content.
  *
  * Instructions used to be <input>, so a step like "Preheat oven to 325F.
@@ -165,12 +189,24 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
     }));
   }
 
-  function addInstruction() {
-    // Inherits the previous step's component: steps arrive in runs, and
-    // retyping "Filling and Assembly" on every line is how a label drifts.
+  function addInstruction(component = null, after = null) {
+    setForm((f) => {
+      // Inherits the section it is added to, so a label cannot drift by
+      // being retyped on every line.
+      const inherited = component ?? f.instructions.at(-1)?.component ?? "";
+      const row = { ...emptyStep, component: inherited };
+      if (after === null) return { ...f, instructions: [...f.instructions, row] };
+      const next = [...f.instructions];
+      next.splice(after + 1, 0, row);
+      return { ...f, instructions: next };
+    });
+  }
+
+  /** Renames a section by rewriting the rows it is made of. */
+  function setSectionComponent(field, indices, value) {
     setForm((f) => ({
       ...f,
-      instructions: [...f.instructions, { ...emptyStep, component: f.instructions.at(-1)?.component || "" }],
+      [field]: f[field].map((row, idx) => (indices.includes(idx) ? { ...row, component: value } : row)),
     }));
   }
 
@@ -185,8 +221,14 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
     }));
   }
 
-  function addIngredient() {
-    setForm((f) => ({ ...f, ingredients: [...f.ingredients, { ...emptyIngredient }] }));
+  function addIngredient(component = "", after = null) {
+    setForm((f) => {
+      const row = { ...emptyIngredient, component };
+      if (after === null) return { ...f, ingredients: [...f.ingredients, row] };
+      const next = [...f.ingredients];
+      next.splice(after + 1, 0, row);
+      return { ...f, ingredients: next };
+    });
   }
 
   function removeIngredient(i) {
@@ -319,15 +361,20 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
 
       <fieldset>
         <legend>Ingredients</legend>
-        {form.ingredients.map((ing, i) => (
-          <div className="form-row ingredient-row" key={i}>
+        {sectionsOf(form.ingredients).map((section, s) => (
+          <div className="form-section" key={s}>
             <input
-              className="component-input"
-              placeholder="part (optional)"
-              value={ing.component || ""}
-              onChange={(e) => setIngredient(i, "component", e.target.value)}
+              className="section-title-input"
+              placeholder="Section title (optional) -- e.g. Crust"
+              value={section.component}
+              onChange={(e) => setSectionComponent("ingredients", section.indices, e.target.value)}
             />
-            <AutoTextarea
+            <div className="form-section-body">
+              {section.indices.map((i) => {
+                const ing = form.ingredients[i];
+                return (
+                  <div className="form-row ingredient-row" key={i}>
+                    <AutoTextarea
               className="ingredient-name-input"
               placeholder="ingredient"
               value={ing.ingredient_name}
@@ -358,38 +405,73 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
               className="btn-link btn-link-danger ingredient-remove-btn"
               onClick={() => removeIngredient(i)}
             >
-              ✕
-            </button>
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => addIngredient(section.component, section.indices.at(-1))}
+              >
+                + Ingredient
+              </button>
+            </div>
           </div>
         ))}
-        <button type="button" className="btn btn-secondary btn-sm" onClick={addIngredient}>
-          + Ingredient
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => addIngredient("")}>
+          + Section
         </button>
       </fieldset>
 
       <fieldset>
         <legend>Instructions</legend>
-        {form.instructions.map((step, i) => (
-          <div className="form-row instruction-row" key={i}>
-            <span className="step-number">{i + 1}.</span>
+        {sectionsOf(form.instructions).map((section, s) => (
+          <div className="form-section" key={s}>
             <input
-              className="component-input"
-              placeholder="part (optional)"
-              value={step.component}
-              onChange={(e) => setInstruction(i, "component", e.target.value)}
+              className="section-title-input"
+              placeholder="Section title (optional) -- e.g. Crust"
+              value={section.component}
+              onChange={(e) => setSectionComponent("instructions", section.indices, e.target.value)}
             />
-            <AutoTextarea
-              value={step.text}
-              onChange={(e) => setInstruction(i, "text", e.target.value)}
-              placeholder={`Step ${i + 1}`}
-            />
-            <button type="button" className="btn-link btn-link-danger" onClick={() => removeInstruction(i)}>
-              ✕
-            </button>
+            <div className="form-section-body">
+              {section.indices.map((i) => {
+                const step = form.instructions[i];
+                return (
+                  <div className="form-row instruction-row" key={i}>
+                    {/* Numbered across the whole recipe rather than per
+                        section: a cook following step 12 wants the
+                        twelfth step, and cook mode counts them that way
+                        too. */}
+                    <span className="step-number">{i + 1}.</span>
+                    <AutoTextarea
+                      value={step.text}
+                      onChange={(e) => setInstruction(i, "text", e.target.value)}
+                      placeholder={`Step ${i + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className="btn-link btn-link-danger"
+                      onClick={() => removeInstruction(i)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => addInstruction(section.component, section.indices.at(-1))}
+              >
+                + Step
+              </button>
+            </div>
           </div>
         ))}
-        <button type="button" className="btn btn-secondary btn-sm" onClick={addInstruction}>
-          + Step
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => addInstruction("")}>
+          + Section
         </button>
       </fieldset>
 

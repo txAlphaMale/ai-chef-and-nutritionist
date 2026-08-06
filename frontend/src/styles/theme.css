@@ -822,11 +822,37 @@ tr.urgency-low td {
   padding-top: var(--spacing-1);
 }
 
-/* The section a step or ingredient belongs to ("Crust", "Brine"). Narrow
-   on purpose: it is a label, not a field anyone types prose into. */
-.component-input {
-  flex: 0 1 130px;
-  min-width: 80px;
+/* A section in the editor -- "Crust", "Filling and Assembly" -- titled
+   once and indented beneath, rather than a component field repeated on
+   every row. Sixteen rows of an ingredient list carried four copies of
+   "Crust" and twelve of "Filling and Assem" (truncated by its own field),
+   which is data entry as punishment and a label waiting to drift. */
+.form-section + .form-section {
+  margin-top: var(--spacing-3);
+}
+
+.section-title-input {
+  width: 100%;
+  font-weight: 600;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  padding-left: 0;
+  margin-bottom: var(--spacing-1);
+  background: transparent;
+}
+
+.section-title-input::placeholder {
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* The indent IS the grouping, so it has to survive the mobile stack
+   below -- a border rather than padding alone, because padding on a
+   narrow screen reads as a margin rather than a hierarchy. */
+.form-section-body {
+  padding-left: var(--spacing-2);
+  border-left: 2px solid var(--color-border);
 }
 
 /* Grouped display on the recipe page. The heading carries the source's
@@ -1631,7 +1657,6 @@ tr.urgency-low td {
   .ingredient-prep-input,
   .ingredient-qty-input,
   .ingredient-unit-input,
-  .component-input,
   .instruction-row .auto-textarea,
   .ingredient-row .auto-textarea {
     flex: initial;
