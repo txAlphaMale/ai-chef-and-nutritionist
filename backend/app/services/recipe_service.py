@@ -802,6 +802,35 @@ _REPAIR_THRESHOLD = 0.90
 # every extra line widens the text a hallucination could match against.
 _MAX_WRAP_LINES = 3
 
+# ...and only a candidate that STARTS LIKE AN INGREDIENT may use the wider
+# window at all.
+#
+# Measured, by shipping it without this guard (batch run 2026-08-06):
+# the kimchi imported 25 "ingredients", 17 of them method steps filed
+# under a component called `Instructions`. The method wraps across lines
+# exactly like an ingredient does, so joining made it verifiable, and the
+# per-block coverage gate -- which had been dropping that block at 4 of 15
+# -- suddenly passed it.
+#
+# The risk that was checked before shipping was hallucination, and the six
+# measured phantoms were all still rejected. That check was sound and
+# irrelevant: the damage came from text the source really does contain.
+# Verification can never separate an ingredient line from a method line,
+# because both are real; only the block gate can, and widening the match
+# quietly disarmed it.
+#
+# Length cannot be the discriminator -- `B. Slice the brussel sprouts in
+# half lengthwise` is 46 chars and the wrapped fish sauce is 55. What
+# separates them is how they START. Every wrapped ingredient measured on
+# both fixtures begins with an amount; the kimchi's method steps begin
+# `A.`, `B.`, `C.`, and the pizza's prose begins `This recipe was...`.
+#
+# The cost, stated: an amountless ingredient that also wraps ("Kosher
+# salt, freshly / ground") will not be rejoined. That is a name split in
+# two, which the source at least still contains -- not seventeen phantom
+# rows, and not a deleted ingredient.
+_AMOUNT_START = re.compile(r"^\s*(\d|\d+/\d+|[¼-¾⅐-⅞])")
+
 
 def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str], list[str]]:
     """Match each copied line to the source line it came from.
@@ -840,9 +869,10 @@ def reconcile_copied_lines(candidates: list[str], source: str) -> tuple[list[str
         if not normalized:
             continue
         best_text, best_ratio = None, 0.0
+        wrap_lines = _MAX_WRAP_LINES if _AMOUNT_START.match(normalized) else 1
         for start in range(len(source_lines)):
             joined = source_lines[start]
-            for extra in range(_MAX_WRAP_LINES):
+            for extra in range(wrap_lines):
                 if extra:
                     joined = f"{joined} {source_lines[start + extra]}"
                 prefix = joined[: len(normalized)]

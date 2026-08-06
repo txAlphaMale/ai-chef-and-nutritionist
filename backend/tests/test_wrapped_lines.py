@@ -57,6 +57,20 @@ KIMCHI_COPIED = [
     "4 cups water",
 ]
 
+# Method steps the same live run copied into the same response. They wrap
+# across source lines exactly like the ingredients do, which is precisely
+# why they are dangerous, and none of them may ever verify.
+KIMCHI_METHOD = [
+    "A. Rinse and gently clean the brussel\nsprouts, daikon, and ginger",
+    "B. Slice the brussel sprouts in half\nlengthwise",
+    'C. Cut the daikon into disks approx ⅛"\nthick. If your diakon is particularly\n'
+    "fat then cut lengthwise in half or\nquarters Grst",
+    "D. Dissolve the sea salt in the water to\nmake a brine",
+    "H. In a large bowl, combine the garlic\nand ginger with the drained veggies\n"
+    "and korean chili powder and toss\n(this is where you would also add\n"
+    "gsh sauce or shrimp sauce if you\nwish)",
+]
+
 # Every one of these was produced by the live model across the four
 # measured pie runs, and every one must stay rejected.
 PIE_HALLUCINATIONS = [
@@ -99,6 +113,26 @@ def test_a_line_wrapped_in_the_source_verifies():
     assert rejected == []
     assert "4 tablespoons Korean red pepper powder" in accepted
     assert "1 tablespoon Gsh sauce or shrimp sauce (I excluded this)" in accepted
+
+
+def test_method_steps_never_reach_the_wider_window():
+    """The regression this guard exists for, measured in production.
+
+    Shipped without it, the kimchi imported 25 "ingredients" -- 17 of them
+    method steps, filed under a component called `Instructions`. The
+    method wraps across lines exactly like an ingredient does, so joining
+    made it verifiable, and the per-block gate that had been dropping that
+    block at 4 of 15 suddenly passed it.
+
+    Hallucination was the risk that got checked before shipping, and the
+    check was sound and irrelevant: the damage came from text the source
+    really does contain. Only how a line STARTS separates the two, since
+    `B. Slice the brussel sprouts in half lengthwise` is 46 chars and the
+    wrapped fish sauce is 55."""
+    source = KIMCHI_PLUMBER.read_text(encoding="utf-8")
+    accepted, rejected = recipe_service.reconcile_copied_lines(KIMCHI_METHOD, source)
+    assert accepted == []
+    assert len(rejected) == len(KIMCHI_METHOD)
 
 
 def test_the_wider_window_does_not_let_the_pie_hallucinations_in():
