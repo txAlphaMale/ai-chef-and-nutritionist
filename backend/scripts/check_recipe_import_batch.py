@@ -153,13 +153,18 @@ def check_one(db, path: Path) -> dict:
     p1 = kept = 0
     row["how"] = "-"
     used_two_pass = False
+    # extract_ingredients_two_pass repairs wrapped lines before it prompts,
+    # and is verified against the SAME repaired text. The single call is
+    # not, in the app either, so only this half rejoins. Without it this
+    # table scored the pizza at 6 ingredients while the app stored 5.
+    two_pass_source = recipe_service.rejoin_wrapped_lines(source)
     if source and file_result["jsonld_parsed"] is None:
         raw, done_reason = recipe_service.ollama_client.chat_json_with_reason(
             db,
             [
                 {
                     "role": "user",
-                    "content": recipe_service.get_ingredient_lines_prompt(db).replace("{content}", source),
+                    "content": recipe_service.get_ingredient_lines_prompt(db).replace("{content}", two_pass_source),
                 }
             ],
             schema=recipe_service.INGREDIENT_LINES_SCHEMA,
@@ -181,7 +186,7 @@ def check_one(db, path: Path) -> dict:
             if not lines:
                 continue
             p1 += len(lines)
-            accepted, _rejected, strategy = recipe_service.reconcile_block(lines, source)
+            accepted, _rejected, strategy = recipe_service.reconcile_block(lines, two_pass_source)
             # Same per-block gate the app applies. A table that reports a
             # policy the app no longer follows is worse than no table.
             if len(accepted) / len(lines) < recipe_service._TWO_PASS_MIN_COVERAGE:
@@ -193,7 +198,9 @@ def check_one(db, path: Path) -> dict:
                 entry
                 for line in accepted
                 for entry in recipe_service.parse_ingredient_line_amounts(line)
-                if entry["ingredient_name"]
+                # Mirrors the app: a metadata line like `30 minutes
+                # hands-on effort` verifies perfectly and is not food.
+                if entry["ingredient_name"] and not recipe_service._names_a_duration(entry)
             ]
             # Headings welded into the run are source text and verify
             # correctly, so they have to be split out here too or this
