@@ -166,9 +166,10 @@ def check_one(db, path: Path) -> dict:
         two_pass = []
         strategies = set()
         blocks_dropped = 0
-        for block in data.get("blocks") or []:
-            if not isinstance(block, dict):
-                continue
+        # Mirrors the app: a looping pass 1 returns the same block many
+        # times, and counting it many times would overstate p1 and the
+        # ingredient count alike.
+        for block in recipe_service.dedupe_blocks(data.get("blocks") or []):
             component = recipe_service.normalize_component(block.get("component"))
             lines = [ln for ln in (block.get("lines") or []) if isinstance(ln, str)]
             if not lines:

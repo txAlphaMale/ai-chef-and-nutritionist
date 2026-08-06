@@ -948,6 +948,33 @@ def _split_headings_from_ingredients(entries: list[dict], component: str | None)
     return kept
 
 
+def dedupe_blocks(blocks: list) -> list[dict]:
+    """Collapse blocks the model emitted more than once, verbatim.
+
+    Measured: the pizza's pass 1 returned the same five-line `main` block
+    fourteen times. Bounding the array (ExtractedIngredientLines.blocks)
+    makes that terminate, but a terminated loop still arrives as fourteen
+    blocks, and every one of them verifies -- so without this the app would
+    store each ingredient once per repetition.
+
+    Exact match on component AND lines. Two blocks that differ at all are
+    both kept: a recipe legitimately having two sections named the same
+    thing with the same contents is not a shape worth guessing at, while a
+    verbatim repeat is a shape that has been observed."""
+    seen: set[tuple] = set()
+    unique: list[dict] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        lines = tuple(line for line in (block.get("lines") or []) if isinstance(line, str))
+        key = (block.get("component"), lines)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(block)
+    return unique
+
+
 def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     """Ingredients for one recipe source, via transcribe-then-parse.
 
@@ -1009,9 +1036,14 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     ingredients: list[dict] = []
     returned = verified = 0
     strategies: set[str] = set()
-    for block in data.get("blocks") or []:
-        if not isinstance(block, dict):
-            continue
+    blocks = dedupe_blocks(data.get("blocks") or [])
+    if len(blocks) < len(data.get("blocks") or []):
+        print(
+            f"[recipe_import] pass 1 repeated itself: {len(data['blocks'])} block(s) returned, "
+            f"{len(blocks)} distinct. Duplicates collapsed.",
+            flush=True,
+        )
+    for block in blocks:
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
         if not raw_lines:

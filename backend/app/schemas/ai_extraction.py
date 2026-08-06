@@ -82,7 +82,25 @@ class ExtractedIngredientLines(BaseModel):
     arithmetic over a fixed vocabulary, which is recipe_service.
     parse_ingredient_line_amounts' job and needs no model at all."""
 
-    blocks: list[ExtractedIngredientBlock]
+    # BOUNDED, and the bound is load-bearing rather than defensive.
+    #
+    # Measured on the Leopard Crust pizza, 2026-08-06: the 9B copied the
+    # five correct ingredient lines in its first ~110 tokens and then
+    # emitted the identical block thirteen more times, hitting the response
+    # cap every time -- 66 lines returned, 5 distinct, at caps of 1200,
+    # 2400 and 3600 alike. It had already finished; it just never closed
+    # the array. A prompt cannot fix that, and a bigger cap measurably
+    # buys proportionally more repetition and no ending.
+    #
+    # An unbounded array gives the grammar no reason to stop. maxItems
+    # gives the decoder a point at which the closing bracket is the only
+    # legal token, which is a structural guarantee rather than a request.
+    # 8 is far above any real recipe (the pie has 2, the kimchi 2) and far
+    # below llama.cpp's repetition threshold.
+    #
+    # Duplicate blocks are collapsed in recipe_service, because a bounded
+    # loop is still a loop -- it just terminates.
+    blocks: list[ExtractedIngredientBlock] = Field(max_length=8)
 
 
 class ExtractedIngredient(BaseModel):
