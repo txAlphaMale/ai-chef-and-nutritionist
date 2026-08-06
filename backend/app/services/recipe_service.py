@@ -1020,6 +1020,44 @@ def reconcile_block(candidates: list[str], source: str) -> tuple[list[str], list
     return accepted, rejected, "prefix"
 
 
+# An ingredient is never NAMED after a span of time.
+#
+# Measured on the pizza, three runs running: pdfplumber gives
+# `30 minutes hands-on effort` its own source line, immediately above the
+# ingredient list. It starts with a number, it is real source text, and it
+# verifies perfectly -- so it was stored as an ingredient called
+# `minutes hands-on effort`, quantity 30. Verification cannot help here;
+# the line IS in the source. Only what it says can distinguish it.
+#
+# The no-unit condition is not decoration. `Minute Rice` is a real
+# product, and `1 cup Minute Rice` parses to a name beginning `Minute`.
+# Requiring that no unit was parsed keeps every measured ingredient safe,
+# because a recipe that means an ingredient gives it a measure.
+_DURATION_WORDS = frozenset(
+    {
+        "second",
+        "seconds",
+        "minute",
+        "minutes",
+        "hour",
+        "hours",
+        "day",
+        "days",
+        "week",
+        "weeks",
+        "month",
+        "months",
+    }
+)
+
+
+def _names_a_duration(entry: dict) -> bool:
+    if entry.get("unit"):
+        return False
+    first = (entry.get("ingredient_name") or "").strip().split()[:1]
+    return bool(first) and first[0].strip(".,:;()").casefold() in _DURATION_WORDS
+
+
 def _split_headings_from_ingredients(entries: list[dict], component: str | None) -> list[dict]:
     """A welded source hides its section headings INSIDE the ingredient run.
 
@@ -1174,7 +1212,10 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
         verified += len(kept)
         strategies.add(strategy)
         block_entries = [
-            entry for line in kept for entry in parse_ingredient_line_amounts(line) if entry["ingredient_name"]
+            entry
+            for line in kept
+            for entry in parse_ingredient_line_amounts(line)
+            if entry["ingredient_name"] and not _names_a_duration(entry)
         ]
         ingredients.extend(_split_headings_from_ingredients(block_entries, component))
 
