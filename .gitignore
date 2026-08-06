@@ -13,9 +13,15 @@ frontend/dist*/
 frontend/vite.config.js.timestamp-*.mjs
 
 # Stray FUSE-mount build/lock leftovers, renamed here rather than deleted
-# (see PROJECT-PLAN.md's FUSE operational note)
+# (see the local project plan's FUSE operational note)
 .trash/
 backend/tests/test_prompt_len_tmp.py
+
+# Author working notes. The repo carries only what is needed to set up and
+# run the app; these are local development and session-recovery records
+# and are not useful to anyone cloning this.
+PROJECT-PLAN.md
+AUDIT-*.md
 
 # Data (persisted via volume, not committed)
 data/*

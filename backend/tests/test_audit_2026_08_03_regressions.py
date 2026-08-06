@@ -5,7 +5,9 @@ that had already been "fixed" once or twice by treating a symptom, and
 names the wrong behaviour it replaced -- so a future session can tell at a
 glance whether a change is reintroducing something already understood.
 
-See AUDIT-2026-08-03.md for the full findings each of these corresponds to.
+The full audit write-up each of these corresponds to is kept in the
+author's local project notes and is not shipped in this repository; every
+test below states its own finding, so nothing here depends on it.
 """
 
 from __future__ import annotations
