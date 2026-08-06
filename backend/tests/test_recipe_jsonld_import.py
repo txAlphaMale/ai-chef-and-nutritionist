@@ -238,7 +238,11 @@ def test_extract_jsonld_recipe_basic_single_object():
     assert result["default_servings"] == 6.0
     assert result["prep_time_minutes"] == 20
     assert result["cook_time_minutes"] == 45
-    assert result["instructions"] == ["Brown the beef.", "Add remaining ingredients and simmer."]
+    # Steps now carry the section they belong to; this source has none.
+    assert result["instructions"] == [
+        {"component": None, "text": "Brown the beef."},
+        {"component": None, "text": "Add remaining ingredients and simmer."},
+    ]
     assert len(result["ingredients"]) == 3
     assert result["ingredients"][0] == {
         "ingredient_name": "ground beef",
@@ -312,7 +316,10 @@ def test_extract_jsonld_recipe_instructions_as_plain_string():
     recipe["recipeInstructions"] = "Brown the beef.\nSimmer for 30 minutes."
     html = _html_with_jsonld(recipe)
     result = rs.extract_jsonld_recipe(html)
-    assert result["instructions"] == ["Brown the beef.", "Simmer for 30 minutes."]
+    assert result["instructions"] == [
+        {"component": None, "text": "Brown the beef."},
+        {"component": None, "text": "Simmer for 30 minutes."},
+    ]
 
 
 def test_extract_jsonld_recipe_missing_optional_fields_degrade_gracefully():

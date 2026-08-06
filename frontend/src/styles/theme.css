@@ -784,6 +784,67 @@ tr.urgency-low td {
   min-width: 110px;
 }
 
+/* A textarea sized to its content by RecipeForm's AutoTextarea, which
+   sets height in JS because the content length is only known at runtime.
+   Everything about how it LOOKS is here, so it matches every other field.
+
+   overflow: hidden is load-bearing rather than cosmetic: the JS measures
+   scrollHeight, and a visible scrollbar makes that measurement include
+   the scrollbar's own gutter, so the box creeps taller on every keystroke.
+   resize: none for the same reason -- a user-dragged height is overwritten
+   on the next render, which reads as the app fighting them. */
+.auto-textarea {
+  width: 100%;
+  /* One line of text plus this app's standard field padding, so an empty
+     step is the same height as the inputs beside it. No --control-height
+     var exists; fields are sized by padding everywhere else too. */
+  min-height: calc(1.45em + 2 * var(--spacing-2));
+  overflow: hidden;
+  resize: none;
+  line-height: 1.45;
+  margin-bottom: 0;
+}
+
+.instruction-row .auto-textarea,
+.ingredient-row .auto-textarea {
+  flex: 2 1 0;
+  min-width: 110px;
+}
+
+/* An instruction row is no longer one line, so centring the step number
+   and the delete button against a three-line textarea leaves them
+   floating in the middle of it. */
+.instruction-row {
+  align-items: flex-start;
+}
+
+.instruction-row .step-number {
+  padding-top: var(--spacing-1);
+}
+
+/* The section a step or ingredient belongs to ("Crust", "Brine"). Narrow
+   on purpose: it is a label, not a field anyone types prose into. */
+.component-input {
+  flex: 0 1 130px;
+  min-width: 80px;
+}
+
+/* Grouped display on the recipe page. The heading carries the source's
+   own words for the part of the dish, so it is styled as a subheading
+   rather than a badge -- it is structure, not metadata. */
+.component-group + .component-group {
+  margin-top: var(--spacing-3);
+}
+
+.component-heading {
+  margin: 0 0 var(--spacing-1);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .ingredient-prep-input {
   flex: 2 1 0;
   min-width: 110px;
@@ -1569,7 +1630,10 @@ tr.urgency-low td {
   .ingredient-name-input,
   .ingredient-prep-input,
   .ingredient-qty-input,
-  .ingredient-unit-input {
+  .ingredient-unit-input,
+  .component-input,
+  .instruction-row .auto-textarea,
+  .ingredient-row .auto-textarea {
     flex: initial;
     min-width: 0;
   }

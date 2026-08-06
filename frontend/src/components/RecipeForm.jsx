@@ -1,7 +1,27 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { api, backendOrigin } from "../api";
 
-const emptyIngredient = { ingredient_name: "", quantity: "", unit: "", prep_note: "" };
+const emptyIngredient = { ingredient_name: "", quantity: "", unit: "", prep_note: "", component: "" };
+const emptyStep = { component: "", text: "" };
+
+/** A textarea that is exactly as tall as its content.
+ *
+ * Instructions used to be <input>, so a step like "Preheat oven to 325F.
+ * Pulse graham crackers in a food processor until finely ground" showed
+ * as "1. Preheat oven to 325F. Pu" with the rest unreachable -- in a form
+ * whose whole job is reviewing what the importer got right. Sizing lives
+ * here rather than in a fixed `rows` because the content length is only
+ * known at runtime; the LOOK is in theme.css with everything else. */
+function AutoTextarea({ value, className = "", ...rest }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return <textarea ref={ref} rows={1} value={value} className={`auto-textarea ${className}`} {...rest} />;
+}
 
 // Backlog B1.3: the single nutrition key set every AI surface in this app
 // now asks for (see backend/app/services/food_data_service.py's
@@ -27,7 +47,7 @@ const emptyForm = {
   default_servings: 2,
   prep_time_minutes: "",
   cook_time_minutes: "",
-  instructions: [""],
+  instructions: [{ ...emptyStep }],
   ingredients: [{ ...emptyIngredient }],
   tags: "",
   tips: [],
@@ -50,7 +70,13 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
       default_servings: initial.default_servings || 2,
       prep_time_minutes: initial.prep_time_minutes ?? "",
       cook_time_minutes: initial.cook_time_minutes ?? "",
-      instructions: initial.instructions?.length ? initial.instructions : [""],
+      instructions: initial.instructions?.length
+        ? initial.instructions.map((s) =>
+            typeof s === "string"
+              ? { component: "", text: s }
+              : { component: s.component || "", text: s.text || "" }
+          )
+        : [{ ...emptyStep }],
       ingredients: initial.ingredients?.length
         ? initial.ingredients.map((i) => ({ ...i, quantity: i.quantity ?? "" }))
         : [{ ...emptyIngredient }],
@@ -132,12 +158,20 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function setInstruction(i, value) {
-    setForm((f) => ({ ...f, instructions: f.instructions.map((s, idx) => (idx === i ? value : s)) }));
+  function setInstruction(i, field, value) {
+    setForm((f) => ({
+      ...f,
+      instructions: f.instructions.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)),
+    }));
   }
 
   function addInstruction() {
-    setForm((f) => ({ ...f, instructions: [...f.instructions, ""] }));
+    // Inherits the previous step's component: steps arrive in runs, and
+    // retyping "Filling and Assembly" on every line is how a label drifts.
+    setForm((f) => ({
+      ...f,
+      instructions: [...f.instructions, { ...emptyStep, component: f.instructions.at(-1)?.component || "" }],
+    }));
   }
 
   function removeInstruction(i) {
@@ -185,7 +219,9 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
       default_servings: Number(form.default_servings) || 2,
       prep_time_minutes: form.prep_time_minutes === "" ? null : Number(form.prep_time_minutes),
       cook_time_minutes: form.cook_time_minutes === "" ? null : Number(form.cook_time_minutes),
-      instructions: form.instructions.map((s) => s.trim()).filter(Boolean),
+      instructions: form.instructions
+        .map((s) => ({ component: s.component.trim() || null, text: s.text.trim() }))
+        .filter((s) => s.text),
       ingredients: form.ingredients
         .filter((ing) => ing.ingredient_name.trim())
         .map((ing) => ({
@@ -193,6 +229,9 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
           quantity: ing.quantity === "" ? null : Number(ing.quantity),
           unit: ing.unit || null,
           prep_note: ing.prep_note || null,
+          // Was omitted, so every save through this form deleted the
+          // component the importer had correctly extracted.
+          component: (ing.component || "").trim() || null,
         })),
       tags: form.tags
         .split(",")
@@ -233,7 +272,7 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
       </div>
       <label>
         Description
-        <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} />
+        <AutoTextarea value={form.description} onChange={(e) => set("description", e.target.value)} />
       </label>
       <div className="form-row">
         <label>
@@ -283,6 +322,12 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
         {form.ingredients.map((ing, i) => (
           <div className="form-row ingredient-row" key={i}>
             <input
+              className="component-input"
+              placeholder="part (optional)"
+              value={ing.component || ""}
+              onChange={(e) => setIngredient(i, "component", e.target.value)}
+            />
+            <AutoTextarea
               className="ingredient-name-input"
               placeholder="ingredient"
               value={ing.ingredient_name}
@@ -327,7 +372,17 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
         {form.instructions.map((step, i) => (
           <div className="form-row instruction-row" key={i}>
             <span className="step-number">{i + 1}.</span>
-            <input value={step} onChange={(e) => setInstruction(i, e.target.value)} placeholder={`Step ${i + 1}`} />
+            <input
+              className="component-input"
+              placeholder="part (optional)"
+              value={step.component}
+              onChange={(e) => setInstruction(i, "component", e.target.value)}
+            />
+            <AutoTextarea
+              value={step.text}
+              onChange={(e) => setInstruction(i, "text", e.target.value)}
+              placeholder={`Step ${i + 1}`}
+            />
             <button type="button" className="btn-link btn-link-danger" onClick={() => removeInstruction(i)}>
               ✕
             </button>
@@ -342,7 +397,11 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
         <legend>Tips, substitutions &amp; variations (optional)</legend>
         {form.tips.map((tip, i) => (
           <div className="form-row instruction-row" key={i}>
-            <input value={tip} onChange={(e) => setTip(i, e.target.value)} placeholder="e.g. swap butter for coconut oil" />
+            <AutoTextarea
+              value={tip}
+              onChange={(e) => setTip(i, e.target.value)}
+              placeholder="e.g. swap butter for coconut oil"
+            />
             <button type="button" className="btn-link btn-link-danger" onClick={() => removeTip(i)}>
               ✕
             </button>

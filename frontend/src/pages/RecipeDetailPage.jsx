@@ -26,6 +26,32 @@ const NUTRIENT_LABELS = {
 // Backlog B1.2: how to describe each provenance value to a non-technical
 // user -- distinguishing "we actually looked this up" from "this is a
 // guess" is the entire point of B1's backlog group (see PROJECT-PLAN.md).
+/** Instructions as {component, text}, whatever the API sent.
+ *
+ * Recipes saved before steps had components are plain strings, and the
+ * backend does not migrate the column -- it coerces on read. The same
+ * tolerance has to exist here, or an older recipe renders as blanks. */
+function instructionSteps(instructions) {
+  return (instructions || []).map((s) => (typeof s === "string" ? { component: null, text: s } : s));
+}
+
+/** Consecutive runs sharing a component, in source order.
+ *
+ * Runs rather than a group-by map: a recipe writes its parts in an order
+ * that means something (crust before filling), and a Crust section that
+ * appears twice is the source's business, not ours to merge. */
+function groupByComponent(items) {
+  const groups = [];
+  for (const item of items || []) {
+    const component = item.component || null;
+    if (!groups.length || groups.at(-1).component !== component) {
+      groups.push({ component, items: [] });
+    }
+    groups.at(-1).items.push(item);
+  }
+  return groups;
+}
+
 const PROVENANCE_INFO = {
   computed: { label: "Computed from ingredient data", className: "provenance-computed" },
   partial: {
@@ -272,24 +298,34 @@ export default function RecipeDetailPage() {
           against a food database first (weight mode needs a known density, which not every ingredient has).
         </p>
       )}
-      <ul>
-        {recipe.ingredients.map((ing, i) => (
-          <li key={i}>
-            {ing.quantity != null ? `${ing.quantity} ` : ""}
-            {ing.unit ? `${ing.unit} ` : ""}
-            {ing.ingredient_name}
-            {ing.prep_note ? `, ${ing.prep_note}` : ""}
-            {ing.display_unavailable && <span className="tag">not available in {unitSystem}</span>}
-          </li>
-        ))}
-      </ul>
+      {groupByComponent(recipe.ingredients).map(({ component, items }) => (
+        <div key={component || "__main"} className="component-group">
+          {component && <h4 className="component-heading">{component}</h4>}
+          <ul>
+            {items.map((ing, i) => (
+              <li key={i}>
+                {ing.quantity != null ? `${ing.quantity} ` : ""}
+                {ing.unit ? `${ing.unit} ` : ""}
+                {ing.ingredient_name}
+                {ing.prep_note ? `, ${ing.prep_note}` : ""}
+                {ing.display_unavailable && <span className="tag">not available in {unitSystem}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
 
       <h3>Instructions</h3>
-      <ol>
-        {recipe.instructions.map((step, i) => (
-          <li key={i}>{step}</li>
-        ))}
-      </ol>
+      {groupByComponent(instructionSteps(recipe.instructions)).map(({ component, items }, gi, groups) => (
+        <div key={component || "__main"} className="component-group">
+          {component && <h4 className="component-heading">{component}</h4>}
+          <ol start={groups.slice(0, gi).reduce((n, g) => n + g.items.length, 0) + 1}>
+            {items.map((step, i) => (
+              <li key={i}>{step.text}</li>
+            ))}
+          </ol>
+        </div>
+      ))}
 
       {(Object.keys(recipe.nutrition || {}).length > 0 || recipe.ingredients.some((i) => i.quantity != null)) && (
         <>

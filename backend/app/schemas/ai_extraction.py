@@ -157,13 +157,31 @@ class ExtractedNutrition(BaseModel):
     sugars_g: float | None = None
 
 
+class ExtractedInstruction(BaseModel):
+    """One step, and the part of the dish it belongs to.
+
+    `component` is required and non-nullable for exactly the reason
+    ExtractedIngredient.component is: a nullable field is an escape hatch
+    this model takes on every row. An unsectioned recipe answers with the
+    COMPONENT_UNSECTIONED sentinel, and normalize_component maps that back
+    to NULL before storage, so the database still says "no named parts"
+    the way it always did.
+
+    The labels here are the SAME vocabulary as the ingredients' -- a step
+    belonging to `Crust` must say `Crust`, not `crust preparation` --
+    because the UI groups both lists by this string."""
+
+    component: str
+    text: str
+
+
 class ExtractedRecipe(BaseModel):
     title: str
     description: str | None = None
     default_servings: int | None = None
     prep_time_minutes: int | None = None
     cook_time_minutes: int | None = None
-    instructions: list[str] = Field(default_factory=list)
+    instructions: list[ExtractedInstruction] = Field(default_factory=list)
     ingredients: list[ExtractedIngredient] = Field(default_factory=list)
     nutrition: ExtractedNutrition | None = None
     tags: list[str] = Field(default_factory=list)

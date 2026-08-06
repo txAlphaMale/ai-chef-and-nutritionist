@@ -11,7 +11,13 @@ import { annotateTemperatures, parseStepDuration } from "../utils/cookingText";
 // and a route change would also make the browser back button exit cook
 // mode in a way that's easy to trigger by accident mid-recipe.
 export default function CookMode({ recipe, onExit }) {
-  const steps = recipe.instructions || [];
+  // {component, text} whatever the API sent: recipes saved before steps
+  // had components are plain strings and the backend coerces on read
+  // rather than migrating the column, so this has to tolerate both or an
+  // older recipe cooks as a stack of blank steps.
+  const steps = (recipe.instructions || []).map((s) =>
+    typeof s === "string" ? { component: null, text: s } : { component: s.component || null, text: s.text || "" }
+  );
   const progressKey = `chef_cook_progress_${recipe.id}`;
 
   const [stepIndex, setStepIndex] = useState(0);
@@ -139,7 +145,7 @@ export default function CookMode({ recipe, onExit }) {
 
   const atEnd = stepIndex >= steps.length;
   const currentStep = !atEnd ? steps[stepIndex] : null;
-  const currentDuration = currentStep ? parseStepDuration(currentStep) : null;
+  const currentDuration = currentStep ? parseStepDuration(currentStep.text) : null;
 
   return (
     <div className="cook-mode-overlay" role="dialog" aria-modal="true" aria-label={`Cook mode: ${recipe.title}`}>
@@ -200,8 +206,9 @@ export default function CookMode({ recipe, onExit }) {
                 }}
               >
                 {checked[i] ? "✓ " : ""}
-                Step {i + 1}: {s.slice(0, 60)}
-                {s.length > 60 ? "..." : ""}
+                Step {i + 1}: {s.component ? `[${s.component}] ` : ""}
+                {s.text.slice(0, 60)}
+                {s.text.length > 60 ? "..." : ""}
               </button>
             </li>
           ))}
@@ -220,8 +227,9 @@ export default function CookMode({ recipe, onExit }) {
         <div className="cook-mode-step">
           <p className="cook-mode-step-counter">
             Step {stepIndex + 1} of {steps.length}
+            {currentStep.component ? ` -- ${currentStep.component}` : ""}
           </p>
-          <p className="cook-mode-step-text">{annotateTemperatures(currentStep)}</p>
+          <p className="cook-mode-step-text">{annotateTemperatures(currentStep.text)}</p>
 
           {currentDuration && (
             <button

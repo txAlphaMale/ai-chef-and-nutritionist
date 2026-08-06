@@ -279,7 +279,7 @@ RULES:
 1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
 2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
 3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it (Crust, Filling and Assembly, Topping). Use the value main when the recipe is a single dish with no named parts.
-4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one.
+4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section (crust, filling, assembly, topping, etc.) -- not just the first one. Each entry carries the same "component" the ingredients of that section carry, spelled identically, or the literal main when the recipe has no sections.
 5. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
 6. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
 7. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
@@ -292,7 +292,7 @@ Correct output includes BOTH as separate ingredient entries -- never one merged 
 {"ingredient_name": "sugar", "quantity": 2, "unit": "Tbsp.", "prep_note": null, "component": "Filling"}
 
 OUTPUT FORMAT: Respond with ONLY a JSON object -- no other text, no markdown fences. Exactly these keys:
-{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of strings, "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string, never null -- see rule 3), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
+{"title": string, "description": string or null, "default_servings": integer, "prep_time_minutes": integer or null, "cook_time_minutes": integer or null, "instructions": array of objects with "text" (string) and "component" (string, never null -- see rules 3 and 4), "ingredients": array of objects with "ingredient_name" (string), "quantity" (number or null), "unit" (string or null), "prep_note" (string or null), "component" (string, never null -- see rule 3), "nutrition": object with best-effort per-serving estimates as numbers or null: {NUTRITION_PROMPT_HINT}, "tags": array of short lowercase strings, "tips": array of strings}
 """.replace("{NUTRITION_PROMPT_HINT}", NUTRITION_PROMPT_HINT)
 # ^ the ONE remaining plain str.replace() at module-definition time,
 # resolving the shared nutrition-key hint into the constant once -- the
@@ -376,7 +376,7 @@ def coerce_recipe_fields(data: dict) -> dict:
             }
         )
 
-    instructions = [str(s).strip() for s in (data.get("instructions") or []) if str(s).strip()]
+    instructions = normalize_instructions(data.get("instructions"))
     nutrition_raw = data.get("nutrition") or {}
     nutrition = {k: _safe_float(v) for k, v in nutrition_raw.items() if _safe_float(v) is not None}
     tags = [str(t).strip().lower() for t in (data.get("tags") or []) if str(t).strip()]
@@ -1058,6 +1058,37 @@ def _names_a_duration(entry: dict) -> bool:
     return bool(first) and first[0].strip(".,:;()").casefold() in _DURATION_WORDS
 
 
+def normalize_instructions(raw) -> list[dict]:
+    """Instruction steps as they are STORED: `{"component", "text"}`.
+
+    Accepts what every caller actually has: bare strings (every recipe
+    saved before components existed, and the JSON-LD import's flat list),
+    dicts from the extraction schema or the API, or a mix. The column is
+    not migrated, so this is the one place that has to know both shapes.
+
+    The component goes through normalize_component, so the `main` sentinel
+    and generic headings like `INGREDIENTS YOU'LL NEED:` become NULL here
+    exactly as they do for ingredients -- the two lists are grouped by the
+    same string in the UI, so they have to be normalised by the same
+    rule."""
+    steps: list[dict] = []
+    for item in raw or []:
+        if isinstance(item, dict):
+            text = str(item.get("text") or "").strip()
+            component = normalize_component(item.get("component"))
+        else:
+            text = str(item).strip()
+            component = None
+        if text:
+            steps.append({"component": component, "text": text})
+    return steps
+
+
+def instruction_texts(raw) -> list[str]:
+    """Just the words, for prompts and anywhere a flat list is wanted."""
+    return [step["text"] for step in normalize_instructions(raw)]
+
+
 def _split_headings_from_ingredients(entries: list[dict], component: str | None) -> list[dict]:
     """A welded source hides its section headings INSIDE the ingredient run.
 
@@ -1335,24 +1366,37 @@ def _flatten_jsonld_instructions(value) -> list[str]:
     steps separated by newlines), a list of strings, a list of HowToStep
     objects ({"@type": "HowToStep", "text": ...}), or nested HowToSection
     objects ({"@type": "HowToSection", "itemListElement": [...]})."""
+    return [step["text"] for step in _jsonld_instruction_steps(value)]
+
+
+def _jsonld_instruction_steps(value, component: str | None = None) -> list[dict]:
+    """The same shapes, but keeping the HowToSection names.
+
+    A HowToSection IS a component -- schema.org's `{"@type":
+    "HowToSection", "name": "For the Crust", "itemListElement": [...]}` is
+    the publisher saying which part of the dish these steps belong to.
+    That name was being parsed and then thrown away, so a structured
+    import produced a flat step list from a source that had told us how it
+    was divided. Sections nest, so the label is carried down."""
     if value is None:
         return []
     if isinstance(value, str):
-        return [s.strip() for s in re.split(r"\n+", value) if s.strip()]
+        return [{"component": component, "text": s.strip()} for s in re.split(r"\n+", value) if s.strip()]
     if isinstance(value, dict):
         value = [value]
-    steps: list[str] = []
+    steps: list[dict] = []
     for item in value:
         if isinstance(item, str):
             if item.strip():
-                steps.append(item.strip())
+                steps.append({"component": component, "text": item.strip()})
         elif isinstance(item, dict):
             if "itemListElement" in item:  # HowToSection
-                steps.extend(_flatten_jsonld_instructions(item["itemListElement"]))
+                label = normalize_component(item.get("name")) or component
+                steps.extend(_jsonld_instruction_steps(item["itemListElement"], label))
             elif item.get("text"):
-                steps.append(str(item["text"]).strip())
+                steps.append({"component": component, "text": str(item["text"]).strip()})
             elif item.get("name"):
-                steps.append(str(item["name"]).strip())
+                steps.append({"component": component, "text": str(item["name"]).strip()})
     return steps
 
 
@@ -1455,7 +1499,7 @@ def _recipe_dict_from_jsonld_document(data) -> dict | None:
             "default_servings": _first_number(node.get("recipeYield")),
             "prep_time_minutes": _parse_iso8601_duration_minutes(node.get("prepTime")),
             "cook_time_minutes": _parse_iso8601_duration_minutes(node.get("cookTime")),
-            "instructions": _flatten_jsonld_instructions(node.get("recipeInstructions")),
+            "instructions": _jsonld_instruction_steps(node.get("recipeInstructions")),
             "ingredients": ingredients,
             "nutrition": _nutrition_from_jsonld(node.get("nutrition")),
             "tags": [],  # no fixed vocabulary in JSON-LD -- left for the user to add on review, never guessed
@@ -1623,7 +1667,21 @@ def recipe_to_jsonld(recipe: Recipe, image_url: str | None = None) -> dict:
     if cook_iso:
         doc["cookTime"] = cook_iso
     if recipe.instructions:
-        doc["recipeInstructions"] = [{"@type": "HowToStep", "text": step} for step in recipe.instructions]
+        # schema.org's own answer to components is HowToSection, which is
+        # what _flatten_jsonld_instructions already reads on the way IN.
+        # Exporting sections means a Chef export re-imports with its
+        # components intact, here or anywhere else that speaks schema.org.
+        steps = normalize_instructions(recipe.instructions)
+        if any(step["component"] for step in steps):
+            sections: list[dict] = []
+            for step in steps:
+                label = step["component"]
+                if not sections or sections[-1]["name"] != label:
+                    sections.append({"@type": "HowToSection", "name": label, "itemListElement": []})
+                sections[-1]["itemListElement"].append({"@type": "HowToStep", "text": step["text"]})
+            doc["recipeInstructions"] = sections
+        else:
+            doc["recipeInstructions"] = [{"@type": "HowToStep", "text": step["text"]} for step in steps]
     if recipe.ingredients:
         doc["recipeIngredient"] = [_jsonld_ingredient_line(ing) for ing in recipe.ingredients]
     if recipe.nutrition:
@@ -1928,7 +1986,17 @@ def _format_ingredient_line(ing: dict) -> str:
 
 def build_recipe_chat_context(recipe_read: dict) -> str:
     ingredients_lines = "\n".join(_format_ingredient_line(ing) for ing in recipe_read.get("ingredients", []))
-    instructions_lines = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(recipe_read.get("instructions", [])))
+    # Grouped the way the recipe is written, so a question about "the
+    # crust" reaches a model that can see which steps those are.
+    instruction_lines: list[str] = []
+    current: str | None = None
+    for i, step in enumerate(normalize_instructions(recipe_read.get("instructions"))):
+        if step["component"] != current:
+            current = step["component"]
+            if current:
+                instruction_lines.append(f"[{current}]")
+        instruction_lines.append(f"{i + 1}. {step['text']}")
+    instructions_lines = "\n".join(instruction_lines)
     tips_block = ""
     if recipe_read.get("tips"):
         tips_lines = "\n".join(f"- {t}" for t in recipe_read["tips"])
@@ -1969,7 +2037,7 @@ sugar". When proposing a change, include the ENTIRE recipe as it should \
 look after the change is applied -- every field, in this exact shape: \
 {"title": string, "description": string or null, "default_servings": \
 integer, "prep_time_minutes": integer or null, "cook_time_minutes": \
-integer or null, "instructions": array of strings, "ingredients": array \
+integer or null, "instructions": array of objects with "text" and "component", "ingredients": array \
 of objects with "ingredient_name", "quantity" (number or null), "unit" \
 (string or null), "prep_note" (string or null), "nutrition": object \
 with best-effort per-serving numeric estimates or null for these keys: \

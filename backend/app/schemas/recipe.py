@@ -9,6 +9,45 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.allergen import RestrictionMatchRead
 
 
+class InstructionStep(BaseModel):
+    """One instruction, and the part of the dish it belongs to.
+
+    Stored in the recipe's JSON `instructions` column as an object rather
+    than a bare string, so a multi-component recipe can show the crust's
+    steps under the crust and the filling's under the filling -- which is
+    how the source wrote them and how anyone cooks from them.
+
+    A BARE STRING IS STILL ACCEPTED and read as an unsectioned step. That
+    is not politeness: every recipe stored before this change is a list of
+    strings, the JSON column is not migrated, and an API client that sends
+    the old shape is not wrong. Tolerating it here means one coercion in
+    one place instead of a migration plus a flag day."""
+
+    component: str | None = None
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, value: str) -> str:
+        return (value or "").strip()
+
+    @classmethod
+    def coerce(cls, raw) -> list[InstructionStep]:
+        """A stored or submitted instructions value, whatever shape it is."""
+        steps: list[InstructionStep] = []
+        for item in raw or []:
+            if isinstance(item, InstructionStep):
+                step = item
+            elif isinstance(item, dict):
+                text = str(item.get("text") or "").strip()
+                step = cls(component=item.get("component"), text=text)
+            else:
+                step = cls(component=None, text=str(item).strip())
+            if step.text:
+                steps.append(step)
+        return steps
+
+
 class RecipeIngredientBase(BaseModel):
     ingredient_name: str
     quantity: float | None = None
@@ -55,7 +94,12 @@ class RecipeBase(BaseModel):
     default_servings: int = 2
     prep_time_minutes: int | None = None
     cook_time_minutes: int | None = None
-    instructions: list[str] = Field(default_factory=list)
+    instructions: list[InstructionStep] = Field(default_factory=list)
+
+    @field_validator("instructions", mode="before")
+    @classmethod
+    def _accept_plain_strings(cls, value):
+        return InstructionStep.coerce(value)
     # Per-serving estimate -- keys are app.services.food_data_service.
     # NUTRITION_KEYS (calories/protein_g/carbs_g/fat_g/fiber_g/sodium_mg/
     # cholesterol_mg/saturated_fat_g/sugars_g), informal by design, see
@@ -96,7 +140,15 @@ class RecipeUpdate(BaseModel):
     default_servings: int | None = None
     prep_time_minutes: int | None = None
     cook_time_minutes: int | None = None
-    instructions: list[str] | None = None
+    instructions: list[InstructionStep] | None = None
+
+    @field_validator("instructions", mode="before")
+    @classmethod
+    def _accept_plain_strings_on_patch(cls, value):
+        # None means "not provided" on a PATCH and must stay None; only an
+        # actual list is coerced.
+        return value if value is None else InstructionStep.coerce(value)
+
     nutrition: dict | None = None
     is_staple: bool | None = None
     image_path: str | None = None

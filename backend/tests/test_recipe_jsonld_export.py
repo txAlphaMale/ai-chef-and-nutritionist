@@ -199,7 +199,7 @@ def test_extract_jsonld_recipe_from_json_valid_document():
     assert result["default_servings"] == 6
     assert result["prep_time_minutes"] == 10
     assert result["cook_time_minutes"] == 30
-    assert result["instructions"] == ["Simmer everything."]
+    assert result["instructions"] == [{"component": None, "text": "Simmer everything."}]
     assert len(result["ingredients"]) == 2
 
 
@@ -233,7 +233,10 @@ def test_full_export_then_reimport_round_trip(db_session):
 
     assert coerced["title"] == original.title
     assert coerced["default_servings"] == original.default_servings
-    assert coerced["instructions"] == original.instructions
+    # The round trip is still lossless; the shape on both sides is now
+    # {component, text}, and a model whose steps are plain strings coerces
+    # to the same thing on the way in.
+    assert coerced["instructions"] == rs.normalize_instructions(original.instructions)
     assert coerced["tips"] == original.tips
     assert len(coerced["ingredients"]) == len(original.ingredients)
     reimported_names = {ing["ingredient_name"] for ing in coerced["ingredients"]}
