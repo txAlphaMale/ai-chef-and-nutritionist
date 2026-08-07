@@ -2720,3 +2720,13 @@ tr.urgency-low td {
   font-size: var(--font-sm);
   color: var(--color-text-muted);
 }
+
+/* Per-row provenance in a bulk import review. `.tag-warning` already
+   exists for the unchecked case; this is its counterpart, and it is the
+   only place in the app allowed to say "verified" in one word -- see
+   IngredientProvenance.jsx's wording rule. */
+.tag-verified {
+  background: color-mix(in srgb, var(--color-secondary) 18%, transparent);
+  border-color: var(--color-secondary);
+  color: var(--color-text);
+}

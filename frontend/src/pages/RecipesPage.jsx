@@ -8,6 +8,16 @@ import RestrictionWarnings from "../components/RestrictionWarnings";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { applyFacets, derivedTagBases, derivedTagLabel, emptySelection } from "../utils/recipeFacets";
 
+// Per-row shorthand for IngredientProvenance's full banner. A bulk review
+// has forty rows and no space for a paragraph each, but "which of these
+// were actually checked" is the question the screen exists to answer --
+// so the wording still never says "verified" about anything that was not.
+const PROVENANCE_TAG = {
+  two_pass: { label: "verified", className: "tag-verified" },
+  jsonld: { label: "publisher data", className: "" },
+  single_call: { label: "unchecked", className: "tag-warning" },
+};
+
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +142,12 @@ export default function RecipesPage() {
         status: it.status,
         recipe: it.recipe,
         error: it.error,
+        provenance: it.ingredient_provenance || null,
         title: it.recipe?.title || it.title,
+        // "empty" rows are still editable and still savable -- the
+        // household may know something the parser does not -- but they
+        // are NOT ticked by default. A homepage that reported `parsed`
+        // and arrived pre-ticked is how junk gets saved by reflex.
         included: it.status === "ok",
       }))
     );
@@ -205,7 +220,7 @@ export default function RecipesPage() {
 
   async function confirmFolderImport() {
     const toCreate = folderItems
-      .filter((r) => r.included && r.status === "ok")
+      .filter((r) => r.included && r.recipe)
       .map((r) => ({ ...r.recipe, title: r.title }));
     if (toCreate.length === 0) return;
     setFolderConfirmBusy(true);
@@ -551,6 +566,7 @@ export default function RecipesPage() {
                     <th>File</th>
                     <th>Title</th>
                     <th>Ingredients</th>
+                    <th>Checked?</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -561,22 +577,31 @@ export default function RecipesPage() {
                         <input
                           type="checkbox"
                           checked={row.included}
-                          disabled={row.status !== "ok"}
+                          disabled={!row.recipe}
                           onChange={(e) => updateFolderItemField(i, "included", e.target.checked)}
                         />
                       </td>
                       <td data-label="File">{row.relative_path}</td>
                       <td data-label="Title">
-                        {row.status === "ok" ? (
+                        {row.recipe ? (
                           <input value={row.title} onChange={(e) => updateFolderItemField(i, "title", e.target.value)} />
                         ) : (
                           "—"
                         )}
                       </td>
-                      <td data-label="Ingredients">{row.status === "ok" ? row.recipe.ingredients.length : "—"}</td>
+                      <td data-label="Ingredients">{row.recipe ? row.recipe.ingredients.length : "—"}</td>
+                      <td data-label="Checked?">
+                        <span className={`tag ${PROVENANCE_TAG[row.provenance?.path]?.className || ""}`}>
+                          {PROVENANCE_TAG[row.provenance?.path]?.label || "—"}
+                        </span>
+                      </td>
                       <td data-label="Status">
                         {row.status === "ok" ? (
                           <span className="tag">parsed</span>
+                        ) : row.status === "empty" ? (
+                          <span className="tag tag-warning" title={row.error}>
+                            no ingredients
+                          </span>
                         ) : (
                           <span className="error-text">{row.error}</span>
                         )}
@@ -590,11 +615,11 @@ export default function RecipesPage() {
                 <button
                   className="btn btn-primary"
                   onClick={confirmFolderImport}
-                  disabled={folderConfirmBusy || folderItems.filter((r) => r.included && r.status === "ok").length === 0}
+                  disabled={folderConfirmBusy || folderItems.filter((r) => r.included && r.recipe).length === 0}
                 >
                   {folderConfirmBusy
                     ? "Adding..."
-                    : `Add ${folderItems.filter((r) => r.included && r.status === "ok").length} recipe(s)`}
+                    : `Add ${folderItems.filter((r) => r.included && r.recipe).length} recipe(s)`}
                 </button>
                 <button className="btn btn-secondary" onClick={discardFolderImport} disabled={folderConfirmBusy}>
                   Discard

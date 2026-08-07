@@ -219,6 +219,7 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
             "status": "ok",
             "recipe": None,
             "error": None,
+            "ingredient_provenance": None,
         }
         try:
             url_result = recipe_service.parse_recipe_from_url(db, bookmark.url)
@@ -231,7 +232,15 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
                 db=db,
                 source_text=url_result["source_text"],
             )
-            parsed.pop(recipe_service.INGREDIENT_PROVENANCE_KEY, None)
+            # Carried out to the review row rather than discarded. A bulk
+            # run puts forty recipes in front of the household at once,
+            # and reviewing forty with no idea which were checked against
+            # their source is the state this screen was built to end --
+            # see IngredientProvenance.jsx. Measured need, not symmetry:
+            # the first real bookmarks run had blocks dropped and fall
+            # back to the model's unverified list, and nothing on screen
+            # said so.
+            item["ingredient_provenance"] = parsed.pop(recipe_service.INGREDIENT_PROVENANCE_KEY, None)
             parsed.pop(recipe_service.INSTRUCTION_WARNINGS_KEY, None)
             # The bookmark's own folder becomes a tag, so a "Desserts"
             # folder is still findable as one after the import. The
@@ -243,6 +252,15 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
                 if leaf:
                     parsed["tags"] = sorted({*(parsed.get("tags") or []), leaf})
             item["recipe"] = parsed
+            # A page with no ingredients is not a recipe. The first real
+            # bookmarks run returned a site HOMEPAGE and a category
+            # LISTING this way -- both titled plausibly, both reported
+            # `parsed`, both pre-ticked to save. "Extraction did not
+            # raise" is not the same as "this is a recipe", and the review
+            # screen was quietly treating them as the same thing.
+            if not parsed.get("ingredients"):
+                item["status"] = "empty"
+                item["error"] = "No ingredients found -- this is probably an index or category page, not a recipe."
         except Exception as exc:
             item["status"] = "error"
             item["error"] = str(exc)[:300]

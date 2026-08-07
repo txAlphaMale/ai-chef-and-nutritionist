@@ -1569,6 +1569,64 @@ class Pass1Result:
     messages: list
 
 
+def split_welded_copied_lines(raw_lines: list[str]) -> list[str]:
+    """Pass 1 sometimes copies a whole ingredient list as ONE array entry,
+    newlines and all. Split those back into the lines they are.
+
+    Measured on the first real bookmarks run (2026-08-07), which was also
+    the first time trafilatura ran on real pages. Four recipes in one
+    batch, each with its entire list welded into a single copied line:
+
+        ['- 1 tablespoon butter for greasing the baking sheet\n
+          - 1/4 cup buttermilk\n- 1/4 cup honey ... ']
+
+    Verification then looks for that nine-line blob verbatim in the
+    source, cannot find it, and drops it -- so the block scores 0 of 1
+    verified, the coverage gate drops the WHOLE block, and the import
+    silently falls back to the single call's unverified list. Every log
+    line reads as the system working correctly, which it was; the input
+    was one line that should have been nine.
+
+    Why it appears on this path specifically: trafilatura renders every
+    `<li>` as `- item` on consecutive lines with no blank line between,
+    so the list LOOKS like one paragraph and the model copies it as one.
+
+    **The constraint that makes this safe.** Splitting is a widening of
+    what can verify, and this project has already measured what an
+    unconstrained widening costs -- joining consecutive source lines
+    disarmed the same gate and imported 17 method steps as ingredients.
+    A method paragraph split on its newlines would produce lines that are
+    all real source text and would all verify, which is precisely the
+    failure that gate exists to prevent.
+
+    So a blob is only split when EVERY line it produces starts with a
+    bullet or an amount. That is the same discriminator `_AMOUNT_START`
+    already provides for the joined window, and it is the thing method
+    prose does not do. A blob that fails the test is passed through
+    unchanged, fails verification exactly as it does today, and is dropped
+    by the gate exactly as it is today -- this can only ever add lines
+    that look like ingredients, never rescue a paragraph."""
+    out: list[str] = []
+    for line in raw_lines:
+        if "\n" not in line:
+            out.append(line)
+            continue
+        parts = [part.strip() for part in line.split("\n")]
+        parts = [part for part in parts if part]
+        if len(parts) > 1 and all(_looks_like_a_list_item(part) for part in parts):
+            out.extend(parts)
+        else:
+            out.append(line)
+    return out
+
+
+def _looks_like_a_list_item(text: str) -> bool:
+    """Starts with a bullet, or with an amount. Deliberately narrow -- see
+    split_welded_copied_lines for why anything wider is unsafe."""
+    bare, bulleted = strip_list_bullet(text)
+    return bulleted or bool(_AMOUNT_START.match(bare))
+
+
 def ingredients_from_pass1_blocks(raw_blocks: list, source: str) -> Pass1Result:
     """Pass 1's copied blocks -> stored ingredients, and the numbers that
     explain the decision.
@@ -1596,6 +1654,9 @@ def ingredients_from_pass1_blocks(raw_blocks: list, source: str) -> Pass1Result:
     for block in blocks:
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
+        # A whole list copied as one entry is nine ingredients, not one --
+        # and left welded it scores 0 of 1 and takes the block with it.
+        raw_lines = split_welded_copied_lines(raw_lines)
         if not raw_lines:
             continue
         kept, discarded, strategy = reconcile_block(raw_lines, source)

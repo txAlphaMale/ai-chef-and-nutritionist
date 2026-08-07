@@ -106,7 +106,14 @@ def test_one_dead_url_does_not_cost_the_household_the_other_imports(db_session):
             "default_source": "import_url_jsonld",
             "citation": {"source_url": url},
             "image_path": None,
-            "jsonld_parsed": {"title": "Pie", "ingredients": [], "instructions": []},
+            # A real ingredient, not a placeholder: an ingredient-less
+            # parse now reports `empty` (an index or category page is
+            # not a recipe), and this test is about dead URLs.
+            "jsonld_parsed": {
+                "title": "Pie",
+                "ingredients": [{"ingredient_name": "flour", "quantity": 1, "unit": "cup"}],
+                "instructions": [],
+            },
             "source_text": None,
         }
 
