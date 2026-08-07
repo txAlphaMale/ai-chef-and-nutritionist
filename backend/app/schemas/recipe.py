@@ -274,6 +274,42 @@ class RecipeFolderImportResponse(BaseModel):
     )
 
 
+class BookmarkFolder(BaseModel):
+    """One folder in an exported bookmarks file that directly holds at
+    least one bookmark. A parent containing only other folders is a tree
+    node, not a choice, and is not listed."""
+
+    path: str
+    count: int
+
+
+class BookmarkFoldersResponse(BaseModel):
+    folders: list[BookmarkFolder]
+    total: int
+
+
+class BookmarkScanItem(BaseModel):
+    """One bookmark's outcome. `status="error"` is the NORMAL case for a
+    good many rows -- a bookmarks folder holds shops, videos and dead
+    links as well as recipes -- so the reason travels with the row and
+    the household skips it in review."""
+
+    url: str
+    title: str
+    folder_path: str
+    status: str  # "ok" | "error"
+    recipe: RecipeCreate | None = None
+    error: str | None = None
+
+
+class BookmarkImportResponse(BaseModel):
+    items: list[BookmarkScanItem]
+    skipped: list[list[str]] = Field(
+        default_factory=list, description="[[url, reason], ...] -- bookmarks found but not attempted"
+    )
+    truncated: bool = False
+
+
 class RecipeFolderImportConfirmRequest(BaseModel):
     recipes: list[RecipeCreate]
 

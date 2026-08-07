@@ -2299,6 +2299,72 @@ def unify_component_case(ingredients: list[dict] | None, steps: list[dict] | Non
             row["component"] = canonical[key]
 
 
+def parse_recipe_from_url(db: Session, url: str) -> dict:
+    """One URL -> the same shape `parse_recipe_file_content` returns, for
+    `finish_recipe_parse` to finish.
+
+    Extracted from `routers/recipes.py`'s import job for the same reason
+    `parse_recipe_file_content` was: a second batch path now runs it (the
+    bookmarks importer), and a copy of an import pipeline drifts from the
+    original -- measured twice already in this project, most recently when
+    the batch harness's copy of the block loop scored the pizza at six
+    while the app stored five.
+
+    JSON-LD FIRST, deliberately: a page publishing schema.org Recipe data
+    is telling us its own quantities, which beats asking a 9B to re-read
+    its prose, and it costs no GPU time at all. The model is the fallback,
+    not the plan."""
+    try:
+        html = fetch_html(url)
+    except Exception as exc:
+        raise RuntimeError(f"Could not fetch that URL: {exc}") from exc
+
+    jsonld_parsed = extract_jsonld_recipe(html)
+    page = extract_content_from_html(html, url=url)
+    if jsonld_parsed is None and not page.get("text"):
+        raise RuntimeError("Could not extract readable content from that URL")
+
+    citation = {
+        "source_url": url,
+        "source_name": page.get("sitename"),
+        # JSON-LD's own author beats trafilatura's page-level byline
+        # guess, which can pick up a site editor rather than the cook.
+        "source_author": (jsonld_parsed or {}).get("_source_author") or page.get("author"),
+    }
+
+    image_path = None
+    image_url = (jsonld_parsed or {}).get("_image_url") or page.get("image")
+    if image_url:
+        fetched = fetch_image_bytes(image_url)
+        if fetched:
+            raw_image_bytes, image_content_type = fetched
+            with contextlib.suppress(ValueError):
+                image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
+
+    if jsonld_parsed is not None:
+        return {
+            "raw_output": (
+                "(parsed directly from the page's structured schema.org Recipe data -- "
+                "Ollama was not used for this import)"
+            ),
+            "default_source": "import_url_jsonld",
+            "citation": citation,
+            "image_path": image_path,
+            "jsonld_parsed": jsonld_parsed,
+            "source_text": None,
+        }
+
+    source_text = page["text"]
+    return {
+        "raw_output": _extract_via_ollama(db, source_text),
+        "default_source": "import_url",
+        "citation": citation,
+        "image_path": image_path,
+        "jsonld_parsed": None,
+        "source_text": source_text,
+    }
+
+
 def finish_recipe_parse(
     raw_output: str,
     default_source: str,

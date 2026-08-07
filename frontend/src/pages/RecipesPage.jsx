@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, backendOrigin } from "../api";
 import IngredientProvenance from "../components/IngredientProvenance";
@@ -66,6 +66,28 @@ export default function RecipesPage() {
   const [folderConfirmBusy, setFolderConfirmBusy] = useState(false);
   const [folderConfirmError, setFolderConfirmError] = useState(null);
 
+  // Bookmark results feed the SAME review list the folder scan uses --
+  // the two differ only in where the item came from, and one review UI
+  // that both fill is one place to get right.
+  useEffect(() => {
+    if (!bookmarkScanJob.result) return;
+    const { items, skipped, truncated } = bookmarkScanJob.result;
+    setFolderScanMeta({ skipped, truncated, scanned_folder: bookmarkFolder || "all bookmarks", error: null });
+    setFolderItems(
+      (items || []).map((it) => ({
+        filename: it.title,
+        relative_path: it.folder_path ? `${it.folder_path} -- ${it.url}` : it.url,
+        status: it.status,
+        recipe: it.recipe,
+        error: it.error,
+        title: it.recipe?.title || it.title,
+        included: it.status === "ok",
+      }))
+    );
+    bookmarkScanJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmarkScanJob.result]);
+
   useEffect(() => {
     if (!folderScanJob.result) return;
     const { items, skipped, truncated, scanned_folder, error } = folderScanJob.result;
@@ -84,6 +106,62 @@ export default function RecipesPage() {
     folderScanJob.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folderScanJob.result]);
+
+  // Bulk import from a browser's exported bookmarks HTML. Mirrors the
+  // folder importer's shape deliberately -- upload, preview every item,
+  // confirm a chosen subset -- and reuses its confirm endpoint, which
+  // already takes a plain list of recipes.
+  const [showBookmarkImport, setShowBookmarkImport] = useState(false);
+  const bookmarkFileRef = useRef(null);
+  const [bookmarkFolders, setBookmarkFolders] = useState(null); // [{path,count}] once a file is read
+  const [bookmarkFolder, setBookmarkFolder] = useState("");
+  const [bookmarkTotal, setBookmarkTotal] = useState(0);
+  const [bookmarkError, setBookmarkError] = useState(null);
+  const bookmarkScanJob = useBackgroundJob("chef.job.recipe_bookmark_import");
+
+  async function readBookmarkFolders() {
+    setBookmarkError(null);
+    setBookmarkFolders(null);
+    const file = bookmarkFileRef.current?.files?.[0];
+    if (!file) {
+      setBookmarkError("Choose your exported bookmarks file first.");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const result = await api.post("/recipes/import-bookmarks/folders", body);
+      setBookmarkFolders(result.folders);
+      setBookmarkTotal(result.total);
+      // Pre-select the folder that looks like the one they meant, rather
+      // than making them find it in a list that includes every folder in
+      // the browser.
+      const likely = result.folders.find((f) => /recipe|food|cook/i.test(f.path));
+      setBookmarkFolder(likely ? likely.path : "");
+    } catch (e) {
+      setBookmarkError(e.message);
+    }
+  }
+
+  async function handleScanBookmarks() {
+    setBookmarkError(null);
+    bookmarkScanJob.clear();
+    setFolderItems(null);
+    const file = bookmarkFileRef.current?.files?.[0];
+    if (!file) {
+      setBookmarkError("Choose your exported bookmarks file first.");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", file);
+    if (bookmarkFolder) body.append("folder_path", bookmarkFolder);
+    try {
+      const enqueued = await api.post("/recipes/import-bookmarks/scan", body);
+      bookmarkScanJob.poll(enqueued.job_id);
+    } catch (e) {
+      setBookmarkError(e.message);
+    }
+  }
 
   async function handleScanFolder() {
     setFolderScanEnqueueError(null);
@@ -239,6 +317,9 @@ export default function RecipesPage() {
         <button className="btn btn-secondary" onClick={() => setShowFolderImport((v) => !v)}>
           {showFolderImport ? "Close" : "📁 Import from folder"}
         </button>
+        <button className="btn btn-secondary" onClick={() => setShowBookmarkImport((v) => !v)}>
+          🔖 Import from bookmarks
+        </button>
       </div>
 
       {showAddForm && (
@@ -333,6 +414,55 @@ export default function RecipesPage() {
               setImportInstructionWarnings([]);
             }}
           />
+        </div>
+      )}
+
+      {showBookmarkImport && (
+        <div className="card">
+          <h3>Import from bookmarks</h3>
+          <p className="hint">
+            Export your bookmarks from your browser as an HTML file (Chrome and Edge: Bookmarks &gt; Bookmark
+            manager &gt; ⋮ &gt; Export; Firefox: Bookmarks &gt; Manage bookmarks &gt; Import and Backup &gt; Export
+            to HTML), then pick the folder your recipes are in. Each one is fetched and parsed the same way a
+            single URL import is -- pages that publish structured recipe data cost no AI time at all. Nothing is
+            saved until you review and confirm below.
+          </p>
+          <div className="form-row">
+            <label>
+              Bookmarks file
+              <input ref={bookmarkFileRef} type="file" accept=".html,.htm,text/html" onChange={readBookmarkFolders} />
+            </label>
+            {bookmarkFolders && (
+              <label>
+                Folder ({bookmarkTotal} bookmark{bookmarkTotal === 1 ? "" : "s"} in the file)
+                <select value={bookmarkFolder} onChange={(e) => setBookmarkFolder(e.target.value)}>
+                  <option value="">Everything</option>
+                  {bookmarkFolders.map((f) => (
+                    <option key={f.path} value={f.path}>
+                      {f.path} ({f.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <div className="form-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={handleScanBookmarks}
+              disabled={bookmarkScanJob.busy || !bookmarkFolders}
+            >
+              {bookmarkScanJob.busy && <span className="busy-spinner" aria-hidden="true" />}
+              {bookmarkScanJob.status === "queued"
+                ? "Queued..."
+                : bookmarkScanJob.busy
+                  ? "Importing..."
+                  : "Import these bookmarks"}
+            </button>
+          </div>
+          {(bookmarkError || bookmarkScanJob.error) && (
+            <p className="error-text">Bookmark import failed: {bookmarkError || bookmarkScanJob.error}</p>
+          )}
         </div>
       )}
 

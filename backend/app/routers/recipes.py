@@ -8,12 +8,11 @@ swallow them.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -21,6 +20,8 @@ from app.database import SessionLocal, get_db
 from app.models import Recipe, RecipeIngredient
 from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.recipe import (
+    BookmarkFolder,
+    BookmarkFoldersResponse,
     RecipeChatRequest,
     RecipeChatResponse,
     RecipeCreate,
@@ -34,6 +35,7 @@ from app.schemas.recipe import (
 )
 from app.services import (
     allergen_service,
+    bookmark_import_service,
     cost_service,
     food_data_service,
     job_queue,
@@ -232,56 +234,24 @@ async def import_recipe(
             # to check a copied line against) and for JSON-LD.
             source_text: str | None = None
             if url:
-                try:
-                    html = recipe_service.fetch_html(url)
-                except Exception as exc:
-                    raise RuntimeError(f"Could not fetch that URL: {exc}") from exc
-
-                # Backlog B9.3: try the page's own structured schema.org
-                # Recipe data first -- faster, no GPU time, and more
-                # accurate on quantities than asking a model to re-read
-                # prose. Falls back to the existing Ollama extraction
-                # below when the page doesn't publish one (or it's
-                # malformed) -- extract_jsonld_recipe never raises for
-                # "not found", only returns None.
-                jsonld_parsed = recipe_service.extract_jsonld_recipe(html)
-                page = recipe_service.extract_content_from_html(html, url=url)
-                if jsonld_parsed is None and not page.get("text"):
-                    raise RuntimeError("Could not extract readable content from that URL")
-
-                citation = {
-                    "source_url": url,
-                    "source_name": page.get("sitename"),
-                    # JSON-LD's own author (when present) is a more
-                    # reliable citation than trafilatura's page-level
-                    # byline guess, which can pick up a site editor
-                    # rather than the actual recipe's author.
-                    "source_author": (jsonld_parsed or {}).get("_source_author") or page.get("author"),
-                }
-                image_url = (jsonld_parsed or {}).get("_image_url") or page.get("image")
-                if image_url:
-                    fetched = recipe_service.fetch_image_bytes(image_url)
-                    if fetched:
-                        raw_image_bytes, image_content_type = fetched
-                        with contextlib.suppress(ValueError):
-                            image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
-
-                if jsonld_parsed is not None:
-                    # No model runs on this path, so it finishes in about a
-                    # second. Comparing it against imports that spend two
-                    # model calls is what made the progress badge read
-                    # "108s of ~1s typical".
-                    job_queue.set_estimate_key("recipe_import:structured")
-                    raw_output = (
-                        "(parsed directly from the page's structured schema.org Recipe data -- "
-                        "Ollama was not used for this import)"
-                    )
-                    default_source = "import_url_jsonld"
-                else:
-                    job_queue.set_estimate_key("recipe_import:model")
-                    source_text = page["text"]
-                    raw_output = _run_text_extraction(db, source_text)
-                    default_source = "import_url"
+                # The whole URL pipeline -- fetch, JSON-LD first, citation,
+                # dish photo, model fallback -- lives in recipe_service now,
+                # because the bookmarks importer runs it too and a second
+                # copy of an import pipeline drifts from the first.
+                url_result = recipe_service.parse_recipe_from_url(db, url)
+                raw_output = url_result["raw_output"]
+                default_source = url_result["default_source"]
+                citation = url_result["citation"]
+                image_path = url_result["image_path"]
+                jsonld_parsed = url_result["jsonld_parsed"]
+                source_text = url_result["source_text"]
+                # No model runs on the structured path, so it finishes in
+                # about a second. Comparing it against imports that spend
+                # two model calls is what made the progress badge read
+                # "108s of ~1s typical".
+                job_queue.set_estimate_key(
+                    "recipe_import:structured" if jsonld_parsed is not None else "recipe_import:model"
+                )
             elif text:
                 source_text = text
                 raw_output = _run_text_extraction(db, source_text)
@@ -406,6 +376,71 @@ def scan_import_folder(db: Session = Depends(get_db)):
 
     job_id, created = job_queue.enqueue(
         "recipe_folder_import", "Recipe folder import", _run, dedup_key="recipe_folder_import"
+    )
+    return JobEnqueuedResponse(job_id=job_id, created=created)
+
+
+@router.post("/import-bookmarks/folders", response_model=BookmarkFoldersResponse)
+async def list_bookmark_folders(file: UploadFile = File(...)):
+    """The folders in an exported bookmarks file, with counts.
+
+    Separate from the scan, and synchronous, because it costs nothing --
+    no network, no model -- and picking a folder before spending GPU time
+    on forty URLs is the whole point. Nothing here reads the household's
+    data, so it takes no DB session."""
+    raw = await file.read()
+    try:
+        html = raw.decode("utf-8", errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="That file could not be read as text") from exc
+
+    bookmarks = bookmark_import_service.parse_bookmarks(html)
+    if not bookmarks:
+        raise HTTPException(
+            status_code=400,
+            detail="No http(s) bookmarks found in that file. Export from your browser as HTML and try again.",
+        )
+    return BookmarkFoldersResponse(
+        folders=[BookmarkFolder(**f) for f in bookmark_import_service.folder_summary(bookmarks)],
+        total=len(bookmarks),
+    )
+
+
+@router.post("/import-bookmarks/scan", response_model=JobEnqueuedResponse, status_code=202)
+async def scan_bookmarks(
+    file: UploadFile = File(...),
+    folder_path: str | None = Form(None),
+    _db: Session = Depends(get_db),
+):
+    """Imports every bookmark in the chosen folder (and its subfolders),
+    as a PREVIEW -- nothing is written until the household confirms
+    through the existing /import-folder/confirm endpoint, which already
+    takes a plain list of RecipeCreate.
+
+    A background job for the same reason a single URL import is one: this
+    is a fetch and up to two model calls per bookmark, forty times
+    over."""
+    raw = await file.read()
+    html = raw.decode("utf-8", errors="replace")
+    bookmarks = bookmark_import_service.select(
+        bookmark_import_service.parse_bookmarks(html),
+        (folder_path or "").strip() or None,
+    )
+    if not bookmarks:
+        raise HTTPException(status_code=400, detail="No bookmarks to import in that folder")
+
+    def _run() -> dict:
+        db = SessionLocal()
+        try:
+            return bookmark_import_service.scan_and_parse(db, bookmarks)
+        finally:
+            db.close()
+
+    # Almost every recipe site publishes schema.org data, so most of these
+    # cost no model time at all -- but "almost" is not "all", and one
+    # unmarked page in forty makes the whole run a model run.
+    job_id, created = job_queue.enqueue(
+        "recipe_bookmark_import", "Bookmark import", _run, estimate_key="recipe_import:model"
     )
     return JobEnqueuedResponse(job_id=job_id, created=created)
 
