@@ -44,6 +44,30 @@ class SystemPrompt(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class SoundFile(Base, TimestampMixin):
+    """One entry in the cooking-timer sound library.
+
+    Built-ins are synthesised on boot (see sound_service) and carry a
+    stable `slug`; uploads have `slug=None` and a UUID-named file. Both
+    live on the data volume, so both survive a container rebuild -- the
+    row is only an index into it.
+
+    A built-in row is never deleted through the API. The dropdown that
+    picks a timer's warning and finish sounds has to have something in
+    it; a library the household can empty is a timer that goes off in
+    silence."""
+
+    __tablename__ = "sound_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    storage_path: Mapped[str] = mapped_column(String(500))
+    # Set only for built-ins, and their identity across rebuilds -- the
+    # display name is for humans and may be edited.
+    slug: Mapped[str | None] = mapped_column(String(60), nullable=True, unique=True)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class KnowledgeFile(Base, TimestampMixin):
     __tablename__ = "knowledge_files"
 

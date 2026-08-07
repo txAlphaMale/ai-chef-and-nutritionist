@@ -43,6 +43,7 @@ from app.routers import (
     knowledge,
     meal_plan,
     recipes,
+    sounds,
     system,
     tls,
 )
@@ -205,6 +206,7 @@ app.include_router(dining.router)
 app.include_router(system.router)
 app.include_router(inventory.router)
 app.include_router(recipes.router)
+app.include_router(sounds.router)
 app.include_router(kitchen.router)
 app.include_router(meal_plan.router)
 app.include_router(household.router)

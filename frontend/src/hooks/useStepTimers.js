@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { backendOrigin } from "../api";
 
 // Backlog B7.2 -- step-linked cooking timers, architected the same way
 // the persistent chat widget (Phase 7) and background job badge (B11.1)
@@ -15,6 +16,12 @@ import { useCallback, useEffect, useState } from "react";
 // of drifting or needing to "catch up".
 
 const STORAGE_KEY = "chef_cook_timers_v1";
+
+// How long before the end the warning sound fires. One minute is the
+// point at which a cook can still act -- get the tray out, turn the heat
+// down -- which is the entire reason for a second sound rather than a
+// louder first one.
+export const WARN_AT_SECONDS = 60;
 let listeners = [];
 
 function readTimers() {
@@ -42,6 +49,25 @@ function subscribe(listener) {
   return () => {
     listeners = listeners.filter((l) => l !== listener);
   };
+}
+
+// A library sound if one was chosen, the synthesised chime if not.
+//
+// The chime stays as the fallback rather than being replaced by a
+// built-in file, because it needs no network, no library row and no
+// volume: it is the thing that still works when a restore brought back
+// the database and not the audio.
+function playSound(soundId) {
+  if (soundId) {
+    try {
+      const audio = new Audio(`${backendOrigin}/api/sounds/${soundId}/audio`);
+      audio.play().catch(() => playChime());
+      return;
+    } catch {
+      // fall through to the chime
+    }
+  }
+  playChime();
 }
 
 function playChime() {
@@ -74,7 +100,7 @@ function playChime() {
 }
 
 function notifyDone(timer) {
-  playChime();
+  playSound(timer.doneSoundId);
   if (typeof Notification !== "undefined" && Notification.permission === "granted") {
     try {
       new Notification("Timer done", { body: timer.label, tag: timer.id });
@@ -99,6 +125,11 @@ export function useStepTimers() {
           notifyDone(t);
           return { ...t, notified: true };
         }
+        if (remaining <= WARN_AT_SECONDS && !t.warned && !t.notified) {
+          changed = true;
+          playSound(t.warnSoundId);
+          return { ...t, warned: true };
+        }
         return t;
       });
       if (changed) {
@@ -116,13 +147,20 @@ export function useStepTimers() {
     };
   }, []);
 
-  const start = useCallback(({ label, durationSeconds }) => {
+  const start = useCallback(({ label, durationSeconds, warnSoundId = null, doneSoundId = null }) => {
     const timer = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       label,
       durationSeconds,
       startedAt: Date.now(),
       notified: false,
+      // Nothing to warn about on a timer shorter than the warning
+      // itself: a 45-second timer would fire both sounds at once, so
+      // that case is marked already-warned rather than special-cased at
+      // every read.
+      warned: durationSeconds <= WARN_AT_SECONDS,
+      warnSoundId,
+      doneSoundId,
     };
     writeTimers([...readTimers(), timer]);
     // Ask for notification permission lazily, on this deliberate,

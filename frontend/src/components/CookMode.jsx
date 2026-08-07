@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStepTimers } from "../hooks/useStepTimers";
+import CookTimersPanel, { readPreferredSounds } from "./CookTimersPanel";
 import { annotateTemperatures, parseStepDuration } from "../utils/cookingText";
 
 // Backlog B7.1 -- full-screen, large-type, step-at-a-time cook-mode view.
@@ -239,12 +240,17 @@ export default function CookMode({ recipe, onExit }) {
                 startTimer({
                   label: `${recipe.title} -- step ${stepIndex + 1}`,
                   durationSeconds: currentDuration.seconds,
+                  // The pair chosen in the timers panel below, so a
+                  // step timer and a hand-made one sound the same.
+                  ...readPreferredSounds(),
                 })
               }
             >
               Start timer ({currentDuration.label})
             </button>
           )}
+
+          <CookTimersPanel />
 
           <div className="cook-mode-nav">
             <button type="button" className="btn btn-secondary" onClick={goBack} disabled={stepIndex === 0}>

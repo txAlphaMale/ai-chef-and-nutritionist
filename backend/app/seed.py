@@ -27,9 +27,10 @@ from app.models import (
     KitchenProfile,
     KnowledgeFile,
     MealTag,
+    SoundFile,
     SystemPrompt,
 )
-from app.services import knowledge_service, settings_service
+from app.services import knowledge_service, settings_service, sound_service
 
 # Backlog B2.1: bundled, repo-shipped reference documents so
 # every external user starts with SOME grounding for the "grounded in
@@ -190,6 +191,33 @@ def seed_default_knowledge_files(db) -> list[str]:
     return added
 
 
+def seed_builtin_sounds(db) -> list[str]:
+    """The five synthesised timer tones (sound_service.BUILTIN_SOUNDS).
+
+    Runs on EVERY boot, not just the first, and repairs both halves
+    independently: a missing file is rewritten, a missing row is
+    reinserted, and a row whose file vanished is re-pointed at the
+    regenerated one. That matters because the two live in different
+    places -- the row in the SQLite DB, the audio on the data volume --
+    and a restore can easily bring back one without the other.
+
+    Display names are NOT overwritten. If the household renamed `Bell` to
+    `The Good Bell`, that is theirs to keep; the slug is the identity."""
+    sound_service.ensure_builtin_files()
+    added = []
+    for slug, name, _builder in sound_service.BUILTIN_SOUNDS:
+        path = sound_service.builtin_path(slug)
+        row = db.query(SoundFile).filter_by(slug=slug).first()
+        if row is None:
+            db.add(SoundFile(name=name, storage_path=path, slug=slug, is_builtin=True))
+            added.append(slug)
+        elif row.storage_path != path or not row.is_builtin:
+            row.storage_path = path
+            row.is_builtin = True
+    db.commit()
+    return added
+
+
 def seed() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -254,6 +282,10 @@ def seed() -> None:
                 continue
             seed_value = os.environ.get(spec.env_fallback, "") if spec.env_fallback else ""
             settings_service.set_setting(db, spec.key, seed_value or spec.default)
+
+        added_sounds = seed_builtin_sounds(db)
+        if added_sounds:
+            print(f"Seeded {len(added_sounds)} built-in timer sound(s): {', '.join(added_sounds)}")
 
         added_knowledge = seed_default_knowledge_files(db)
         if added_knowledge:

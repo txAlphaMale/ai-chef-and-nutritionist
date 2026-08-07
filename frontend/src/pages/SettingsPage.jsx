@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
 import IngredientAliasManager from "../components/IngredientAliasManager";
+import SoundLibraryPanel from "../components/SoundLibraryPanel";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
 // Tavily key) and system prompts are edited here, one field/prompt at a
@@ -109,6 +110,10 @@ const PREFERENCE_SETTING_KEYS = [
   // Editable here because no fixed list can be complete; see the setting's
   // own description, rendered under the field.
   "ingredient_transformation_words",
+  // How many cooking timers cook mode will run at once (B7.2 follow-up).
+  // A preference rather than an integration: it is a judgement about how
+  // many rows stay glanceable in that household's kitchen.
+  "cook_timer_max_widgets",
 ];
 const DEFAULT_SETTINGS_TAB = "integrations";
 
@@ -1256,6 +1261,10 @@ export default function SettingsPage() {
             {loading ? <p>Loading...</p> : settingsByTab.preferences.map(renderSettingRow)}
           </div>
           <IngredientAliasManager />
+          <div className="card">
+            <h3>Timer sounds</h3>
+            <SoundLibraryPanel />
+          </div>
           <div className="card">
             <h3>Household size &amp; dietary restrictions</h3>
             <p className="hint">

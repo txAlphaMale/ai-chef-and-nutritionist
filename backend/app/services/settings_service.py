@@ -391,6 +391,18 @@ SETTING_SPECS: list[SettingSpec] = [
         ),
     ),
     SettingSpec(
+        key="cook_timer_max_widgets",
+        label="Cook mode: maximum simultaneous timers",
+        is_secret=False,
+        default="3",
+        description=(
+            "How many cooking timers can run at once. Three covers the usual case -- something "
+            "in the oven, something on the hob, something resting -- and the cap exists so the "
+            "cook-mode panel stays readable at a glance from across the kitchen rather than "
+            "becoming a list to search. Raise it if you routinely run more."
+        ),
+    ),
+    SettingSpec(
         key="cors_allow_origins",
         label="Extra allowed browser origins (CORS)",
         is_secret=False,

@@ -14,7 +14,7 @@ from app.models.inventory import (
 from app.models.kitchen import KitchenProfile
 from app.models.meal_plan import GroceryListItem, MealPlan, MealPlanEntry
 from app.models.recipe import MealTag, Recipe, RecipeIngredient
-from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, SystemPrompt
+from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, SoundFile, SystemPrompt
 
 __all__ = [
     "AppSetting",
@@ -36,5 +36,6 @@ __all__ = [
     "RecallCheckState",
     "Recipe",
     "RecipeIngredient",
+    "SoundFile",
     "SystemPrompt",
 ]
