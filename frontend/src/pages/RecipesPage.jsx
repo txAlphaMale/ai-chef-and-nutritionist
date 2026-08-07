@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { api, backendOrigin } from "../api";
 import IngredientProvenance from "../components/IngredientProvenance";
 import RecipeForm from "../components/RecipeForm";
+import RecipeFacetFilter from "../components/RecipeFacetFilter";
 import RestrictionWarnings from "../components/RestrictionWarnings";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
+import { applyFacets, derivedTagBases, derivedTagLabel, emptySelection } from "../utils/recipeFacets";
 
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState([]);
@@ -13,6 +15,11 @@ export default function RecipesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [stapleOnly, setStapleOnly] = useState(false);
   const [search, setSearch] = useState("");
+  // Facet selection lives here rather than in the query string: derived
+  // tags are recomputed per read and never stored, so the server cannot
+  // filter on them at all. The server still narrows by title/staple; the
+  // facets narrow what came back. See utils/recipeFacets.js.
+  const [facets, setFacets] = useState(emptySelection());
 
   // POST /recipes/import enqueues a background job (see recipes.py's
   // import_recipe) rather than blocking for the full
@@ -298,6 +305,8 @@ export default function RecipesPage() {
     refresh();
   }
 
+  const visibleRecipes = applyFacets(recipes, facets);
+
   return (
     <div>
       <div className="page-toolbar">
@@ -569,32 +578,69 @@ export default function RecipesPage() {
       )}
 
       {error && <p className="error-text">{error}</p>}
+      {!loading && recipes.length > 0 && (
+        <RecipeFacetFilter
+          recipes={recipes}
+          value={facets}
+          onChange={setFacets}
+          matchCount={visibleRecipes.length}
+        />
+      )}
       {loading ? (
         <p>Loading recipes...</p>
       ) : recipes.length === 0 ? (
         <p>No recipes yet. Add one, or import from text/photo/PDF above.</p>
+      ) : visibleRecipes.length === 0 ? (
+        <p>
+          No recipes match these filters.{" "}
+          <button className="btn-link" onClick={() => setFacets(emptySelection())}>
+            Clear them
+          </button>{" "}
+          to see all {recipes.length}.
+        </p>
       ) : (
         <ul className="recipe-list">
-          {recipes.map((r) => (
-            <li key={r.id} className="recipe-list-item recipe-list-item-with-image">
-              {r.image_path && (
-                <img className="recipe-thumb" src={`${backendOrigin}/api/recipes/${r.id}/image`} alt="" />
-              )}
-              <div>
-                <Link to={`/recipes/${r.id}`}>
-                  <strong>{r.title}</strong>
-                </Link>
-                {r.is_staple && <span className="tag">★ staple</span>}
-                {r.rating != null && <span className="tag">{"★".repeat(r.rating)}</span>}
-                <span className="tag">{r.default_servings} servings</span>
-                {(r.tags || []).map((t) => (
-                  <span className="tag" key={t}>
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </li>
-          ))}
+          {visibleRecipes.map((r) => {
+            // The evidence behind each derived tag, so a chip can explain
+            // itself on hover rather than asserting something the
+            // household has no way to check. See smart_tag_service.
+            const bases = derivedTagBases(r);
+            return (
+              <li key={r.id} className="recipe-list-item recipe-list-item-with-image">
+                {r.image_path && (
+                  <img className="recipe-thumb" src={`${backendOrigin}/api/recipes/${r.id}/image`} alt="" />
+                )}
+                <div>
+                  <Link to={`/recipes/${r.id}`}>
+                    <strong>{r.title}</strong>
+                  </Link>
+                  {r.is_staple && <span className="tag">★ staple</span>}
+                  {r.rating != null && <span className="tag">{"★".repeat(r.rating)}</span>}
+                  <span className="tag">{r.default_servings} servings</span>
+                  {(r.tags || []).map((t) => (
+                    <span className="tag" key={t}>
+                      {t}
+                    </span>
+                  ))}
+                  {/* Derived tags are styled apart from the editable ones
+                      above deliberately: one set is what somebody said
+                      about this recipe, the other is what the app worked
+                      out from its ingredients, and a household deciding
+                      what to cook should be able to tell which is which
+                      without clicking anything. */}
+                  {(r.derived_tags || []).map((d) => (
+                    <span
+                      className="tag tag-derived"
+                      key={d.tag}
+                      title={bases.get(d.tag) ? `Worked out from: ${bases.get(d.tag)}` : undefined}
+                    >
+                      {derivedTagLabel(d.tag)}
+                    </span>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -2558,3 +2558,100 @@ tr.urgency-low td {
 .tag-warning {
   background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
+
+/* --- Recipe facet filter (SmartTag) ---------------------------------
+   Two kinds of tag share this page and the household has to be able to
+   tell them apart at a glance: EDITABLE ones somebody typed or the
+   import model suggested, and DERIVED ones smart_tag_service worked out
+   from the recipe's own ingredients. The distinction carries real
+   weight -- a derived dietary tag is the thing you would filter dinner
+   by -- so it is expressed structurally (a dashed border and the
+   secondary hue, against the flat bordered chip an editable tag gets)
+   rather than by colour alone, which the highcontrast theme and a
+   colour-blind reader would both lose. */
+
+.facet-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+
+.facet-panel-head h3 {
+  margin: 0;
+}
+
+.facet-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-2);
+}
+
+.facet-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.facet-group legend {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 0 var(--spacing-1);
+}
+
+.facet-note {
+  color: var(--color-text-muted);
+  font-size: var(--font-xs);
+  margin: 0 0 var(--spacing-2);
+}
+
+.facet-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.facet-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+/* The derived groups carry the same dashed-and-secondary language as the
+   chips on each recipe below, so "this was worked out, not typed" reads
+   the same wherever it appears. */
+.facet-option-derived {
+  border-left: 2px dashed var(--color-secondary);
+  padding-left: var(--spacing-2);
+  margin-left: calc(var(--spacing-1) * -1);
+}
+
+.facet-count {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.facet-safety-note {
+  margin-top: var(--spacing-3);
+  margin-bottom: 0;
+}
+
+/* A tag the app worked out rather than one somebody typed. Dashed, to
+   read as provisional/computed next to the solid editable chip, and
+   never interactive -- there is nothing here to edit, because nothing
+   here is stored. */
+.tag-derived {
+  border-style: dashed;
+  border-color: var(--color-secondary);
+  color: var(--color-secondary);
+  background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
+  cursor: help;
+}
