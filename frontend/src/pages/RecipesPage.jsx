@@ -116,8 +116,15 @@ export default function RecipesPage() {
   // `no-use-before-define` is now on to make that structural.
   useEffect(() => {
     if (!bookmarkScanJob.result) return;
-    const { items, skipped, truncated } = bookmarkScanJob.result;
-    setFolderScanMeta({ skipped, truncated, scanned_folder: bookmarkFolder || "all bookmarks", error: null });
+    const { items, skipped, truncated, already_imported: alreadyImported, remaining } = bookmarkScanJob.result;
+    setFolderScanMeta({
+      skipped,
+      truncated,
+      scanned_folder: bookmarkFolder || "all bookmarks",
+      error: null,
+      alreadyImported,
+      remaining,
+    });
     setFolderItems(
       (items || []).map((it) => ({
         filename: it.title,
@@ -509,19 +516,32 @@ export default function RecipesPage() {
       {folderItems && (
         <div className="card">
           <h3>Review folder import</h3>
-          {folderScanMeta?.scanned_folder && (
+          {folderScanMeta?.scanned_folder && <p className="hint">Scanned: {folderScanMeta.scanned_folder}</p>}
+          {/* A bookmarks export is routinely larger than one scan's cap,
+              so the run is designed to be repeated: anything already
+              imported is dropped before the cap, and each upload of the
+              same file takes the next batch. This line is what makes that
+              loop obvious instead of looking like the import gave up. */}
+          {(folderScanMeta?.alreadyImported > 0 || folderScanMeta?.remaining > 0) && (
             <p className="hint">
-              Scanned: {folderScanMeta.scanned_folder}
-              {folderScanMeta.truncated && " -- more files were found than this scan's cap allows; narrow the folder to catch the rest."}
+              {folderScanMeta.alreadyImported > 0 &&
+                `${folderScanMeta.alreadyImported} already in your recipes and skipped without re-fetching. `}
+              {folderScanMeta.remaining > 0
+                ? `${folderScanMeta.remaining} still to go -- confirm these, then upload the same file again to continue.`
+                : "That is the whole file."}
             </p>
           )}
-          {folderScanMeta?.skipped?.length > 0 && (
+          {folderScanMeta?.skipped?.length > 0 && folderScanMeta.remaining === undefined && (
             <p className="hint">
               Skipped {folderScanMeta.skipped.length} file(s) (too large): {folderScanMeta.skipped.map((s) => s[0].split("/").pop()).join(", ")}
             </p>
           )}
           {folderItems.length === 0 ? (
-            <p>No supported recipe files found in that folder.</p>
+            <p>
+              {folderScanMeta?.alreadyImported > 0
+                ? `Nothing new -- all ${folderScanMeta.alreadyImported} of these are already in your recipes.`
+                : "No supported recipe files found in that folder."}
+            </p>
           ) : (
             <>
               <table className="data-table">
