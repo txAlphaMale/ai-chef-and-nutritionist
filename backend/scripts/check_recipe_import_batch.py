@@ -174,42 +174,21 @@ def check_one(db, path: Path) -> dict:
         data = {} if done_reason == "length" else (recipe_service._extract_json_object(raw) or {})
         if done_reason == "length":
             row["how"] = "CUT"
-        two_pass = []
-        strategies = set()
-        blocks_dropped = 0
-        # Mirrors the app: a looping pass 1 returns the same block many
-        # times, and counting it many times would overstate p1 and the
-        # ingredient count alike.
-        for block in recipe_service.dedupe_blocks(data.get("blocks") or []):
-            component = recipe_service.normalize_component(block.get("component"))
-            lines = [ln for ln in (block.get("lines") or []) if isinstance(ln, str)]
-            if not lines:
-                continue
-            p1 += len(lines)
-            accepted, _rejected, strategy = recipe_service.reconcile_block(lines, two_pass_source)
-            # Same per-block gate the app applies. A table that reports a
-            # policy the app no longer follows is worse than no table.
-            if len(accepted) / len(lines) < recipe_service._TWO_PASS_MIN_COVERAGE:
-                blocks_dropped += 1
-                continue
-            strategies.add(strategy)
-            kept += len(accepted)
-            block_entries = [
-                entry
-                for line in accepted
-                for entry in recipe_service.parse_ingredient_line_amounts(line)
-                # Mirrors the app: a metadata line like `30 minutes
-                # hands-on effort` verifies perfectly and is not food.
-                if entry["ingredient_name"] and not recipe_service._names_a_duration(entry)
-            ]
-            # Headings welded into the run are source text and verify
-            # correctly, so they have to be split out here too or this
-            # table reports one more ingredient than the app stores.
-            two_pass.extend(recipe_service._split_headings_from_ingredients(block_entries, component))
-        if strategies:
-            row["how"] = "+".join(sorted(strategies))
-        if blocks_dropped:
-            row["how"] = f"{row['how']}-{blocks_dropped}b"
+
+        # The block loop, the coverage gate, the bullet handling, the
+        # duration filter and the heading split are ALL the app's, called
+        # rather than copied -- see recipe_service.ingredients_from_pass1_blocks
+        # for why this function exists to be called twice. This harness
+        # having its own copy is what once scored the pizza at six while
+        # the app stored five.
+        result = recipe_service.ingredients_from_pass1_blocks(data.get("blocks") or [], two_pass_source)
+        two_pass = result.ingredients
+        p1, kept = result.lines_returned, result.lines_verified
+        if result.strategies:
+            row["how"] = "+".join(sorted(result.strategies))
+        if result.blocks_dropped:
+            row["how"] = f"{row['how']}-{result.blocks_dropped}b"
+
         single_call_count = len(parsed.get("ingredients") or [])
         big_enough = single_call_count == 0 or len(two_pass) >= single_call_count * (
             recipe_service._TWO_PASS_MIN_COVERAGE

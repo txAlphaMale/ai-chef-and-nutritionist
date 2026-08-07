@@ -10,6 +10,7 @@ import io
 import json
 import re
 from collections import Counter
+from dataclasses import dataclass
 from itertools import pairwise
 
 import httpx
@@ -1455,34 +1456,81 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     #
     # Per block, a section that verifies stands on its own and a section
     # that does not is dropped without taking its neighbours with it.
-    ingredients: list[dict] = []
-    returned = verified = 0
-    strategies: set[str] = set()
-    blocks = dedupe_blocks(data.get("blocks") or [])
-    if len(blocks) < len(data.get("blocks") or []):
+    result = ingredients_from_pass1_blocks(data.get("blocks") or [], content)
+    if result.duplicate_blocks:
         print(
-            f"[recipe_import] pass 1 repeated itself: {len(data['blocks'])} block(s) returned, "
-            f"{len(blocks)} distinct. Duplicates collapsed.",
+            f"[recipe_import] pass 1 repeated itself: {result.blocks_returned} block(s) returned, "
+            f"{result.blocks_returned - result.duplicate_blocks} distinct. Duplicates collapsed.",
             flush=True,
         )
+    for message in result.messages:
+        print(f"[recipe_import] {message}", flush=True)
+    if result.ingredients:
+        print(
+            f"[recipe_import] two-pass supplied {len(result.ingredients)} ingredient(s) from "
+            f"{result.lines_verified} verified line(s) of {result.lines_returned} copied, "
+            f"strategy={'+'.join(sorted(result.strategies))}",
+            flush=True,
+        )
+    return result.ingredients
+
+
+@dataclass
+class Pass1Result:
+    """Everything the block loop decided, for the two callers that need
+    different parts of it."""
+
+    ingredients: list[dict]
+    lines_returned: int
+    lines_verified: int
+    blocks_returned: int
+    duplicate_blocks: int
+    blocks_dropped: int
+    strategies: set
+    # What the app prints. Returned rather than printed here so the batch
+    # harness can render them as a table column instead of interleaving
+    # them with its own output.
+    messages: list
+
+
+def ingredients_from_pass1_blocks(raw_blocks: list, source: str) -> Pass1Result:
+    """Pass 1's copied blocks -> stored ingredients, and the numbers that
+    explain the decision.
+
+    **This function exists to be called TWICE.** The app calls it after
+    making the model call; `scripts/check_recipe_import_batch.py` calls it
+    after making its own, because the harness needs pass 1's raw counts
+    and cannot get them from a function that only returns ingredients.
+
+    The harness used to re-implement this loop. It duplicated for a real
+    reason -- calling the app's function AND pass 1 separately would mean
+    three model calls per file where the app makes two, which on one
+    worker thread makes a corpus run needlessly slow and misreports what
+    an import costs. But a copy of a policy drifts from it, and this one
+    did: it scored the pizza at six ingredients while the app stored five,
+    and the 2026-08-07 bullet change broke its call signature outright.
+    One function, two callers, no policy in the copy."""
+    ingredients: list[dict] = []
+    returned = verified = blocks_dropped = 0
+    strategies: set[str] = set()
+    messages: list[str] = []
+
+    raw_blocks = [b for b in raw_blocks if isinstance(b, dict)]
+    blocks = dedupe_blocks(raw_blocks)
     for block in blocks:
         component = normalize_component(block.get("component"))
         raw_lines = [line for line in (block.get("lines") or []) if isinstance(line, str)]
         if not raw_lines:
             continue
-        kept, discarded, strategy = reconcile_block(raw_lines, content)
+        kept, discarded, strategy = reconcile_block(raw_lines, source)
         returned += len(raw_lines)
         if discarded:
-            print(
-                f"[recipe_import] pass 1 returned {len(discarded)} line(s) not found in the source, dropped: "
-                f"{discarded}",
-                flush=True,
-            )
+            messages.append(f"pass 1 returned {len(discarded)} line(s) not found in the source, dropped: {discarded}")
         if len(kept) / len(raw_lines) < _TWO_PASS_MIN_COVERAGE:
-            print(
-                f"[recipe_import] block {component or 'main'!r} DROPPED: {len(kept)} of "
-                f"{len(raw_lines)} copied line(s) verified. Not a section of an ingredient list.",
-                flush=True,
+            blocks_dropped += 1
+            messages.append(
+                f"block {component or 'main'!r} DROPPED: {len(kept)} of {len(raw_lines)} copied line(s) "
+                "verified. Not a section of an ingredient list."
             )
             continue
         verified += len(kept)
@@ -1499,14 +1547,16 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
                     block_entries.append((entry, bulleted))
         ingredients.extend(_split_headings_from_ingredients(block_entries, component))
 
-    if ingredients:
-        print(
-            f"[recipe_import] two-pass supplied {len(ingredients)} ingredient(s) from "
-            f"{verified} verified line(s) of {returned} copied, "
-            f"strategy={'+'.join(sorted(strategies))}",
-            flush=True,
-        )
-    return ingredients
+    return Pass1Result(
+        ingredients=ingredients,
+        lines_returned=returned,
+        lines_verified=verified,
+        blocks_returned=len(raw_blocks),
+        duplicate_blocks=len(raw_blocks) - len(blocks),
+        blocks_dropped=blocks_dropped,
+        strategies=strategies,
+        messages=messages,
+    )
 
 
 def _parse_ingredient_line(line: str) -> dict:
