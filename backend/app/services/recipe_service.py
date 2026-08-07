@@ -318,7 +318,7 @@ RULES:
 3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it. Use ONLY headings the source actually prints. If it prints two, there are exactly two -- inventing a third because it would be a natural name for those ingredients is an error. Use the value main when the recipe is a single dish with no named parts.
 4. "instructions" is one array entry per DISCRETE STEP, in the order the source presents them, across EVERY labeled section -- not just the first one. A step is one action the cook finishes before starting the next. A source paragraph almost always holds several steps; never copy a whole paragraph across as one entry. Any action that carries a time or a temperature ("bake 20-25 minutes", "cook about 5 minutes", "chill overnight") is ALWAYS its own entry and is never buried in an entry that also does something else. Each entry carries the heading of the section it appears under, spelled identically to rule 3's, or the literal main when the recipe has no sections. Rule 3's constraint applies here too: never introduce a heading the source does not print.
 5. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
-6. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
+6. "tags" -- only short lowercase strings from this fixed set where applicable: breakfast, lunch, dinner, dessert, quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit). NEVER emit a tag claiming the dish is FREE OF something -- not gluten_free, dairy_free, nut_free, or any similar "free" or "safe for" tag. A recipe source cannot establish that an ingredient is absent, and this app decides those claims for itself.
 7. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
 8. Only extract factual/functional recipe information (what to buy, what to do, timing, substitutions). Do NOT reproduce the source's narrative prose, personal stories, advertisements, or other copyrightable writing -- summarize functionally instead of quoting at length.
 
@@ -383,6 +383,74 @@ def parse_recipe_response(raw_text: str) -> dict | None:
     return coerce_recipe_fields(data)
 
 
+# --- An absence claim is not the model's to make -------------------------
+#
+# Rule 6 names a fixed tag vocabulary and, since 2026-08-07, forbids any
+# "free of" tag outright. Neither is enforcement. Rule 6 also invites a
+# new tag when nothing in the set fits, and NOTHING between the model and
+# the database ever checked the answer: this function lowercased whatever
+# arrived and `resolve_tags` created the row. Taking `gluten_free` out of
+# a list the model was always free to depart from changed the odds and
+# nothing else.
+#
+# Worth gating rather than merely asking, because this error is not
+# symmetric. `allergen_service` is built to FLAG what it recognises, so a
+# miss reads as clean -- an absence claim fails silently and in the
+# dangerous direction. A tag wrongly saying a dish CONTAINS gluten costs
+# the household a meal it would have enjoyed. The inverse costs a coeliac
+# considerably more, and this household cooks gluten-free for a reason.
+#
+# Hand-entered tags are deliberately NOT gated, and the caller list is
+# what makes that precise: every caller of `coerce_recipe_fields` is a
+# model or a publisher asserting something about a document it read
+# (recipe import, chat's recipe proposals, meal-plan generation's
+# `new_recipe`). The API's own create/update path does not pass through
+# here. A household tagging food it cooked itself is making a claim it is
+# entitled to make, about a kitchen it can actually see.
+#
+# The JSON-LD path is gated too, and that is a decision rather than an
+# oversight. A publisher's own `keywords: gluten free` describes their
+# kitchen and their supply chain, not this one, and it arrives with no
+# more checking behind it than the model's version.
+#
+# `freezer_friendly` and `free_range` are why these are anchored patterns
+# and not a substring search for "free" -- the first would match on
+# "free"+"zer" under a careless rule, and the second is a sourcing claim,
+# not an absence one.
+_ABSENCE_CLAIM_PATTERNS = [
+    # gluten_free, dairy free, nut-free, allergen_free, sugar free
+    re.compile(r"^.+[\s_-]free$"),
+    # free_of_gluten, free-from-dairy
+    re.compile(r"^free[\s_-](of|from)[\s_-].+$"),
+    # no_gluten, without dairy
+    re.compile(r"^(no|without)[\s_-].+$"),
+    # celiac_friendly, coeliac safe -- an absence claim wearing another word
+    re.compile(r"^.*(celiac|coeliac).*$"),
+    # allergy_friendly
+    re.compile(r"^allerg(y|en)[\s_-]friendly$"),
+    # the abbreviations a model reaches for when told not to spell it out
+    re.compile(r"^(gf|df|gfree|dfree)$"),
+]
+
+
+def split_absence_claim_tags(tags: list[str]) -> tuple[list[str], list[str]]:
+    """Partition `tags` into (kept, dropped), dropping any tag that claims
+    a dish is FREE OF something.
+
+    Returns both halves rather than filtering in place so the caller can
+    say what it threw away. A gate that silently eats a tag is how a
+    household ends up believing the model never emitted one."""
+    kept, dropped = [], []
+    for tag in tags:
+        target = kept
+        for pattern in _ABSENCE_CLAIM_PATTERNS:
+            if pattern.match(tag):
+                target = dropped
+                break
+        target.append(tag)
+    return kept, dropped
+
+
 def coerce_recipe_fields(data: dict) -> dict:
     """Field coercion shared by recipe import (parse_recipe_response,
     above) and meal-plan generation (meal_plan_service.parse_meal_plan_
@@ -416,7 +484,15 @@ def coerce_recipe_fields(data: dict) -> dict:
     instructions = normalize_instructions(data.get("instructions"))
     nutrition_raw = data.get("nutrition") or {}
     nutrition = {k: _safe_float(v) for k, v in nutrition_raw.items() if _safe_float(v) is not None}
-    tags = [str(t).strip().lower() for t in (data.get("tags") or []) if str(t).strip()]
+    tags, dropped_tags = split_absence_claim_tags(
+        [str(t).strip().lower() for t in (data.get("tags") or []) if str(t).strip()]
+    )
+    if dropped_tags:
+        print(
+            f"[recipe_tags] dropped {len(dropped_tags)} absence-claim tag(s): "
+            f"{', '.join(sorted(dropped_tags))} -- see _ABSENCE_CLAIM_PATTERNS",
+            flush=True,
+        )
     tips = [str(t).strip() for t in (data.get("tips") or []) if str(t).strip()]
 
     return {

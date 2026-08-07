@@ -23,8 +23,15 @@ class MealTag(Base):
     __tablename__ = "meal_tags"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # e.g. quick, portable, non_refrigerated, dutch_oven_only, backpacking,
-    # one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free
+    # e.g. breakfast, lunch, dinner, dessert, quick, portable,
+    # non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead,
+    # freezer_friendly, kid_friendly, gluten_free
+    #
+    # gluten_free is still a tag the HOUSEHOLD may apply by hand -- it is a
+    # claim they are entitled to make about their own kitchen. It is no
+    # longer in the import prompt's vocabulary, because a model asserting
+    # the ABSENCE of an allergen from a recipe source is asserting a safety
+    # fact it cannot check. See rule 6 in RECIPE_IMPORT_PROMPT.
     name: Mapped[str] = mapped_column(String(50), unique=True)
 
 

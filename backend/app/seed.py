@@ -87,6 +87,10 @@ You can update any of this later from Settings or just by telling me in chat.
 """
 
 DEFAULT_TAGS = [
+    "breakfast",
+    "lunch",
+    "dinner",
+    "dessert",
     "quick",
     "portable",
     "non_refrigerated",
