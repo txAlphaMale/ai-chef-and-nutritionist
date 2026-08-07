@@ -5,9 +5,9 @@ primary reader. Every offline test of the wrapped-line problem needs the
 text the app now actually sees, and that text can only come from the real
 PDFs, which live on the author's machine rather than in the repo.
 
-Mirrors the pdfplumber branch of recipe_service.extract_pdf_text exactly
--- same call, same join -- but imports NOTHING from the app, so it runs in
-a throwaway container without the app's dependency tree:
+Dumps RAW pdfplumber output -- `page.extract_text()` joined with newlines
+-- and imports NOTHING from the app, so it runs in a throwaway container
+without the app's dependency tree:
 
     docker run --rm -v /home/comfyui/recipe-smoke-test:/pdfs:ro \
       -v /mnt/c/Users/JBentley/Claude/Projects/chef/backend:/src -w /src \
@@ -18,6 +18,17 @@ a throwaway container without the app's dependency tree:
 Note the mount: it writes into the WINDOWS checkout, which is where edits
 are made and where commits are pushed from. Writing into the WSL clone
 would put fixtures on the side of the fence that only ever pulls.
+
+This USED to be exactly what extract_pdf_text produced. Since 2026-08-06
+it is not: extract_pdf_text now also separates two page elements written
+through each other (see the comment above it), and this script does not.
+A fixture written here is therefore the text BEFORE that repair.
+
+That is still the right input for the wrapped-line and welded-source
+machinery these fixtures exist to test -- but it is no longer "the text
+the app sees", and a test that needs the repaired shape cannot get it
+from here. Do not read a shredded line in this output as evidence that
+the repair is broken; it never ran.
 
 The pypdf fixtures are NOT replaced. They stay as the regression case for
 a source with no line structure at all -- that shape still occurs, it is

@@ -255,6 +255,24 @@ def create_recipe_from_parsed(db: Session, parsed: dict, source: str = "ai_gener
 # cost fewer tokens per requirement stated. The requirements this prompt
 # must keep expressing: unit fidelity (never convert, never guess), an
 # ingredient name reused across sections split rather than merged (crust
+# Rule 4 defines what a step BOUNDARY is, and that is also deliberate.
+#
+# Measured on the pie, 2026-08-06: dropping rule 3's example headings
+# coincided with the model copying the source almost verbatim instead of
+# paraphrasing it -- an improvement -- but it also started copying whole
+# PARAGRAPHS as single steps. `Add butter and pulse until wet sand.
+# Transfer to a 9 1/2" dish. Press crumbs firmly. Bake crust until
+# fragrant, 20-25 minutes.` arrived as ONE entry, where the previous run
+# had four.
+#
+# That is not cosmetic. B7.1 cook mode shows one entry at a time and B7.2
+# parses durations out of entry text to offer a timer, so a bake buried
+# mid-entry is a worse timer and a worse cook mode. Fidelity and
+# granularity turned out to be in tension, so rule 4 now states the
+# boundary rather than assuming "discrete step" is self-evident, and
+# singles out timed actions because that is the case that actually costs
+# the household something.
+#
 # Rules 3 and 4 name NO example section headings, and that is deliberate.
 # They used to read `(Crust, Filling and Assembly, Topping)` and
 # `(crust, filling, assembly, topping, etc.)`. On the Bon Appetit pie --
@@ -297,7 +315,7 @@ RULES:
 1. Copy each ingredient's quantity and unit EXACTLY as written in the source -- never convert between units (e.g. "2 Tbsp." stays quantity 2 / unit "Tbsp.", never converted to a fraction of a cup or any other unit). Never guess a quantity or unit that isn't actually stated; leave both null rather than invent one.
 2. If the same ingredient name (e.g. "sugar", "kosher salt") appears more than once in the source for a different part of the recipe (a crust vs. a filling, a marinade vs. a sauce, an ingredient list vs. a later "remaining X" reference), list each occurrence as its OWN separate ingredient entry with ONLY the quantity/unit/prep_note stated for THAT occurrence. Never merge, average, or carry a modifier like "divided" from one occurrence onto a different one.
 3. Every ingredient carries a "component": the source's own heading for the part of the dish that ingredient belongs to, copied exactly as the source writes it. Use ONLY headings the source actually prints. If it prints two, there are exactly two -- inventing a third because it would be a natural name for those ingredients is an error. Use the value main when the recipe is a single dish with no named parts.
-4. "instructions" is one array entry per discrete step, in the order the source presents them, across EVERY labeled section -- not just the first one. Each entry carries the heading of the section it appears under, spelled identically to rule 3's, or the literal main when the recipe has no sections. Rule 3's constraint applies here too: never introduce a heading the source does not print.
+4. "instructions" is one array entry per DISCRETE STEP, in the order the source presents them, across EVERY labeled section -- not just the first one. A step is one action the cook finishes before starting the next. A source paragraph almost always holds several steps; never copy a whole paragraph across as one entry. Any action that carries a time or a temperature ("bake 20-25 minutes", "cook about 5 minutes", "chill overnight") is ALWAYS its own entry and is never buried in an entry that also does something else. Each entry carries the heading of the section it appears under, spelled identically to rule 3's, or the literal main when the recipe has no sections. Rule 3's constraint applies here too: never introduce a heading the source does not print.
 5. "default_servings" is your best estimate if not stated, else a reasonable default like 4.
 6. "tags" -- only short lowercase strings from this fixed set where applicable: quick, portable, non_refrigerated, dutch_oven_only, backpacking, one_pot, make_ahead, freezer_friendly, kid_friendly, gluten_free (omit any that don't apply; add a new short tag only if clearly relevant and none of these fit).
 7. "tips" -- short, GENUINELY USEFUL asides the source explicitly mentions that this shape has no other field for: ingredient substitutions, optional variations, make-ahead/storage notes, or equipment alternatives. Paraphrase each in your own words, never a long verbatim quote. Empty array if there's nothing like that.
@@ -1212,7 +1230,46 @@ def instruction_texts(raw) -> list[str]:
     return [step["text"] for step in normalize_instructions(raw)]
 
 
-def _split_headings_from_ingredients(entries: list[dict], component: str | None) -> list[dict]:
+# A line that opens with a list bullet is an ITEM of the list, whatever
+# else is true of it. A section heading is never bulleted -- that is what
+# the bullet is for. The bullet is stripped BEFORE the amount is read,
+# because it is the first thing _QTY_RE looks at.
+#
+# Two measured defects, one rule.
+#
+# 1. The pizza's `+ Chickpea flour or fine cornmeal` is a real sixth
+#    ingredient with no amount, and the heading-split rule below deleted
+#    it, because its block states amounts everywhere else. The plan
+#    carried that as an open item on the grounds that relaxing "has no
+#    amount" costs more than it pays -- which is true, and this does not
+#    relax it. It uses a structural signal the source supplied, in the
+#    same spirit as _AMOUNT_START: what separates these lines is how they
+#    START.
+#
+# 2. Found by finally exercising trafilatura, 2026-08-07. It renders every
+#    `<li>` as `- 1 cup stone-ground cornmeal`, so on EVERY non-JSON-LD
+#    URL import, `_QTY_RE` failed at the bullet and the whole amount was
+#    swallowed into the ingredient NAME: seven of seven nulls, named
+#    `1 cup stone-ground cornmeal`. The name is this app's join key, so
+#    inventory matching, grocery aggregation and nutrition resolution were
+#    all broken on that path -- and the copied lines still verified
+#    perfectly, so the review screen would have called it verified. It
+#    was: verification checks that a line came from the page, not that
+#    the arithmetic afterwards could read it.
+#
+# Hyphens and dashes count only when followed by whitespace, so a name
+# beginning with one is untouched.
+_LIST_BULLET = re.compile(r"^(?:[+*•‣▪]|[-–—](?=\s))\s*")  # noqa: RUF001 -- en/em dash bullets are what real pages use
+
+
+def strip_list_bullet(line: str) -> tuple[str, bool]:
+    """(line without its leading bullet, whether it had one)."""
+    text = (line or "").strip()
+    match = _LIST_BULLET.match(text)
+    return (text[match.end() :].strip(), True) if match else (text, False)
+
+
+def _split_headings_from_ingredients(entries: list[tuple[dict, bool]], component: str | None) -> list[dict]:
     """A welded source hides its section headings INSIDE the ingredient run.
 
     Measured on the kimchi file: the source line reads
@@ -1232,17 +1289,21 @@ def _split_headings_from_ingredients(entries: list[dict], component: str | None)
     A clean alphabetic label is PROMOTED to the component of everything
     after it, which is what the source meant by writing it -- the kimchi's
     salt and water really do belong to `Brine`. Anything else is dropped."""
-    with_amounts = sum(1 for entry in entries if entry["quantity"] is not None)
+    with_amounts = sum(1 for entry, _ in entries if entry["quantity"] is not None)
     if with_amounts <= len(entries) / 2:
-        return [{**entry, "component": component} for entry in entries]
+        return [{**entry, "component": component} for entry, _ in entries]
 
     current = component
     kept: list[dict] = []
-    for entry in entries:
+    for entry, was_bulleted in entries:
+        if was_bulleted:
+            # An item of the list. Not a heading, and not junk.
+            kept.append({**entry, "component": current})
+            continue
         if entry["quantity"] is None and not entry["unit"]:
-            label = entry["ingredient_name"].strip()
-            if label.replace(" ", "").isalpha() and len(label.split()) <= 3:
-                current = normalize_component(label)
+            name = entry["ingredient_name"].strip()
+            if name.replace(" ", "").isalpha() and len(name.split()) <= 3:
+                current = normalize_component(name)
             continue
         kept.append({**entry, "component": current})
     return kept
@@ -1426,12 +1487,16 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
             continue
         verified += len(kept)
         strategies.add(strategy)
-        block_entries = [
-            entry
-            for line in kept
-            for entry in parse_ingredient_line_amounts(line)
-            if entry["ingredient_name"] and not _names_a_duration(entry)
-        ]
+        # The bullet comes off before the amount is read -- see
+        # _LIST_BULLET -- and whether there WAS one is carried alongside,
+        # because it is the only thing separating an amountless list item
+        # from a section heading.
+        block_entries = []
+        for line in kept:
+            bare, bulleted = strip_list_bullet(line)
+            for entry in parse_ingredient_line_amounts(bare):
+                if entry["ingredient_name"] and not _names_a_duration(entry):
+                    block_entries.append((entry, bulleted))
         ingredients.extend(_split_headings_from_ingredients(block_entries, component))
 
     if ingredients:
@@ -2057,6 +2122,9 @@ def parse_recipe_file_content(db: Session, raw_bytes: bytes, filename: str, cont
 # it pops it deliberately.
 INGREDIENT_PROVENANCE_KEY = "_ingredient_provenance"
 
+# Same `_` convention, same reason -- see unverified_instruction_facts.
+INSTRUCTION_WARNINGS_KEY = "_instruction_warnings"
+
 
 def _provenance(path: str, *, reason: str | None = None, verified: int | None = None, single_call: int | None = None):
     """One provenance record. `path` is how the stored ingredients were
@@ -2066,6 +2134,119 @@ def _provenance(path: str, *, reason: str | None = None, verified: int | None = 
     judgement the gate made, and a human reviewing the rows deserves the
     same numbers it used."""
     return {"path": path, "reason": reason, "verified": verified, "single_call": single_call}
+
+
+# --- Instructions: the one list nothing checked ---------------------------
+#
+# Ingredients are copied from the source and verified against it. The
+# method is free prose the model writes, governed only by rule 8's
+# instruction to summarise functionally -- so for the whole life of this
+# importer, the half of a recipe that can actually ruin a dish was the
+# unchecked half.
+#
+# Measured on the pie, 2026-08-06. The source says:
+#
+#     Stir gelatin, cinnamon, nutmeg, a scant 1/2 cup sugar, and 1/2 tsp.
+#     salt in a small saucepan.        <- off heat, nothing liquid yet
+#     ... whisk into sugar mixture. Cook over medium heat ... about 5
+#     minutes.
+#
+# The import produced `in a small saucepan over medium heat until
+# dissolved (do not boil)` as its own step, and then repeated the real
+# cooking instruction two steps later. Followed literally that heats dry
+# gelatin and sugar in an empty pan.
+#
+# Full verification is not available here and should not be pretended at:
+# rule 8 REQUIRES paraphrase for copyright reasons, so a step legitimately
+# does not appear in the source as text, and the ingredient path's
+# copy-then-check trick cannot be reused.
+#
+# What CAN be checked is the part of a method that is not prose: its
+# NUMBERS. A temperature or a duration is a fact with a standard written
+# form, it is the class of error that actually burns dinner (a 350 oven
+# for a 325 recipe, a 45-minute bake for a 20-25 minute one), and it is
+# arithmetic to check. Technique drift -- `pipe` for `dollop` -- is not
+# caught by this and is not claimed to be.
+#
+# Deliberately generous, because a false alarm on the review screen is
+# worse than a missed one here: this is a prompt to look, not a gate. A
+# number matches if the source states it ANYWHERE with the same unit, so
+# narrowing `20-25 minutes` to `25 minutes` passes, and only a figure the
+# source never gives at all is reported.
+_TEMPERATURE_RE = re.compile(r"(\d{2,3})\s*(?:°|º|\bdegrees\b)", re.IGNORECASE)
+_DURATION_RE = re.compile(
+    r"(\d+(?:\s*[-–—]\s*\d+)?)\s*(second|minute|hour|day|week)s?\b",  # noqa: RUF001 -- ranges really are typeset with en/em dashes
+    re.IGNORECASE,
+)
+
+
+def _temperatures(text: str) -> set:
+    return {int(m.group(1)) for m in _TEMPERATURE_RE.finditer(text or "")}
+
+
+def _durations(text: str) -> set:
+    """{(number, unit)} -- a range contributes BOTH of its endpoints, so a
+    step that narrows `20-25 minutes` to either number still matches."""
+    found = set()
+    for match in _DURATION_RE.finditer(text or ""):
+        unit = match.group(2).lower()
+        for part in re.split(r"[-–—]", match.group(1)):  # noqa: RUF001 -- same three dash characters as the pattern above
+            part = part.strip()
+            if part.isdigit():
+                found.add((int(part), unit))
+    return found
+
+
+def unverified_instruction_facts(steps, source: str) -> list[str]:
+    """Times and temperatures a step states that the source never does.
+
+    One human-readable line per finding, for the review screen. Empty list
+    when there is nothing to say, which is the normal case and the one
+    worth keeping normal."""
+    if not source:
+        return []
+    source_temps = _temperatures(source)
+    source_durations = _durations(source)
+
+    findings: list[str] = []
+    for position, step in enumerate(normalize_instructions(steps), start=1):
+        text = step["text"]
+        for temperature in sorted(_temperatures(text) - source_temps):
+            findings.append(f"Step {position} says {temperature}°, which the source never states.")
+        for number, unit in sorted(_durations(text) - source_durations):
+            plural = "" if number == 1 else "s"
+            findings.append(f"Step {position} says {number} {unit}{plural}, which the source never states.")
+    return findings
+
+
+# The other half of the label instability the plan named as the trigger
+# for reaching for a `RecipeComponent` table: `CRUST` and `Crust` are two
+# different strings, so the UI -- which groups both lists by that string
+# -- renders two sections where the source printed one.
+#
+# Case is NOT normalised to a house style, because rule 3 asks the model
+# to copy the source's own heading and a recipe that shouts `CRUST` on the
+# page is not wrong to shout it here. What is fixed is DISAGREEMENT within
+# one recipe: the first spelling seen wins, and every later spelling that
+# folds to the same key is rewritten to it.
+#
+# Ingredients are folded before instructions deliberately. An ingredient's
+# component comes from a block of COPIED source lines; an instruction's
+# comes from the model unaided. When the two disagree, the copied one is
+# the one that saw the page.
+def unify_component_case(ingredients: list[dict] | None, steps: list[dict] | None) -> None:
+    """Rewrites both lists IN PLACE so labels that differ only by case,
+    punctuation or a `For the ` prefix become one label."""
+    canonical: dict[str, str] = {}
+    for row in list(ingredients or []) + list(steps or []):
+        label = row.get("component")
+        if not label:
+            continue
+        key = _component_key(label)
+        if key not in canonical:
+            canonical[key] = label
+        else:
+            row["component"] = canonical[key]
 
 
 def finish_recipe_parse(
@@ -2134,6 +2315,22 @@ def finish_recipe_parse(
                 verified=len(two_pass),
                 single_call=single_call_count,
             )
+
+    # Labels that differ only by case are one label -- see
+    # unify_component_case. Done after two-pass has settled the
+    # ingredients, so the spelling that wins is the one copied from the
+    # page rather than whichever list happened to be built first.
+    parsed["instructions"] = normalize_instructions(parsed.get("instructions"))
+    unify_component_case(parsed.get("ingredients"), parsed["instructions"])
+
+    # The method's numbers, checked against the source -- see
+    # unverified_instruction_facts. Never for JSON-LD: those instructions
+    # are the publisher's own text, not a model's reading of it.
+    parsed[INSTRUCTION_WARNINGS_KEY] = (
+        unverified_instruction_facts(parsed.get("instructions"), source_text)
+        if source_text and jsonld_parsed is None
+        else []
+    )
 
     parsed["source"] = default_source
     for key, value in citation.items():

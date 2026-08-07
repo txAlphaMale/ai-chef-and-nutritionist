@@ -232,6 +232,10 @@ class RecipeImportResponse(BaseModel):
     # Null only for a response built by an older build; every import path
     # sets one now.
     ingredient_provenance: IngredientProvenance | None = None
+    # Times/temperatures a step states that the source never does -- see
+    # recipe_service.unverified_instruction_facts. Empty is the normal
+    # case; this is a prompt to look, never a refusal.
+    instruction_warnings: list[str] = Field(default_factory=list)
     # Backlog B3.1 -- checked against the parsed-but-not-yet-saved
     # ingredients so a conflict is visible in the review step, before the
     # user ever confirms the import (see routers/recipes.py's import_recipe).

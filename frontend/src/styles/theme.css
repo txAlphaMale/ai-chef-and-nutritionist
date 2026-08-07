@@ -1004,9 +1004,14 @@ tr.urgency-low td {
   margin-bottom: var(--spacing-3);
 }
 
-.provenance-note p {
+.provenance-note p,
+.provenance-note ul {
   margin: var(--spacing-1) 0 0;
   font-size: var(--font-sm);
+}
+
+.provenance-note ul {
+  padding-left: var(--spacing-3);
 }
 
 .provenance-ok {

@@ -85,7 +85,18 @@ const emptyForm = {
  * shaped chat/import proposal) pre-fills the fields. `submitLabel` lets a
  * caller override the button text for non-"edit" submit flows (e.g.
  * RecipeChat's "Save as new variant" / "Update this recipe" review step). */
-export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = "Save recipe" }) {
+// `importProvenance` is set ONLY on the import-review screen
+// (RecipeImportResponse.ingredient_provenance). Its presence is how this
+// form knows it is reviewing an import rather than editing a saved
+// recipe, which changes what can honestly be said about the nutrition
+// numbers -- see the note in that fieldset.
+export default function RecipeForm({
+  initial,
+  onSubmit,
+  onCancel,
+  submitLabel = "Save recipe",
+  importProvenance = null,
+}) {
   const [form, setForm] = useState(() => {
     if (!initial) return emptyForm;
     return {
@@ -514,7 +525,15 @@ export default function RecipeForm({ initial, onSubmit, onCancel, submitLabel = 
 
       <fieldset>
         <legend>Nutrition (per serving, optional)</legend>
-        {initial?.nutrition_provenance === "computed" || initial?.nutrition_provenance === "partial" ? (
+        {importProvenance ? (
+          <p className="hint">
+            {importProvenance.path === "jsonld"
+              ? "These are the publisher's own figures, taken from the page's recipe data -- not computed from the ingredients below."
+              : "Nothing here was measured. These are a model's per-serving guesses, and on a scratch-cooked dish they can be out by several times -- cholesterol especially."}{" "}
+            Once the recipe is saved, "Compute from ingredients" on its page sums the real figures for every ingredient
+            that resolves, and labels the result.
+          </p>
+        ) : initial?.nutrition_provenance === "computed" || initial?.nutrition_provenance === "partial" ? (
           <p className="hint">
             These values were computed from real ingredient data. Editing and saving here will mark them as an
             unverified estimate again -- use "Compute from ingredients" on the recipe page instead if you just want

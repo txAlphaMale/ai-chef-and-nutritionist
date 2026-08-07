@@ -683,3 +683,24 @@ def test_the_prompt_names_no_example_section_headings():
     # ...and the constraint the examples were replaced with is present.
     assert "ONLY headings the source actually prints" in rules
     assert "never introduce a heading the source does not print" in rules
+
+
+def test_rule_4_says_what_a_step_boundary_is():
+    """Measured 2026-08-06, the run after the example headings came out.
+
+    The model started copying the source nearly verbatim -- good -- and
+    started copying whole paragraphs as single steps -- not good. `Add
+    butter and pulse ... Transfer to a dish ... Press crumbs ... Bake
+    20-25 minutes` came back as ONE entry.
+
+    Cook mode (B7.1) shows one entry at a time and step timers (B7.2)
+    parse durations out of entry text, so a timed action buried inside a
+    multi-action entry costs the household a timer it should have had.
+    Rule 4 names the boundary now; do not reduce it back to
+    'one entry per discrete step' and assume that is self-evident."""
+    prompt = recipe_service.RECIPE_IMPORT_PROMPT
+    rules = prompt[prompt.index("RULES:") : prompt.index("EXAMPLE (")]
+
+    assert "one action the cook finishes before starting the next" in rules
+    assert "never copy a whole paragraph across as one entry" in rules
+    assert "ALWAYS its own entry" in rules

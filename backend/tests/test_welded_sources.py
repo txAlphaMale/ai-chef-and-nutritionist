@@ -330,9 +330,101 @@ def test_a_source_that_states_no_amounts_is_left_completely_alone():
     be the heading test on its own, and this is the file that proves it --
     10 of 10 verified, and all 10 must survive."""
     entries = [
-        {"ingredient_name": name, "quantity": None, "unit": None, "prep_note": None}
+        ({"ingredient_name": name, "quantity": None, "unit": None, "prep_note": None}, False)
         for name in ("Ground flaxseed", "Kosher salt", "Dried oregano")
     ]
     kept = recipe_service._split_headings_from_ingredients(entries, "INGREDIENTS YOU'LL NEED:")
     assert len(kept) == 3
     assert [i["ingredient_name"] for i in kept] == ["Ground flaxseed", "Kosher salt", "Dried oregano"]
+
+
+def _parse_block(lines):
+    """Mirrors extract_ingredients_two_pass's own loop: bullet off, amount
+    read, and whether there WAS a bullet carried alongside."""
+    out = []
+    for line in lines:
+        bare, bulleted = recipe_service.strip_list_bullet(line)
+        for entry in recipe_service.parse_ingredient_line_amounts(bare):
+            if entry["ingredient_name"] and not recipe_service._names_a_duration(entry):
+                out.append((entry, bulleted))
+    return out
+
+
+PIZZA_BLOCK = [
+    "320g Caputo Fioreglut flour (100%)",
+    "2g Instant yeast (0.6%)",
+    "256g Water, room temperature (80%)",
+    "10g Salt (3%)",
+    "16g Extra-virgin olive oil (5%)",
+    "+ Chickpea flour or fine cornmeal",
+]
+
+
+def test_the_pizzas_bulleted_sixth_ingredient_is_no_longer_deleted():
+    """It has no amount, and its block states amounts everywhere else, so
+    the heading-split rule dropped it -- the plan carried "the pizza
+    imports 5 of its 6 ingredients" as an open item for exactly this.
+
+    The fix is not a relaxation of "has no amount". It is a structural
+    signal the source supplied: a line opening with a bullet is an ITEM of
+    the list. A heading is never bulleted."""
+    kept = recipe_service._split_headings_from_ingredients(_parse_block(PIZZA_BLOCK), None)
+
+    assert [i["ingredient_name"] for i in kept] == [
+        "Caputo Fioreglut flour",
+        "Instant yeast",
+        "Water",
+        "Salt",
+        "Extra-virgin olive oil",
+        "Chickpea flour or fine cornmeal",
+    ]
+    assert kept[-1]["quantity"] is None
+
+
+def test_a_bulleted_list_still_gets_its_amounts_read():
+    """The trafilatura defect, in one line: `- 1 cup flour` must not parse
+    to a nameless nothing or to an ingredient CALLED `1 cup flour`."""
+    kept = recipe_service._split_headings_from_ingredients(
+        _parse_block(["- 1 cup stone-ground cornmeal", "- 2 tsp baking powder", "- 6 Tbsp unsalted butter, melted"]),
+        None,
+    )
+    assert [(i["quantity"], i["unit"], i["ingredient_name"]) for i in kept] == [
+        (1.0, "cup", "stone-ground cornmeal"),
+        (2.0, "tsp", "baking powder"),
+        (6.0, "tbsp", "unsalted butter"),
+    ]
+
+
+def test_the_bullet_is_stripped_because_the_name_is_the_join_key():
+    block = _parse_block(["1 cup flour", "2 cups water", "* Cornmeal", "- Semolina", "• Rice flour"])
+    kept = recipe_service._split_headings_from_ingredients(block, None)
+    assert [i["ingredient_name"] for i in kept] == ["flour", "water", "Cornmeal", "Semolina", "Rice flour"]
+
+
+def test_a_welded_heading_is_still_promoted_not_stored():
+    """The kimchi case the heading-split rule exists for. `Brine` has no
+    amount and no bullet: still a heading, still promoted, still never an
+    ingredient row."""
+    lines = [
+        "2 1/2 lbs brussel sprouts",
+        "1 tablespoon diced garlic",
+        "Brine",
+        "2 tablespoons sea salt",
+        "4 cups water",
+    ]
+    kept = recipe_service._split_headings_from_ingredients(_parse_block(lines), None)
+
+    assert "Brine" not in [i["ingredient_name"] for i in kept]
+    assert [i["component"] for i in kept] == [None, None, "Brine", "Brine"]
+
+
+def test_a_name_beginning_with_a_hyphen_is_not_treated_as_a_bullet():
+    """`-` counts only when whitespace follows it, so a hyphenated name
+    keeps its own first character."""
+    kept = recipe_service._split_headings_from_ingredients(_parse_block(["2 cups half-and-half"]), None)
+    assert kept[0]["ingredient_name"] == "half-and-half"
+
+
+def test_a_bare_bullet_with_no_name_is_not_stored():
+    kept = recipe_service._split_headings_from_ingredients(_parse_block(["1 cup flour", "2 cups water", "•"]), None)
+    assert [i["ingredient_name"] for i in kept] == ["flour", "water"]

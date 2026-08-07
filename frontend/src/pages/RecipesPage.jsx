@@ -32,6 +32,10 @@ export default function RecipesPage() {
   // or only produced by a model -- stated on the review screen rather
   // than only in the container log. See IngredientProvenance.jsx.
   const [importProvenance, setImportProvenance] = useState(null);
+  // Times/temperatures a step states that the source never did (see
+  // recipe_service.unverified_instruction_facts). Instructions are the
+  // one list nothing used to check at all.
+  const [importInstructionWarnings, setImportInstructionWarnings] = useState([]);
   const [importText, setImportText] = useState("");
   const [importUrl, setImportUrl] = useState("");
 
@@ -43,6 +47,7 @@ export default function RecipesPage() {
       crossContactMatches: importJob.result.cross_contact_warnings,
     });
     setImportProvenance(importJob.result.ingredient_provenance || null);
+    setImportInstructionWarnings(importJob.result.instruction_warnings || []);
     importJob.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importJob.result]);
@@ -209,6 +214,7 @@ export default function RecipesPage() {
     setImportPreview(null);
     setImportWarnings(null);
     setImportProvenance(null);
+    setImportInstructionWarnings([]);
     setImportText("");
     setImportUrl("");
     refresh();
@@ -299,6 +305,16 @@ export default function RecipesPage() {
         <div className="card">
           <h3>Review imported recipe</h3>
           <IngredientProvenance provenance={importProvenance} />
+          {importInstructionWarnings.length > 0 && (
+            <div className="provenance-note provenance-warn">
+              <strong>Check these steps against the original</strong>
+              <ul>
+                {importInstructionWarnings.map((warning, i) => (
+                  <li key={i}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {importWarnings && (
             <RestrictionWarnings
               matches={importWarnings.matches}
@@ -308,11 +324,13 @@ export default function RecipesPage() {
           )}
           <RecipeForm
             initial={importPreview}
+            importProvenance={importProvenance}
             onSubmit={confirmImport}
             onCancel={() => {
               setImportPreview(null);
               setImportWarnings(null);
               setImportProvenance(null);
+              setImportInstructionWarnings([]);
             }}
           />
         </div>

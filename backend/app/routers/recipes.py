@@ -311,10 +311,12 @@ async def import_recipe(
             # about the import, not about the recipe, and nothing should
             # be able to carry it into a saved row by accident.
             provenance = parsed.pop(recipe_service.INGREDIENT_PROVENANCE_KEY, None)
+            instruction_warnings = parsed.pop(recipe_service.INSTRUCTION_WARNINGS_KEY, [])
             return RecipeImportResponse(
                 recipe=RecipeCreate(**parsed),
                 raw_model_output=raw_output,
                 ingredient_provenance=provenance,
+                instruction_warnings=instruction_warnings,
                 restriction_warnings=[vars(m) for m in restriction_check.matches],
                 cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
             ).model_dump()
