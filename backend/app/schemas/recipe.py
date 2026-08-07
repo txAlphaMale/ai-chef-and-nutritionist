@@ -174,6 +174,17 @@ class RecipeRatingUpdate(BaseModel):
         return v
 
 
+class DerivedTagRead(BaseModel):
+    """A tag the app worked out from the recipe's own data, with the
+    evidence it used. Never stored -- recomputed on every read, so it
+    cannot go stale when an ingredient is edited, and cannot be typed into
+    existence by hand. See smart_tag_service for why every one of these is
+    phrased as "contains" rather than "free of"."""
+
+    tag: str
+    basis: str
+
+
 class RecipeRead(RecipeBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -196,6 +207,8 @@ class RecipeRead(RecipeBase):
     cross_contact_warnings: list[RestrictionMatchRead] = Field(default_factory=list)
     ingredients: list[RecipeIngredientRead]
     tags: list[str]
+    # Worked out, never stored, never editable -- see DerivedTagRead.
+    derived_tags: list[DerivedTagRead] = Field(default_factory=list)
     servings_shown: int = Field(default=0, description="Servings these ingredient quantities are scaled to")
     # Computed in routers/recipes.py's _to_read() (a join / relationship
     # length, not directly derivable via from_attributes) -- lets the

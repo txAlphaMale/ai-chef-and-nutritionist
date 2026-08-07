@@ -22,6 +22,7 @@ from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.recipe import (
     BookmarkFolder,
     BookmarkFoldersResponse,
+    DerivedTagRead,
     RecipeChatRequest,
     RecipeChatResponse,
     RecipeCreate,
@@ -44,6 +45,7 @@ from app.services import (
     recipe_image_service,
     recipe_service,
     settings_service,
+    smart_tag_service,
 )
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -98,6 +100,14 @@ def _to_read(
     restriction_check = allergen_service.check_household_restrictions(
         db, [ing.ingredient_name for ing in recipe.ingredients], restrictions
     )
+    # Derived on every read rather than stored: editing an ingredient
+    # changes what is true about the recipe, and a stored tag would not
+    # notice. See smart_tag_service.
+    derived_tags = smart_tag_service.derive_tags(
+        [ing.ingredient_name for ing in recipe.ingredients],
+        recipe.nutrition,
+        recipe.nutrition_provenance,
+    )
     return RecipeRead(
         id=recipe.id,
         title=recipe.title,
@@ -108,6 +118,7 @@ def _to_read(
         instructions=recipe.instructions or [],
         nutrition=recipe.nutrition or {},
         nutrition_provenance=recipe.nutrition_provenance,
+        derived_tags=[DerivedTagRead(tag=t.tag, basis=t.basis) for t in derived_tags],
         restriction_warnings=[vars(m) for m in restriction_check.matches],
         cross_contact_warnings=[vars(m) for m in restriction_check.cross_contact_matches],
         is_staple=recipe.is_staple,
