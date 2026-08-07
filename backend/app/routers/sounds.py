@@ -23,12 +23,16 @@ from app.services import sound_service
 router = APIRouter(prefix="/api/sounds", tags=["sounds"])
 
 
+_DEFAULT_FOR_BY_SLUG = {slug: role for slug, _n, _b, role in sound_service.BUILTIN_SOUNDS if role}
+
+
 def _to_read(sound: SoundFile) -> SoundRead:
     return SoundRead(
         id=sound.id,
         name=sound.name,
         slug=sound.slug,
         is_builtin=sound.is_builtin,
+        default_for=_DEFAULT_FOR_BY_SLUG.get(sound.slug or ""),
         missing_file=not os.path.exists(sound.storage_path),
     )
 

@@ -12,6 +12,11 @@ class SoundRead(BaseModel):
     name: str
     slug: str | None = None
     is_builtin: bool = False
+    # "warning" | "finish" | None -- what a fresh install picks for each
+    # slot. Stated by the library rather than inferred from list position,
+    # which is how a 1318Hz bell became the default finish sound and an
+    # urgent alarm became the default warning.
+    default_for: str | None = None
     # True when the row survived but its file did not (a wiped volume, a
     # half-restored backup). Built-ins repair themselves on the next boot;
     # an upload cannot, and the UI says so rather than offering a silent

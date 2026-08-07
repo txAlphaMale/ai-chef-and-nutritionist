@@ -32,7 +32,7 @@ def test_every_builtin_is_real_playable_audio():
     file is exactly what a silent timer looks like."""
     sound_service.ensure_builtin_files()
 
-    for slug, _name, _builder in sound_service.BUILTIN_SOUNDS:
+    for slug, _name, _builder, _role in sound_service.BUILTIN_SOUNDS:
         with wave.open(sound_service.builtin_path(slug), "rb") as handle:
             assert handle.getnchannels() == 1, slug
             assert handle.getsampwidth() == 2, slug
@@ -47,19 +47,19 @@ def test_the_builtins_are_audibly_different_from_each_other():
     would be caught, and that is the failure worth catching."""
     sound_service.ensure_builtin_files()
     payloads = {
-        slug: Path(sound_service.builtin_path(slug)).read_bytes() for slug, _n, _b in sound_service.BUILTIN_SOUNDS
+        slug: Path(sound_service.builtin_path(slug)).read_bytes() for slug, _n, _b, _r in sound_service.BUILTIN_SOUNDS
     }
     assert len(set(payloads.values())) == len(sound_service.BUILTIN_SOUNDS)
 
 
 def test_generation_is_idempotent_and_heals_a_wiped_volume():
-    assert sorted(sound_service.ensure_builtin_files()) == sorted(s for s, _n, _b in sound_service.BUILTIN_SOUNDS)
+    assert sorted(sound_service.ensure_builtin_files()) == sorted(s for s, _n, _b, _r in sound_service.BUILTIN_SOUNDS)
     assert sound_service.ensure_builtin_files() == []
 
     import os
 
-    os.remove(sound_service.builtin_path("bell"))
-    assert sound_service.ensure_builtin_files() == ["bell"]
+    os.remove(sound_service.builtin_path("warm-bell"))
+    assert sound_service.ensure_builtin_files() == ["warm-bell"]
 
 
 def test_an_unsupported_upload_is_refused_rather_than_guessed_at():
@@ -88,26 +88,25 @@ def test_seeding_is_idempotent_and_does_not_overwrite_a_renamed_builtin(db_sessi
     assert len(seed_builtin_sounds(db_session)) == len(sound_service.BUILTIN_SOUNDS)
     assert seed_builtin_sounds(db_session) == []
 
-    bell = db_session.query(SoundFile).filter_by(slug="bell").first()
+    bell = db_session.query(SoundFile).filter_by(slug="warm-bell").first()
     bell.name = "The Good Bell"
     db_session.commit()
 
     seed_builtin_sounds(db_session)
-    assert db_session.query(SoundFile).filter_by(slug="bell").first().name == "The Good Bell"
+    assert db_session.query(SoundFile).filter_by(slug="warm-bell").first().name == "The Good Bell"
 
 
 def test_a_reseed_repoints_a_row_whose_file_moved(db_session):
     """The row lives in SQLite and the audio on the data volume, so a
     restore can bring back one without the other."""
     seed_builtin_sounds(db_session)
-    row = db_session.query(SoundFile).filter_by(slug="chime").first()
-    row.storage_path = "/gone/chime.wav"
+    row = db_session.query(SoundFile).filter_by(slug="soft-chime").first()
+    row.storage_path = "/gone/soft-chime.wav"
     db_session.commit()
 
     seed_builtin_sounds(db_session)
-    assert db_session.query(SoundFile).filter_by(slug="chime").first().storage_path == sound_service.builtin_path(
-        "chime"
-    )
+    row = db_session.query(SoundFile).filter_by(slug="soft-chime").first()
+    assert row.storage_path == sound_service.builtin_path("soft-chime")
 
 
 def test_the_wav_header_is_what_a_browser_will_be_handed():
@@ -118,3 +117,73 @@ def test_the_wav_header_is_what_a_browser_will_be_handed():
         assert handle.getnframes() > 0
     assert sound_service.guess_content_type("x.wav") == "audio/wav"
     assert sound_service.guess_content_type("x.mp3") == "audio/mpeg"
+
+
+def test_bumping_the_version_replaces_the_old_audio_rather_than_keeping_it():
+    """The whole reason the filename carries a version.
+
+    `ensure_builtin_files` only writes a file that is MISSING, so without
+    the version in the name an install that already had the first, harsh
+    set would keep playing it forever and the retune would ship to nobody
+    who had already run the app."""
+    import os
+
+    sound_service.ensure_builtin_files()
+    stale = os.path.join(sound_service.SOUNDS_DIR, "builtin-warm-bell-v1.wav")
+    with open(stale, "wb") as handle:
+        handle.write(b"old harsh bell")
+
+    sound_service.ensure_builtin_files()
+
+    assert not os.path.exists(stale), "a superseded built-in was left on the volume"
+    assert os.path.exists(sound_service.builtin_path("warm-bell"))
+
+
+def test_the_sweep_never_touches_an_uploaded_sound():
+    """Uploads have UUID names and are nobody's business but the
+    household's."""
+    import os
+
+    sound_service.ensure_builtin_files()
+    upload = sound_service.save_upload("mine.wav", "audio/wav", b"RIFF0000WAVEfmt mine")
+
+    sound_service.ensure_builtin_files()
+    assert os.path.exists(upload)
+
+
+def test_every_builtin_states_what_it_is_for_or_states_nothing():
+    """`default_for` is how a fresh install picks its pair. Exactly one
+    warning and exactly one finish -- two candidates for a slot is a
+    coin-flip, and none is a timer that ends in silence."""
+    roles = [role for _slug, _name, _builder, role in sound_service.BUILTIN_SOUNDS]
+    assert roles.count("warning") == 1
+    assert roles.count("finish") == 1
+    assert all(role in (None, "warning", "finish") for role in roles)
+
+
+def test_a_retired_builtin_does_not_linger_as_a_dead_row(db_session):
+    """v1's `bell` became v2's `warm-bell`. Without retirement the old
+    row survives, its file has just been swept, and the library shows a
+    dead entry that any existing timer preference may still point at."""
+    from app.models import SoundFile
+
+    db_session.add(SoundFile(name="Bell", storage_path="/old/builtin-bell.wav", slug="bell", is_builtin=True))
+    db_session.commit()
+
+    seed_builtin_sounds(db_session)
+
+    assert db_session.query(SoundFile).filter_by(slug="bell").first() is None
+    assert db_session.query(SoundFile).filter_by(slug="warm-bell").first() is not None
+
+
+def test_retirement_never_touches_an_upload(db_session):
+    """An upload has no slug, and `is_builtin` is the discriminator --
+    not the absence of a name in the current set."""
+    from app.models import SoundFile
+
+    db_session.add(SoundFile(name="My gong", storage_path="/data/abc.wav", slug=None, is_builtin=False))
+    db_session.commit()
+
+    seed_builtin_sounds(db_session)
+
+    assert db_session.query(SoundFile).filter_by(name="My gong").first() is not None

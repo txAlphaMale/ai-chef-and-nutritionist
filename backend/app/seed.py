@@ -204,8 +204,20 @@ def seed_builtin_sounds(db) -> list[str]:
     Display names are NOT overwritten. If the household renamed `Bell` to
     `The Good Bell`, that is theirs to keep; the slug is the identity."""
     sound_service.ensure_builtin_files()
+
+    # Retire built-ins that no longer exist. Without this, bumping the set
+    # (v1's `bell` becoming v2's `warm-bell`) leaves the old rows behind
+    # pointing at files the version sweep has just deleted -- so the
+    # library shows four dead entries, and any timer preference still
+    # pointing at one goes off in silence. An UPLOAD is never touched:
+    # is_builtin is the discriminator, not the filename.
+    known = {slug for slug, _n, _b, _r in sound_service.BUILTIN_SOUNDS}
+    for retired in db.query(SoundFile).filter(SoundFile.is_builtin.is_(True)).all():
+        if retired.slug not in known:
+            db.delete(retired)
+
     added = []
-    for slug, name, _builder in sound_service.BUILTIN_SOUNDS:
+    for slug, name, _builder, _default_for in sound_service.BUILTIN_SOUNDS:
         path = sound_service.builtin_path(slug)
         row = db.query(SoundFile).filter_by(slug=slug).first()
         if row is None:

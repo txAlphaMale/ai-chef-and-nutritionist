@@ -44,79 +44,122 @@ ALLOWED_CONTENT_TYPES: dict[str, str] = {
     "audio/aac": ".aac",
 }
 
-# A warning tone has to be audible across a kitchen without being the
-# same thing as "done", so the set is chosen for CONTRAST -- pitch,
-# rhythm and decay all differ -- rather than for variety's sake.
+# Tuning, which turned out to be the whole job.
+#
+# The first version was harsh, and the author said so within a minute of
+# hearing it. Two causes, and neither was "the wrong note".
+#
+# 1. THE ENVELOPE. Every tone was attack -> flat -> linear release. A sine
+#    held at full amplitude for 1.8 seconds is a buzzer; nothing struck
+#    behaves that way. A bell, a chime, a marimba bar all start loud and
+#    decay exponentially from the first instant, and that decay is most of
+#    what makes a sound read as pleasant rather than as an alert.
+# 2. THE REGISTER. `Bell` was a 1318 Hz fundamental (E6) with a partial an
+#    octave above it, so most of its energy sat where the ear is most
+#    sensitive and least forgiving. Retuned an octave down.
+#
+# Partials are given as (ratio, amplitude) and roll off steeply. Ratios are
+# consonant on purpose -- a real bell's inharmonic partials are what make
+# real bells divisive, and this one has to be tolerable at 6am.
 SAMPLE_RATE = 22050
-_AMPLITUDE = 0.35
+
+# Bumped whenever the waveforms change, and part of the FILENAME.
+#
+# Load-bearing: ensure_builtin_files only writes a file that is missing,
+# so without this an install that already has `builtin-bell.wav` would
+# keep playing the old harsh one forever, and the fix would ship to nobody
+# who had already run the app. Stale versions are pruned, and seeding
+# re-points each row at the new path.
+BUILTIN_VERSION = 2
 
 
-def _envelope(position: float, length: float, attack: float = 0.01, release: float = 0.25) -> float:
-    """Fade in and out, because a square-edged tone clicks on every
-    speaker ever made."""
+def _decay(position: float, tau: float, attack: float = 0.012) -> float:
+    """Fast attack, exponential decay. The attack is not zero because a
+    waveform that starts at full amplitude clicks on every speaker ever
+    made; 12ms is under the threshold where it reads as a soft onset."""
     if position < attack:
         return position / attack
-    if position > length - release:
-        return max(0.0, (length - position) / release)
-    return 1.0
+    return math.exp(-(position - attack) / tau)
 
 
-def _tone(frames: list[float], start: float, length: float, frequency: float, harmonic: float = 0.0) -> None:
-    for index in range(int(length * SAMPLE_RATE)):
+def _struck(
+    frames: list[float],
+    start: float,
+    duration: float,
+    fundamental: float,
+    partials: tuple[tuple[float, float], ...] = ((1.0, 1.0),),
+    peak: float = 0.25,
+    tau: float | None = None,
+) -> None:
+    """One struck note: partials summed, exponential decay, faded to
+    silence at the end so nothing is cut off mid-cycle."""
+    tau = tau if tau is not None else duration / 3.0
+    total = sum(amplitude for _ratio, amplitude in partials) or 1.0
+    for index in range(int(duration * SAMPLE_RATE)):
         position = index / SAMPLE_RATE
-        value = math.sin(2 * math.pi * frequency * position)
-        if harmonic:
-            value += harmonic * math.sin(4 * math.pi * frequency * position)
-        value *= _envelope(position, length) * _AMPLITUDE / (1 + harmonic)
+        value = 0.0
+        for ratio, amplitude in partials:
+            value += amplitude * math.sin(2 * math.pi * fundamental * ratio * position)
+        value *= _decay(position, tau) * peak / total
+        # The last 8% fades out, so a decay that has not quite reached
+        # silence does not end on a step.
+        remaining = duration - position
+        if remaining < duration * 0.08:
+            value *= remaining / (duration * 0.08)
         slot = int((start + position) * SAMPLE_RATE)
         while len(frames) <= slot:
             frames.append(0.0)
         frames[slot] += value
 
 
-def _sweep(frames: list[float], start: float, length: float, low: float, high: float) -> None:
-    phase = 0.0
-    for index in range(int(length * SAMPLE_RATE)):
-        position = index / SAMPLE_RATE
-        frequency = low + (high - low) * (position / length)
-        phase += 2 * math.pi * frequency / SAMPLE_RATE
-        value = math.sin(phase) * _envelope(position, length, release=length * 0.5) * _AMPLITUDE
-        slot = int((start + position) * SAMPLE_RATE)
-        while len(frames) <= slot:
-            frames.append(0.0)
-        frames[slot] += value
+def _soft_chime(frames: list[float]) -> None:
+    """The default WARNING. Two notes a major third apart, rising, quiet.
+    It has to be noticed without being obeyed -- there is still a minute
+    left."""
+    _struck(frames, 0.00, 1.10, 523.25, ((1.0, 1.0), (2.0, 0.12), (3.0, 0.04)), peak=0.20, tau=0.45)
+    _struck(frames, 0.28, 1.30, 659.25, ((1.0, 1.0), (2.0, 0.12), (3.0, 0.04)), peak=0.20, tau=0.55)
 
 
-def _chime(frames: list[float]) -> None:
-    for beat in (0.0, 0.55, 1.10):
-        _tone(frames, beat, 0.45, 880.0)
+def _warm_bell(frames: list[float]) -> None:
+    """The default FINISH. An octave below the old one, decaying properly,
+    with a fifth and a double octave underneath for body."""
+    _struck(frames, 0.0, 2.4, 440.0, ((1.0, 1.0), (2.0, 0.22), (3.0, 0.07), (4.0, 0.03)), peak=0.28, tau=0.85)
 
 
-def _bell(frames: list[float]) -> None:
-    _tone(frames, 0.0, 1.8, 1318.5, harmonic=0.4)
+def _marimba(frames: list[float]) -> None:
+    """Wooden and short. A marimba bar's strong fourth harmonic is what
+    makes it sound like wood rather than like a sine."""
+    for offset, note in ((0.0, 587.33), (0.16, 880.0)):
+        _struck(frames, offset, 0.7, note, ((1.0, 1.0), (4.0, 0.22)), peak=0.26, tau=0.16)
 
 
-def _soft_ping(frames: list[float]) -> None:
-    _tone(frames, 0.0, 0.7, 659.3, harmonic=0.15)
+def _ping(frames: list[float]) -> None:
+    """One quiet note. For a household that wants to be told, not told
+    off."""
+    _struck(frames, 0.0, 0.9, 659.25, ((1.0, 1.0), (2.0, 0.06)), peak=0.16, tau=0.28)
 
 
 def _alarm(frames: list[float]) -> None:
+    """Deliberately insistent, and kept because some kitchens need it --
+    but it is now something a household CHOOSES rather than the default it
+    became by being first alphabetically."""
     for index in range(6):
-        _tone(frames, index * 0.22, 0.18, 1000.0 if index % 2 else 800.0)
+        _struck(
+            frames, index * 0.20, 0.19, 900.0 if index % 2 else 720.0, ((1.0, 1.0), (2.0, 0.18)), peak=0.30, tau=0.06
+        )
 
 
-def _rising(frames: list[float]) -> None:
-    _sweep(frames, 0.0, 0.9, 400.0, 1200.0)
-
-
-# (slug, display name, builder). The slug is the filename stem and the
-# stable identity across rebuilds -- names are for humans and may change.
-BUILTIN_SOUNDS: list[tuple[str, str, object]] = [
-    ("chime", "Chime (three beeps)", _chime),
-    ("bell", "Bell", _bell),
-    ("soft-ping", "Soft ping", _soft_ping),
-    ("alarm", "Alarm (urgent)", _alarm),
-    ("rising", "Rising sweep", _rising),
+# (slug, display name, builder, default_for). `default_for` is what a
+# fresh install picks, and it is stated HERE rather than inferred from
+# list position -- the library sorts alphabetically, which quietly made
+# `Alarm (urgent)` the default warning and a 1318Hz bell the default
+# finish. Position is not a decision.
+BUILTIN_SOUNDS: list[tuple[str, str, object, str | None]] = [
+    ("soft-chime", "Soft chime", _soft_chime, "warning"),
+    ("warm-bell", "Warm bell", _warm_bell, "finish"),
+    ("marimba", "Marimba", _marimba, None),
+    ("ping", "Quiet ping", _ping, None),
+    ("alarm", "Alarm (urgent)", _alarm, None),
 ]
 
 
@@ -137,7 +180,7 @@ def _write_wav(path: str, builder) -> None:
 
 
 def builtin_path(slug: str) -> str:
-    return os.path.join(SOUNDS_DIR, f"builtin-{slug}.wav")
+    return os.path.join(SOUNDS_DIR, f"builtin-{slug}-v{BUILTIN_VERSION}.wav")
 
 
 def ensure_builtin_files() -> list[str]:
@@ -145,11 +188,22 @@ def ensure_builtin_files() -> list[str]:
     to (re)create -- empty on a healthy boot, which is the normal case."""
     os.makedirs(SOUNDS_DIR, exist_ok=True)
     created = []
-    for slug, _name, builder in BUILTIN_SOUNDS:
+    current = set()
+    for slug, _name, builder, _default_for in BUILTIN_SOUNDS:
         path = builtin_path(slug)
+        current.add(os.path.basename(path))
         if not os.path.exists(path):
             _write_wav(path, builder)
             created.append(slug)
+
+    # Sweep superseded versions, so bumping BUILTIN_VERSION does not leave
+    # the old harsh tones on the volume forever. Only files this function
+    # writes are ever touched -- an upload has a UUID name and is never
+    # matched here.
+    for name in os.listdir(SOUNDS_DIR):
+        if name.startswith("builtin-") and name not in current:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(SOUNDS_DIR, name))
     return created
 
 

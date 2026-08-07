@@ -64,13 +64,33 @@ export default function CookTimersPanel() {
         setMaxWidgets(Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 3);
 
         // First run has no preference, and a dropdown defaulting to
-        // "(none)" would mean a timer that ends in silence. Seed from the
-        // library's own first entries instead.
+        // "(none)" would mean a timer that ends in silence.
+        //
+        // Seeded from what each sound says it is FOR, not from where it
+        // sits in the list: the library sorts alphabetically, and taking
+        // the first two entries quietly made "Alarm (urgent)" the default
+        // warning and a shrill bell the default finish. Position is not a
+        // decision.
         setPrefs((current) => {
-          if (current.warnSoundId || current.doneSoundId || library.length === 0) return current;
-          const seeded = { warnSoundId: library[0].id, doneSoundId: library[Math.min(1, library.length - 1)].id };
-          writePreferredSounds(seeded);
-          return seeded;
+          if (library.length === 0) return current;
+          const pick = (role) => library.find((s) => s.default_for === role) || library[0];
+          // A stored id that is no longer in the library, or whose file
+          // has gone, is worse than no preference: it is a dropdown that
+          // looks set and a timer that ends in silence. Retiring a
+          // built-in (v1's `bell` -> v2's `warm-bell`) does exactly that
+          // to every install that had already chosen one.
+          const usable = (id, role) => {
+            const found = library.find((s) => s.id === id);
+            return found && !found.missing_file ? id : pick(role).id;
+          };
+          const healed = {
+            warnSoundId: current.warnSoundId ? usable(current.warnSoundId, "warning") : pick("warning").id,
+            doneSoundId: current.doneSoundId ? usable(current.doneSoundId, "finish") : pick("finish").id,
+          };
+          if (healed.warnSoundId !== current.warnSoundId || healed.doneSoundId !== current.doneSoundId) {
+            writePreferredSounds(healed);
+          }
+          return healed;
         });
       } catch (e) {
         setError(e.message);
