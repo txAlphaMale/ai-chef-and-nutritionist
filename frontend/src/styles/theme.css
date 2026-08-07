@@ -2655,3 +2655,68 @@ tr.urgency-low td {
   background: color-mix(in srgb, var(--color-secondary) 8%, transparent);
   cursor: help;
 }
+
+/* --- Derived tags on the recipe detail page -------------------------
+   The list page shows these as chips with a tooltip; here they get their
+   evidence spelled out, because this is the page somebody is on when
+   deciding whether to cook the thing. Recessed surface so it reads as
+   the app talking about the recipe rather than as part of the recipe. */
+
+.derived-panel {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin: var(--spacing-3) 0;
+}
+
+.derived-panel h3 {
+  margin-top: 0;
+}
+
+.derived-subhead {
+  margin: var(--spacing-2) 0 var(--spacing-1);
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.derived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.derived-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+/* The chip on this page is not hoverable-for-more -- the basis is right
+   there beside it -- so it drops the list page's help cursor. */
+.derived-list .tag-derived {
+  margin-left: 0;
+  cursor: default;
+}
+
+.derived-basis {
+  color: var(--color-text-muted);
+  font-size: var(--font-sm);
+}
+
+/* Deliberately not a warning colour. This is not an alert, it is the
+   boundary of what the panel above it claims, and styling it as a
+   warning would train the eye to skip it like one. */
+.derived-caveat {
+  margin: var(--spacing-3) 0 0;
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+}

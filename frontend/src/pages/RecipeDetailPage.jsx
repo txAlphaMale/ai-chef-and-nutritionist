@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, backendOrigin } from "../api";
+import DerivedTags from "../components/DerivedTags";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
 import RestrictionWarnings from "../components/RestrictionWarnings";
@@ -253,6 +254,13 @@ export default function RecipeDetailPage() {
           </span>
         ))}
       </div>
+
+      {/* Directly under the editable tags, because the contrast between
+          the two is the point: a recipe can carry an editable
+          `gluten_free` an old import asserted AND a derived "contains
+          gluten" worked out from its actual ingredients, and seeing those
+          adjacent is what makes the difference legible. */}
+      <DerivedTags derivedTags={recipe.derived_tags} nutritionProvenance={recipe.nutrition_provenance} />
 
       <div className="form-row no-print u-align-center">
         <label>
