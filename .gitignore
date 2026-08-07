@@ -39,3 +39,9 @@ data/uploads/*
 Thumbs.db
 .vscode/
 .idea/
+
+# Personal bookmark exports dropped in here for an import run. This repo
+# is PUBLIC -- a browser export is a record of what somebody reads, not
+# just a list of recipes, and it does not belong in it.
+Recipe_Exports*.html
+*bookmarks*.html
