@@ -66,6 +66,15 @@ def _to_read(
             "quantity": ing.quantity,
             "unit": ing.unit,
             "prep_note": ing.prep_note,
+            # Absent here until 2026-08-07, which is why a saved recipe's
+            # ingredients rendered as one flat list while its INSTRUCTIONS
+            # grouped correctly: the steps ride on a JSON column and are
+            # returned whole, but every ingredient field this dict does
+            # not name is dropped on the way out. The component was in the
+            # database the whole time. Twin of the bug in
+            # _apply_ingredients above -- one never wrote it, this never
+            # read it, and each was found separately.
+            "component": ing.component,
             "resolution_source": ing.resolution_source,
             "resolved_food_name": ing.resolved_food_name,
             "fdc_id": ing.fdc_id,
@@ -258,12 +267,18 @@ async def import_recipe(
                             image_path = recipe_image_service.save_image(image_content_type, raw_image_bytes)
 
                 if jsonld_parsed is not None:
+                    # No model runs on this path, so it finishes in about a
+                    # second. Comparing it against imports that spend two
+                    # model calls is what made the progress badge read
+                    # "108s of ~1s typical".
+                    job_queue.set_estimate_key("recipe_import:structured")
                     raw_output = (
                         "(parsed directly from the page's structured schema.org Recipe data -- "
                         "Ollama was not used for this import)"
                     )
                     default_source = "import_url_jsonld"
                 else:
+                    job_queue.set_estimate_key("recipe_import:model")
                     source_text = page["text"]
                     raw_output = _run_text_extraction(db, source_text)
                     default_source = "import_url"
@@ -323,7 +338,16 @@ async def import_recipe(
         finally:
             db.close()
 
-    job_id, created = job_queue.enqueue("recipe_import", "Recipe import", _run)
+    # Bucketed by how much work the import will actually be, not by the
+    # fact that it is an import -- see job_queue.enqueue's comment. A file
+    # or pasted text always runs the model; a URL only does when the page
+    # publishes no schema.org data, which _run discovers and corrects.
+    job_id, created = job_queue.enqueue(
+        "recipe_import",
+        "Recipe import",
+        _run,
+        estimate_key="recipe_import:url" if url else "recipe_import:model",
+    )
     return JobEnqueuedResponse(job_id=job_id, created=created)
 
 

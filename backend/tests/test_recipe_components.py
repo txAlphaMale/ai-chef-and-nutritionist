@@ -704,3 +704,31 @@ def test_rule_4_says_what_a_step_boundary_is():
     assert "one action the cook finishes before starting the next" in rules
     assert "never copy a whole paragraph across as one entry" in rules
     assert "ALWAYS its own entry" in rules
+
+
+def test_a_saved_recipes_component_survives_the_round_trip_to_the_api(db_session):
+    """The twin of the `_apply_ingredients` bug, on the way OUT.
+
+    `_apply_ingredients` never WROTE component; that was fixed. `_to_read`
+    never READ it, and that was not -- it builds each ingredient dict
+    field by field and simply did not name the column. So a saved pie
+    stored `Crust` and `Filling and Assembly` correctly, returned them as
+    null, and the recipe page rendered one flat list while the INSTRUCTIONS
+    beside it grouped perfectly. The steps ride on a JSON column and are
+    returned whole; ingredients are not.
+    """
+    from app.models import Recipe, RecipeIngredient
+    from app.routers.recipes import _to_read
+
+    recipe = Recipe(title="Pie", default_servings=8, instructions=[{"component": "Crust", "text": "Bake."}])
+    recipe.ingredients = [
+        RecipeIngredient(ingredient_name="graham crackers", quantity=12, unit=None, component="Crust"),
+        RecipeIngredient(ingredient_name="sugar", quantity=2, unit="tbsp", component="Crust"),
+        RecipeIngredient(ingredient_name="heavy cream", quantity=0.75, unit="cup", component="Filling and Assembly"),
+    ]
+    db_session.add(recipe)
+    db_session.commit()
+    db_session.refresh(recipe)
+
+    read = _to_read(recipe, db_session)
+    assert [i.component for i in read.ingredients] == ["Crust", "Crust", "Filling and Assembly"]

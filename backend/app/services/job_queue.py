@@ -101,7 +101,28 @@ def _ensure_worker_alive() -> None:
         _worker_thread.start()
 
 
-def enqueue(kind: str, label: str, fn: Callable[[], dict], dedup_key: str | None = None) -> tuple[str, bool]:
+# What a job's runtime should be COMPARED against, which is not always
+# its kind.
+#
+# Measured 2026-08-07: a JSON-LD URL import finishes in about a second
+# because no model runs at all, and a PDF import takes ~100 because two
+# do. Both are kind `recipe_import`, so the median of the last five runs
+# mixed them and the progress bar read `108s of ~1s typical, 21497%` --
+# not a wrong number, a meaningless one, and a badge that cries wolf is a
+# badge nobody reads.
+#
+# The bucket cannot always be known at enqueue time: whether a URL import
+# runs a model depends on whether that page publishes schema.org data,
+# which is only discovered mid-job. So a job may declare its own bucket
+# once it finds out, via `set_estimate_key`, and what it declares is what
+# future runs are compared against.
+def enqueue(
+    kind: str,
+    label: str,
+    fn: Callable[[], dict],
+    dedup_key: str | None = None,
+    estimate_key: str | None = None,
+) -> tuple[str, bool]:
     """`fn` takes no arguments and returns a JSON-serializable dict (the
     job's eventual `result`). Each call site closes over whatever raw
     inputs it needs (bytes, strings, ids) -- NEVER a request-scoped `db`
@@ -116,6 +137,10 @@ def enqueue(kind: str, label: str, fn: Callable[[], dict], dedup_key: str | None
     here since this app's jobs aren't a fixed small kind list the way
     Fiduciary's cron-scheduled jobs are.
 
+    `estimate_key` groups this job with the runs its duration is actually
+    comparable to (see the comment above); it defaults to `kind`, which is
+    the old behaviour exactly.
+
     Returns (job_id, created) -- created=False means an existing
     queued/running job was returned instead of a new one being started."""
     with _JOBS_LOCK:
@@ -129,6 +154,7 @@ def enqueue(kind: str, label: str, fn: Callable[[], dict], dedup_key: str | None
             "id": jid,
             "kind": kind,
             "label": label,
+            "estimate_key": estimate_key or kind,
             "dedup_key": dedup_key,
             "status": "queued",
             "submitted_at": time.time(),
@@ -164,7 +190,9 @@ def list_jobs() -> dict:
     running_job = next((j for j in jobs if j["status"] == "running"), None)
     progress = None
     if running_job and running_job.get("started_at"):
-        typical = _typical_seconds(running_job["kind"], jobs, exclude_id=running_job["id"])
+        typical = _typical_seconds(
+            running_job.get("estimate_key") or running_job["kind"], jobs, exclude_id=running_job["id"]
+        )
         elapsed = time.time() - running_job["started_at"]
         progress = {
             "elapsed_seconds": round(elapsed),
@@ -189,8 +217,8 @@ def list_jobs() -> dict:
     }
 
 
-def _typical_seconds(kind: str, jobs: list[dict], exclude_id: str | None = None, n: int = 5) -> float | None:
-    """Median duration of the last `n` completed runs of this job kind --
+def _typical_seconds(estimate_key: str, jobs: list[dict], exclude_id: str | None = None, n: int = 5) -> float | None:
+    """Median duration of the last `n` completed runs in this bucket --
     same "no per-kind instrumentation, reuse the history the registry
     already carries" approach as Fiduciary's _job_typical_seconds.
     Returns None until at least one prior run of this kind has finished,
@@ -198,7 +226,7 @@ def _typical_seconds(kind: str, jobs: list[dict], exclude_id: str | None = None,
     durs = sorted(
         j["finished_at"] - j["started_at"]
         for j in jobs
-        if j["kind"] == kind
+        if (j.get("estimate_key") or j["kind"]) == estimate_key
         and j["id"] != exclude_id
         and j["status"] == "done"
         and j.get("started_at") is not None
@@ -211,6 +239,19 @@ def _typical_seconds(kind: str, jobs: list[dict], exclude_id: str | None = None,
     return durs[mid] if len(durs) % 2 else (durs[mid - 1] + durs[mid]) / 2.0
 
 
+_CURRENT_JOB_ID: str | None = None
+
+
+def set_estimate_key(key: str) -> None:
+    """Called from INSIDE a running job body, once it knows what kind of
+    work it actually turned out to be. A no-op when nothing is running, so
+    a job body stays callable directly from a test without the queue."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(_CURRENT_JOB_ID or "")
+        if job is not None:
+            job["estimate_key"] = key
+
+
 def _worker() -> None:
     """The one and only worker thread. Deliberately does not hold
     _JOBS_LOCK while `fn()` itself runs (only briefly, to look the job
@@ -221,11 +262,13 @@ def _worker() -> None:
     instant; this is an accepted, cheap tradeoff for a status board that
     is not itself the source of truth for anything durable, not a
     correctness bug in the data the job eventually writes."""
+    global _CURRENT_JOB_ID
     while True:
         jid, fn = _JOB_Q.get()
         job = _JOBS.get(jid)
         if job is None:
             continue
+        _CURRENT_JOB_ID = jid
         job["status"] = "running"
         job["started_at"] = time.time()
         try:
@@ -236,6 +279,7 @@ def _worker() -> None:
             job["error"] = str(exc)[:500]
         finally:
             job["finished_at"] = time.time()
+            _CURRENT_JOB_ID = None
 
 
 _worker_thread: threading.Thread | None = None
