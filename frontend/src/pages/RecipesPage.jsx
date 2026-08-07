@@ -73,28 +73,6 @@ export default function RecipesPage() {
   const [folderConfirmBusy, setFolderConfirmBusy] = useState(false);
   const [folderConfirmError, setFolderConfirmError] = useState(null);
 
-  // Bookmark results feed the SAME review list the folder scan uses --
-  // the two differ only in where the item came from, and one review UI
-  // that both fill is one place to get right.
-  useEffect(() => {
-    if (!bookmarkScanJob.result) return;
-    const { items, skipped, truncated } = bookmarkScanJob.result;
-    setFolderScanMeta({ skipped, truncated, scanned_folder: bookmarkFolder || "all bookmarks", error: null });
-    setFolderItems(
-      (items || []).map((it) => ({
-        filename: it.title,
-        relative_path: it.folder_path ? `${it.folder_path} -- ${it.url}` : it.url,
-        status: it.status,
-        recipe: it.recipe,
-        error: it.error,
-        title: it.recipe?.title || it.title,
-        included: it.status === "ok",
-      }))
-    );
-    bookmarkScanJob.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookmarkScanJob.result]);
-
   useEffect(() => {
     if (!folderScanJob.result) return;
     const { items, skipped, truncated, scanned_folder, error } = folderScanJob.result;
@@ -125,6 +103,36 @@ export default function RecipesPage() {
   const [bookmarkTotal, setBookmarkTotal] = useState(0);
   const [bookmarkError, setBookmarkError] = useState(null);
   const bookmarkScanJob = useBackgroundJob("chef.job.recipe_bookmark_import");
+
+  // Bookmark results feed the SAME review list the folder scan uses --
+  // the two differ only in where the item came from, and one review UI
+  // that both fill is one place to get right.
+  //
+  // MUST stay below `bookmarkScanJob`'s declaration. The dependency
+  // array is built during render, so reading `bookmarkScanJob.result`
+  // above the `const` is a temporal-dead-zone ReferenceError that
+  // blanks the entire page -- which is exactly what shipped, because a
+  // TDZ error is invisible to both `vite build` and eslint's defaults.
+  // `no-use-before-define` is now on to make that structural.
+  useEffect(() => {
+    if (!bookmarkScanJob.result) return;
+    const { items, skipped, truncated } = bookmarkScanJob.result;
+    setFolderScanMeta({ skipped, truncated, scanned_folder: bookmarkFolder || "all bookmarks", error: null });
+    setFolderItems(
+      (items || []).map((it) => ({
+        filename: it.title,
+        relative_path: it.folder_path ? `${it.folder_path} -- ${it.url}` : it.url,
+        status: it.status,
+        recipe: it.recipe,
+        error: it.error,
+        title: it.recipe?.title || it.title,
+        included: it.status === "ok",
+      }))
+    );
+    bookmarkScanJob.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmarkScanJob.result]);
+
 
   async function readBookmarkFolders() {
     setBookmarkError(null);

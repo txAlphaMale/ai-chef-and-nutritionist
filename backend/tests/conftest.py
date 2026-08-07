@@ -38,6 +38,15 @@ os.environ.setdefault("SECRETS_KEYRING_FILE", os.path.join(_tmp_secrets_dir, "se
 os.environ.setdefault("SESSION_SECRET_FILE", os.path.join(_tmp_secrets_dir, "session_secret.key"))
 os.environ.setdefault("TLS_DIR", tempfile.mkdtemp(prefix="chef-test-tls-"))
 
+# B7.5's built-in sound library writes WAV files next to the database, and
+# `seed()` calls `seed_builtin_sounds()` on every run -- so from the moment
+# that shipped, every test that seeds tried to create `/app/data/sounds`
+# and got PermissionError outside the container. Nine tests, all in
+# test_seed_system_prompts.py, and the failure had nothing to do with what
+# they assert. Same pattern as the four above: point it somewhere
+# disposable before app code reads the environment.
+os.environ.setdefault("SOUNDS_DIR", tempfile.mkdtemp(prefix="chef-test-sounds-"))
+
 import pytest  # noqa: E402
 
 import app.models  # noqa: E402  -- import side effect: registers every model on Base.metadata

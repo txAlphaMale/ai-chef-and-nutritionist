@@ -73,6 +73,22 @@ export default [
       // browsing). `catch {}` with no binding already expresses that;
       // this only allows an unused binding when it is named to say so.
       "no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+
+      // On because it caught a real one, which is this config's stated bar
+      // for enabling anything.
+      //
+      // RecipesPage read `bookmarkScanJob.result` in a useEffect dependency
+      // array placed ABOVE the `const bookmarkScanJob = ...` that defines
+      // it. A dependency array is built during render, so that is a
+      // temporal-dead-zone ReferenceError -- and it blanked the entire
+      // Recipes page in the shipped bundle while `vite build` succeeded and
+      // eslint said nothing. It went unnoticed for a whole commit because
+      // nobody happened to open that page.
+      //
+      // `functions: false` deliberately: hoisted function declarations used
+      // before their definition are fine and this file is full of them.
+      // Classes and variables are the cases that actually throw.
+      "no-use-before-define": ["error", { functions: false, classes: true, variables: true }],
     },
   },
 
