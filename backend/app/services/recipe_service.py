@@ -19,6 +19,7 @@ import pdfplumber
 import trafilatura
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
+from trafilatura import settings as trafilatura_config
 
 from app.models import MealTag, Recipe, RecipeIngredient
 from app.schemas.ai_extraction import (
@@ -667,10 +668,65 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
 # extraction logic is unit-testable without a live network call.
 
 
+# trafilatura's own accepted body-size window, read from its config rather
+# than restated, so this cannot drift from the check that actually runs.
+_TRAFILATURA_MIN_BYTES = int(trafilatura_config.DEFAULT_CONFIG.get("DEFAULT", "MIN_FILE_SIZE"))
+_TRAFILATURA_MAX_BYTES = int(trafilatura_config.DEFAULT_CONFIG.get("DEFAULT", "MAX_FILE_SIZE"))
+
+# A refusal, as opposed to a page that is simply not there.
+_REFUSAL_STATUSES = {401, 402, 403, 405, 406, 418, 429, 451}
+
+
+def _diagnose_failed_fetch(url: str) -> str:
+    """Why `trafilatura.fetch_url` returned None.
+
+    Measured need: the first real bookmarks run failed on 6 of 20 URLs and
+    every one of them reported the same sentence -- "Could not download
+    content from X" -- because `fetch_url` returns None and nothing else.
+    A dead 2011 link and a live site refusing a non-browser client are
+    indistinguishable in that message, and they call for opposite
+    responses: one is attrition to accept, the other is a decision about
+    how this app identifies itself. Guessing between them across 565
+    bookmarks is not a thing worth doing.
+
+    This re-requests through trafilatura's OWN `fetch_response`, not
+    another HTTP client, so what gets diagnosed is the same request with
+    the same user-agent and the same configuration -- a 403 observed
+    through httpx would say nothing about what trafilatura was sent.
+
+    Costs one extra request, and only ever on a URL that already failed."""
+    try:
+        response = trafilatura.fetch_response(url, decode=True)
+    except Exception as exc:
+        return f"the request itself raised {type(exc).__name__}: {exc}"
+
+    if response is None:
+        return "no response at all -- DNS failure, refused connection, TLS error, or timeout. Most likely a dead link."
+
+    if response.status in _REFUSAL_STATUSES:
+        return (
+            f"the site answered HTTP {response.status}. That is a refusal rather than a missing page -- "
+            "the server is rejecting this client, not saying the recipe is gone."
+        )
+    if response.status != 200:
+        return f"the site answered HTTP {response.status}."
+
+    size = len(response.html or response.data or "")
+    if not _TRAFILATURA_MIN_BYTES <= size <= _TRAFILATURA_MAX_BYTES:
+        return (
+            f"the site answered HTTP 200 with {size} bytes, outside the "
+            f"{_TRAFILATURA_MIN_BYTES}-{_TRAFILATURA_MAX_BYTES} byte window the extractor accepts."
+        )
+    return (
+        f"the site answered HTTP 200 with {size} bytes on a second attempt, so the first was probably "
+        "rate-limited or transient. Worth another run."
+    )
+
+
 def fetch_html(url: str) -> str:
     html = trafilatura.fetch_url(url)
     if not html:
-        raise ValueError(f"Could not download content from {url}")
+        raise ValueError(f"Could not download {url}: {_diagnose_failed_fetch(url)}")
     return html
 
 
