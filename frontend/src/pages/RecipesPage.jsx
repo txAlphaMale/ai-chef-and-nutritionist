@@ -559,7 +559,7 @@ export default function RecipesPage() {
             </p>
           ) : (
             <>
-              <table className="data-table">
+              <table className="data-table import-review-table">
                 <thead>
                   <tr>
                     <th></th>
@@ -581,7 +581,7 @@ export default function RecipesPage() {
                           onChange={(e) => updateFolderItemField(i, "included", e.target.checked)}
                         />
                       </td>
-                      <td data-label="File">{row.relative_path}</td>
+                      <td data-label="File" className="import-review-source">{row.relative_path}</td>
                       <td data-label="Title">
                         {row.recipe ? (
                           <input value={row.title} onChange={(e) => updateFolderItemField(i, "title", e.target.value)} />

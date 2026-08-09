@@ -2730,3 +2730,72 @@ tr.urgency-low td {
   border-color: var(--color-secondary);
   color: var(--color-text);
 }
+
+/* --- Bulk import review table ---------------------------------------
+   This table holds a full URL and a sentence-long failure reason in the
+   same row. Left to size itself, the URL column wins: one bookmark
+   carrying 200 characters of utm_ parameters pushed Title, Ingredients,
+   Checked? and Status off the right edge of the window.
+
+   The author reviewed a 40-row import without realising four columns
+   existed. That is the failure being fixed -- not "the table was wide",
+   but "the table hid the answer and gave no sign it was hiding it".
+   Horizontal scroll is the wrong fix for the same reason: it is only
+   discoverable if you already suspect there is something to find.
+
+   So the layout is FIXED and the columns are budgeted. A long URL wraps
+   inside its own cell instead of expanding it. */
+
+.import-review-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.import-review-table th:nth-child(1),
+.import-review-table td:nth-child(1) {
+  width: 2.5rem;
+}
+
+.import-review-table th:nth-child(2),
+.import-review-table td:nth-child(2) {
+  width: 30%;
+}
+
+.import-review-table th:nth-child(3),
+.import-review-table td:nth-child(3) {
+  width: 18%;
+}
+
+.import-review-table th:nth-child(4),
+.import-review-table td:nth-child(4) {
+  width: 5.5rem;
+}
+
+.import-review-table th:nth-child(5),
+.import-review-table td:nth-child(5) {
+  width: 7rem;
+}
+
+/* Status keeps whatever is left -- it holds the longest text and is the
+   column most worth reading. */
+
+.import-review-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.import-review-table input[type="text"],
+.import-review-table input:not([type]) {
+  width: 100%;
+  min-width: 0;
+}
+
+/* A URL is one unbroken token to a browser, so it needs explicit
+   permission to break -- otherwise the fixed width above is overruled by
+   a single 200-character bookmark. */
+.import-review-source {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
