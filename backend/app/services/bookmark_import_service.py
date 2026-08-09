@@ -45,6 +45,26 @@ MAX_URLS_PER_SCAN = 40
 ALLOWED_SCHEMES = ("http://", "https://")
 
 
+# `huge_tree=True` is load-bearing, and the reason is measured.
+#
+# libxml2 refuses to nest deeper than 256 elements. This format's `<DT>`
+# tags are never closed, so a recovering parser nests EVERY bookmark one
+# level deeper than the last -- an export walks straight into that wall.
+# Past it, parsing simply stops, with no exception and no warning.
+#
+# On the author's real export (2026-08-07): 860 anchors and 6 folders in
+# the file, 250 anchors and 2 folders reached by the default parser, max
+# element depth exactly 255. More than half the bookmarks silently absent,
+# two entire folders gone, and the UI reporting the truncated number as
+# though it were the file's contents.
+#
+# The hand-written fixture and a 20-URL trial file were both far too
+# shallow to reach depth 256, which is why every test passed. A real
+# export is the only input that could have found this -- see the
+# regression test, which generates one deep enough on purpose.
+_PARSER = lxml.html.HTMLParser(recover=True, huge_tree=True)
+
+
 # Query parameters that identify how somebody ARRIVED at a page rather
 # than which page it is. Two bookmarks of the same recipe saved from a
 # newsletter and from a search are the same recipe, and importing it
@@ -141,15 +161,26 @@ def parse_bookmarks(html: str) -> list[Bookmark]:
     create two rows the household then has to merge by hand."""
     if not (html or "").strip():
         return []
-    tree = lxml.html.fromstring(html)
+    tree = lxml.html.fromstring(html, parser=_PARSER)
 
     seen: set[str] = set()
     bookmarks: list[Bookmark] = []
     for anchor in tree.iter("a"):
         url = (anchor.get("href") or "").strip()
-        if not url.lower().startswith(ALLOWED_SCHEMES) or url in seen:
+        if not url.lower().startswith(ALLOWED_SCHEMES):
             continue
-        seen.add(url)
+        # Deduplicated on the NORMALIZED url, not the raw one. Measured on
+        # a real export: the same Mountain Rose Herbs page appears twice,
+        # identical but for a `#gel` fragment, and both were imported and
+        # both arrived pre-ticked. The household would have got two copies
+        # of one recipe to merge by hand -- which is the exact outcome the
+        # docstring promises this function prevents. `already_imported_urls`
+        # already compared this way; the in-file check did not, so a
+        # duplicate survived within a single run but not across two.
+        key = normalize_url(url)
+        if key in seen:
+            continue
+        seen.add(key)
         bookmarks.append(
             Bookmark(
                 url=url,
