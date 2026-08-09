@@ -114,3 +114,45 @@ def test_two_bookmarks_of_one_page_collapse():
 def test_non_http_schemes_are_still_dropped(scheme):
     html = f'<DL><p><DT><H3>R</H3><DL><p><DT><A HREF="{scheme}">x</A></DL><p></DL><p>'
     assert bis.parse_bookmarks(html) == []
+
+
+# --- the folder tag has to describe the recipe, not the app --------------
+
+
+def test_a_descriptive_folder_becomes_a_tag(db_session, monkeypatch):
+    """`Desserts` is why the folder tag exists at all -- a dessert stays
+    findable as one after the import."""
+    _stub_parse(monkeypatch)
+    bookmarks = [bis.Bookmark(url="https://example.com/a", title="A", folder_path="Bookmarks bar/Desserts")]
+    result = bis.scan_and_parse(db_session, bookmarks)
+    assert "desserts" in result["items"][0]["recipe"]["tags"]
+
+
+@pytest.mark.parametrize("folder", ["Recipes", "recipes", "Cooking", "Food", "Bookmarks bar", "To Try"])
+def test_a_folder_that_only_says_this_is_a_recipe_does_not(db_session, monkeypatch, folder):
+    """Measured on the author's first real import: all 21 saved recipes
+    carried `recipes`, and it sorted to the TOP of the tag filter because
+    that panel ranks by count. A tag every row carries is not a facet."""
+    _stub_parse(monkeypatch)
+    bookmarks = [bis.Bookmark(url="https://example.com/a", title="A", folder_path=f"Bookmarks bar/{folder}")]
+    result = bis.scan_and_parse(db_session, bookmarks)
+    assert result["items"][0]["recipe"]["tags"] == ["quick"], "an uninformative folder tag was added"
+
+
+def _stub_parse(monkeypatch):
+    def fake_parse(_db, url):
+        return {
+            "raw_output": "",
+            "default_source": "import_url_jsonld",
+            "citation": {"source_url": url},
+            "image_path": None,
+            "jsonld_parsed": {
+                "title": "Thing",
+                "ingredients": [{"ingredient_name": "flour", "quantity": 1, "unit": "cup"}],
+                "instructions": [],
+                "tags": ["quick"],
+            },
+            "source_text": None,
+        }
+
+    monkeypatch.setattr(bis.recipe_service, "parse_recipe_from_url", fake_parse)

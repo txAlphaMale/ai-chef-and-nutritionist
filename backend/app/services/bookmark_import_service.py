@@ -45,6 +45,34 @@ MAX_URLS_PER_SCAN = 40
 ALLOWED_SCHEMES = ("http://", "https://")
 
 
+# Folder names that describe "this is a recipe" rather than describing the
+# recipe. The leaf folder becomes a tag so a `Desserts` folder stays
+# findable as one -- but a `Recipes` folder produces a tag every row in a
+# recipe app carries, which is not a facet, it is noise at the top of the
+# list. Measured: the author's first 21 saved recipes ALL carried
+# `recipes`, and it sorted first in the tag filter because that panel
+# ranks by count.
+_UNINFORMATIVE_FOLDER_TAGS = {
+    "recipe",
+    "recipes",
+    "recipes2",
+    "cooking",
+    "cook",
+    "food",
+    "foods",
+    "cookbook",
+    "bookmarks",
+    "bookmarks_bar",
+    "favorites",
+    "favourites",
+    "misc",
+    "other",
+    "unsorted",
+    "to_try",
+    "saved",
+}
+
+
 # `huge_tree=True` is load-bearing, and the reason is measured.
 #
 # libxml2 refuses to nest deeper than 256 elements. This format's `<DT>`
@@ -280,7 +308,7 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
             # routinely "Best Ever Pie Recipe (SO EASY!) - My Blog".
             if bookmark.folder_path:
                 leaf = bookmark.folder_path.rsplit("/", 1)[-1].strip().lower().replace(" ", "_")
-                if leaf:
+                if leaf and leaf not in _UNINFORMATIVE_FOLDER_TAGS:
                     parsed["tags"] = sorted({*(parsed.get("tags") or []), leaf})
             item["recipe"] = parsed
             # A page with no ingredients is not a recipe. The first real
