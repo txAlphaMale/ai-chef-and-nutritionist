@@ -111,7 +111,12 @@ def test_one_dead_url_does_not_cost_the_household_the_other_imports(db_session):
             # not a recipe), and this test is about dead URLs.
             "jsonld_parsed": {
                 "title": "Pie",
-                "ingredients": [{"ingredient_name": "flour", "quantity": 1, "unit": "cup"}],
+                # Two ingredients on purpose: one ingredient and no instructions
+                # is now read as a product page, and this test is about dead URLs.
+                "ingredients": [
+                    {"ingredient_name": "flour", "quantity": 1, "unit": "cup"},
+                    {"ingredient_name": "sugar", "quantity": 2, "unit": "tbsp"},
+                ],
                 "instructions": [],
             },
             "source_text": None,

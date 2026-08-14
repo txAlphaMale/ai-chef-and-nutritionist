@@ -216,8 +216,29 @@ _NEGATION_WORDS: dict[str, list[str]] = {
 
 
 def _build_pattern(words: list[str]) -> re.Pattern:
+    """Keyword alternation, matching a plural as well as the singular.
+
+    The `(?:e?s)?` is not tidiness. Without it the trailing `\b` requires a
+    non-word character after the keyword, so `almond` does not match
+    `almonds` -- and a recipe writes `2 cups almonds`, never `2 cups
+    almond`. Measured 2026-08-07 on a real import: `raw organic cashews`
+    produced NO tree-nut match, and the same held for almonds, walnuts,
+    pecans, pistachios and hazelnuts. Every plural form in the tree-nut
+    list was invisible.
+
+    This reached far past the derived tags that surfaced it. The same
+    function backs `check_household_restrictions`, so a household with a
+    tree-nut restriction would have been shown no warning at all on a
+    recipe whose first ingredient is a pound of cashews. `peanuts` and
+    `macadamia nuts` matched throughout, which is exactly why it went
+    unnoticed -- those are listed in their plural form already.
+
+    Over-matching is the correct direction to err here and is this
+    module's stated posture: it flags what it recognises, for a
+    household deciding whether a dish is safe. A spurious warning costs
+    a second look; a missed one costs more."""
     escaped = sorted((re.escape(w) for w in words), key=len, reverse=True)
-    return re.compile(r"\b(?:" + "|".join(escaped) + r")\b", re.IGNORECASE)
+    return re.compile(r"\b(?:" + "|".join(escaped) + r")(?:e?s)?\b", re.IGNORECASE)
 
 
 _ALLERGEN_PATTERNS: dict[str, re.Pattern] = {k: _build_pattern(v) for k, v in ALLERGEN_KEYWORDS.items()}

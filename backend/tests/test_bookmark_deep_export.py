@@ -156,3 +156,64 @@ def _stub_parse(monkeypatch):
         }
 
     monkeypatch.setattr(bis.recipe_service, "parse_recipe_from_url", fake_parse)
+
+
+# --- a product page is not a recipe --------------------------------------
+
+
+def _stub_recipe(monkeypatch, ingredients, instructions):
+    def fake_parse(_db, url):
+        return {
+            "raw_output": "",
+            "default_source": "import_url_jsonld",
+            "citation": {"source_url": url},
+            "image_path": None,
+            "jsonld_parsed": {"title": "Thing", "ingredients": ingredients, "instructions": instructions},
+            "source_text": None,
+        }
+
+    monkeypatch.setattr(bis.recipe_service, "parse_recipe_from_url", fake_parse)
+
+
+ONE = [{"ingredient_name": "organic cordyceps powder", "quantity": None, "unit": None}]
+TWO = [*ONE, {"ingredient_name": "water", "quantity": 1, "unit": "cup"}]
+STEPS = [{"text": "Stir it in.", "component": "main"}]
+
+
+def _status(db_session, monkeypatch, ingredients, instructions):
+    _stub_recipe(monkeypatch, ingredients, instructions)
+    bookmarks = [bis.Bookmark(url="https://example.com/a", title="A", folder_path="Recipes")]
+    return bis.scan_and_parse(db_session, bookmarks)["items"][0]
+
+
+def test_one_ingredient_and_no_instructions_is_flagged(db_session, monkeypatch):
+    """The real case: a Mountain Rose Herbs product page for cordyceps
+    powder, saved as a recipe because it arrived pre-ticked."""
+    item = _status(db_session, monkeypatch, ONE, [])
+    assert item["status"] == "empty"
+    assert "product page" in item["error"]
+
+
+def test_one_ingredient_WITH_instructions_is_fine(db_session, monkeypatch):
+    """A single-ingredient recipe is a real thing when it tells you what
+    to do with the ingredient."""
+    assert _status(db_session, monkeypatch, ONE, STEPS)["status"] == "ok"
+
+
+def test_many_ingredients_and_NO_instructions_is_fine(db_session, monkeypatch):
+    """This household's own taco seasoning import is 18 ingredients and no
+    method. A spice blend does not need steps."""
+    many = [{"ingredient_name": f"spice {i}", "quantity": 1, "unit": "tsp"} for i in range(18)]
+    assert _status(db_session, monkeypatch, many, [])["status"] == "ok"
+
+
+def test_two_ingredients_and_no_instructions_is_fine(db_session, monkeypatch):
+    assert _status(db_session, monkeypatch, TWO, [])["status"] == "ok"
+
+
+def test_a_flagged_product_page_is_still_savable(db_session, monkeypatch):
+    """Flagged, not refused -- the household may know better than the
+    parser. It just does not arrive pre-ticked."""
+    item = _status(db_session, monkeypatch, ONE, [])
+    assert item["recipe"] is not None
+    assert item["recipe"]["ingredients"]

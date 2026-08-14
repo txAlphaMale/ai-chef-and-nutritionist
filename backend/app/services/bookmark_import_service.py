@@ -320,6 +320,24 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
             if not parsed.get("ingredients"):
                 item["status"] = "empty"
                 item["error"] = "No ingredients found -- this is probably an index or category page, not a recipe."
+            elif len(parsed["ingredients"]) < 2 and not parsed.get("instructions"):
+                # One ingredient and nothing to do with it. Measured: a
+                # Mountain Rose Herbs product page for cordyceps powder
+                # imported as a recipe titled "Cordyceps Powder
+                # Supplement" -- one ingredient, "organic cordyceps powder
+                # (Cordyceps militaris fruiting body)", and an empty
+                # Instructions heading. It arrived pre-ticked and was
+                # saved.
+                #
+                # BOTH halves are required, and that is the whole care
+                # here. A single-ingredient recipe is a real thing when it
+                # tells you what to do -- and a recipe with no
+                # instructions is real too: this household's own taco
+                # seasoning import is 18 ingredients and no method. It is
+                # the combination that describes a product listing rather
+                # than something anyone cooks.
+                item["status"] = "empty"
+                item["error"] = "One ingredient and no instructions -- this is probably a product page, not a recipe."
         except Exception as exc:
             item["status"] = "error"
             item["error"] = str(exc)[:300]
