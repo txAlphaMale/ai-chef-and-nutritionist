@@ -939,6 +939,94 @@ def _take_unit(remainder: str) -> tuple[str | None, str]:
     return None, remainder
 
 
+# Words that describe the STATE of a food rather than naming one. The
+# comma split below reads a line as `<food>, <preparation>` -- correct for
+# `1 onion, diced` -- but a source that writes `2 tbsp raw, local honey`
+# means the opposite, and splitting there files the food as a prep note
+# and leaves `raw` as the ingredient NAME.
+#
+# Measured 2026-08-07 on a saved recipe: `2 tbsp raw, local honey` was
+# stored as name='raw', prep='local honey'. The detail page re-joins the
+# two for display, so it reads correctly on screen and is wrong in the
+# database -- which is why it survived several passes over that recipe.
+#
+# The name is this app's join key. `raw` is what inventory matching,
+# grocery aggregation, nutrition resolution, the allergen warnings and
+# the derived tags all see, so `1 cup raw, unsalted cashews` produced no
+# tree-nut warning at all.
+#
+# Deliberately a short closed list of qualities, not an attempt to
+# recognise food. A line whose entire head is qualities is not naming an
+# ingredient yet, so there is nothing there to split off. Anything this
+# list does not know keeps today's behaviour, and fails the way it
+# already fails rather than a new way.
+_QUALITY_WORDS = frozenset(
+    [
+        "raw",
+        "fresh",
+        "freshly",
+        "dried",
+        "dry",
+        "frozen",
+        "canned",
+        "cooked",
+        "uncooked",
+        "ground",
+        "whole",
+        "halved",
+        "unsalted",
+        "salted",
+        "sweetened",
+        "unsweetened",
+        "organic",
+        "local",
+        "plain",
+        "pure",
+        "natural",
+        "chopped",
+        "minced",
+        "sliced",
+        "diced",
+        "grated",
+        "shredded",
+        "crushed",
+        "toasted",
+        "roasted",
+        "warm",
+        "cold",
+        "chilled",
+        "room",
+        "hot",
+        "lukewarm",
+        "melted",
+        "softened",
+        "packed",
+        "heaping",
+        "level",
+        "large",
+        "medium",
+        "small",
+        "extra",
+        "good",
+        "ripe",
+        "firm",
+        "soft",
+    ]
+)
+
+
+def _leads_with_only_qualities(text: str) -> bool:
+    """True when everything before the first comma is quality words.
+
+    `raw, local honey` -> True (nothing has been named yet)
+    `onion, diced`     -> False (`onion` is a food)
+    `red beets, peeled and chopped small` -> False
+    """
+    head = text.partition(",")[0]
+    words = [w for w in re.split(r"[^a-z]+", head.lower()) if w]
+    return bool(words) and all(word in _QUALITY_WORDS for word in words)
+
+
 def parse_ingredient_line_amounts(line: str) -> list[dict]:
     """One source ingredient line -> one entry per amount it states.
 
@@ -987,7 +1075,7 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
     if remainder.lower().startswith("of "):
         remainder = remainder[3:].strip()
 
-    if "," in remainder:
+    if "," in remainder and not _leads_with_only_qualities(remainder):
         name_part, _, note_part = remainder.partition(",")
         remainder = name_part.strip()
         if note_part.strip():
