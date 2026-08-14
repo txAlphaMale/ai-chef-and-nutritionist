@@ -2799,3 +2799,45 @@ tr.urgency-low td {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+
+/* --- Bulk selection on the recipe list -------------------------------
+   A bulk import needs a bulk undo. The bar only grows its destructive
+   half once something is actually selected, so the resting state of the
+   page is not a delete button. */
+
+.recipe-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Aligned to the title rather than centred in the row: a card with a
+   thumbnail is tall, and a checkbox floating beside the middle of a
+   photo does not read as belonging to the title above it. */
+.recipe-select {
+  align-self: flex-start;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+/* The app's only solid destructive button. Everything else destructive is
+   a `.btn-link-danger` text link, which is right for "delete this one
+   thing you are already looking at" and wrong for a button that can take
+   forty recipes at once -- that one should look like what it does.
+   --color-on-danger is set per theme (see the B7.4 contrast table); a
+   hardcoded white fails AA on the lighter ones. */
+.btn-delete-selected {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+  border-color: var(--color-danger);
+}
+
+.btn-delete-selected:hover:not(:disabled) {
+  filter: brightness(0.9);
+}

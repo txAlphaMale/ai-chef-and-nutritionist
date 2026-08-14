@@ -30,6 +30,11 @@ export default function RecipesPage() {
   // filter on them at all. The server still narrows by title/staple; the
   // facets narrow what came back. See utils/recipeFacets.js.
   const [facets, setFacets] = useState(emptySelection());
+  // Bulk selection. Ids rather than indices, because the visible list is
+  // re-derived from the facets on every render and an index means a
+  // different recipe the moment a filter changes.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
 
   // POST /recipes/import enqueues a background job (see recipes.py's
   // import_recipe) rather than blocking for the full
@@ -336,6 +341,53 @@ export default function RecipesPage() {
   }
 
   const visibleRecipes = applyFacets(recipes, facets);
+  const visibleIds = visibleRecipes.map((r) => r.id);
+  const selectedVisible = visibleIds.filter((id) => selectedIds.has(id));
+
+  function toggleSelected(id) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Select-all acts on what is ON SCREEN, not on the whole catalog. With
+  // a filter active those are different things, and "delete everything
+  // you cannot currently see" is not what anyone means by ticking the box
+  // at the top of a filtered list.
+  function toggleSelectAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (selectedVisible.length === visibleIds.length) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    // Irreversible and unbounded in blast radius, so it asks -- and names
+    // the number, since the count is the thing someone would get wrong.
+    if (!window.confirm(`Delete ${ids.length} recipe${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const result = await api.post("/recipes/bulk-delete", { ids });
+      if (result.missing?.length) {
+        setError(`Deleted ${result.deleted}. ${result.missing.length} were already gone.`);
+      }
+      setSelectedIds(new Set());
+      refresh();
+    } catch (e) {
+      setError(`Could not delete: ${e.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
 
   return (
     <div>
@@ -652,7 +704,35 @@ export default function RecipesPage() {
           to see all {recipes.length}.
         </p>
       ) : (
-        <ul className="recipe-list">
+        <>
+          <div className="recipe-bulk-bar">
+            <label className="checkbox-label inline">
+              <input
+                type="checkbox"
+                checked={visibleIds.length > 0 && selectedVisible.length === visibleIds.length}
+                // Some-but-not-all reads as a third state, and a plain
+                // tick claiming "all" when it is not is how someone
+                // deletes more than they meant to.
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visibleIds.length;
+                }}
+                onChange={toggleSelectAllVisible}
+              />
+              Select all {visibleIds.length}
+            </label>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="hint">{selectedIds.size} selected</span>
+                <button className="btn btn-secondary" onClick={() => setSelectedIds(new Set())} disabled={deleting}>
+                  Clear selection
+                </button>
+                <button className="btn btn-delete-selected" onClick={deleteSelected} disabled={deleting}>
+                  {deleting ? "Deleting..." : `Delete ${selectedIds.size}`}
+                </button>
+              </>
+            )}
+          </div>
+          <ul className="recipe-list">
           {visibleRecipes.map((r) => {
             // The evidence behind each derived tag, so a chip can explain
             // itself on hover rather than asserting something the
@@ -660,6 +740,13 @@ export default function RecipesPage() {
             const bases = derivedTagBases(r);
             return (
               <li key={r.id} className="recipe-list-item recipe-list-item-with-image">
+                <input
+                  type="checkbox"
+                  className="recipe-select"
+                  checked={selectedIds.has(r.id)}
+                  onChange={() => toggleSelected(r.id)}
+                  aria-label={`Select ${r.title}`}
+                />
                 {r.image_path && (
                   <img className="recipe-thumb" src={`${backendOrigin}/api/recipes/${r.id}/image`} alt="" />
                 )}
@@ -694,7 +781,8 @@ export default function RecipesPage() {
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </>
       )}
     </div>
   );

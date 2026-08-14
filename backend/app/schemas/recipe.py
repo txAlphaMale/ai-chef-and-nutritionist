@@ -174,6 +174,20 @@ class RecipeRatingUpdate(BaseModel):
         return v
 
 
+class BulkDeleteRequest(BaseModel):
+    """Ids to delete. Bounded because this is the most destructive call in
+    the API and an unbounded list is how a typo becomes a catalog."""
+
+    ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+    # Ids that were not found -- reported rather than raised, so one stale
+    # id from another tab cannot cost the household the other deletions.
+    missing: list[int] = Field(default_factory=list)
+
+
 class DerivedTagRead(BaseModel):
     """A tag the app worked out from the recipe's own data, with the
     evidence it used. Never stored -- recomputed on every read, so it

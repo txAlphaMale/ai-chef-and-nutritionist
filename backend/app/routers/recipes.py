@@ -22,6 +22,8 @@ from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.recipe import (
     BookmarkFolder,
     BookmarkFoldersResponse,
+    BulkDeleteRequest,
+    BulkDeleteResult,
     DerivedTagRead,
     RecipeChatRequest,
     RecipeChatResponse,
@@ -817,6 +819,47 @@ def rate_recipe(recipe_id: int, payload: RecipeRatingUpdate, db: Session = Depen
     db.commit()
     db.refresh(recipe)
     return _to_read(recipe, db)
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_recipes(payload: BulkDeleteRequest, db: Session = Depends(get_db)):
+    """Delete several recipes in one transaction.
+
+    Added because clearing an import batch meant opening thirty recipe
+    pages and pressing Delete on each. A bulk import needs a bulk undo --
+    the household reviews forty rows at a time, and the first thing they
+    want after a bad batch is all of it gone.
+
+    POST rather than DELETE-with-a-body: a request body on DELETE is
+    legal but poorly supported by intermediaries, and every other
+    multi-item action in this router is already a POST.
+
+    Missing ids are reported, not raised. A list built from a page the
+    household was looking at can easily name a recipe deleted in another
+    tab, and failing the whole call over one stale id would throw away
+    twenty-nine legitimate deletions.
+
+    **These URLs become importable again.** Deleting a recipe removes its
+    source_url, which is what bookmark_import_service.already_imported_urls
+    compares against -- so a deleted recipe reappears in the next scan of
+    the same bookmarks file. That is the intended behaviour here (this
+    endpoint exists to undo a batch and try again) and is NOT a way to
+    permanently reject a URL."""
+    requested = list(dict.fromkeys(payload.ids))
+    recipes = db.query(Recipe).filter(Recipe.id.in_(requested)).all() if requested else []
+    found = {recipe.id for recipe in recipes}
+
+    # Collected before the rows go, and unlinked only after the commit
+    # succeeds -- an image deleted ahead of a rolled-back transaction
+    # leaves a recipe pointing at a file that is gone.
+    image_paths = [recipe.image_path for recipe in recipes if recipe.image_path]
+    for recipe in recipes:
+        db.delete(recipe)
+    db.commit()
+    for path in image_paths:
+        recipe_image_service.delete_image(path)
+
+    return BulkDeleteResult(deleted=len(found), missing=sorted(set(requested) - found))
 
 
 @router.delete("/{recipe_id}", status_code=204)
