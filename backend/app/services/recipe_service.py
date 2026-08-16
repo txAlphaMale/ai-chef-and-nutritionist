@@ -18,7 +18,7 @@ import lxml.html
 import pdfplumber
 import trafilatura
 from pypdf import PdfReader
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from trafilatura import settings as trafilatura_config
 
 from app.models import MealTag, Recipe, RecipeIngredient
@@ -2998,3 +2998,213 @@ def _safe_float(value) -> float | None:
 def _safe_int(value) -> int | None:
     f = _safe_float(value)
     return int(f) if f is not None else None
+
+
+# --- Recipe retrieval for AI context (capstone review 2026-08-16) ----------
+#
+# The problem this solves. `chat_service.build_chat_context` handed the
+# model a catalog of `id: title` pairs, ordered alphabetically and capped at
+# 200 rows. Two things were wrong with that once a bulk bookmarks import
+# started filling the catalog:
+#
+#   1. The cap truncated ALPHABETICALLY and silently. At 400 recipes the
+#      Chef could not see anything past roughly the letter M, and had no
+#      way to know it was looking at a partial list -- so "we have no
+#      recipe for that" was an answer it could give confidently and
+#      wrongly.
+#   2. Titles carry no ingredients. "What can I make with the chicken and
+#      the rice that expire this week?" is the single most valuable
+#      question this app can answer, and the model was being asked to
+#      answer it from recipe NAMES.
+#
+# Why keyword scoring rather than the embedding search `knowledge_service`
+# uses for knowledge files. Knowledge files are long prose where the useful
+# unit is a passage that is semantically near the question, and an embedding
+# index is the right tool. A recipe is a short structured record whose
+# retrievable content is a title, a tag set and a list of food nouns --
+# exact and near-exact token matching on those is both more predictable and
+# free of an index that would need rebuilding on every import of every
+# recipe. It also keeps recipe retrieval working when Ollama is unreachable,
+# which matters because chat degrades to an error in that case anyway and
+# should not ALSO have silently lost its catalog.
+#
+# Candidate narrowing happens in SQL (a LIKE per token against titles and
+# ingredient names) so this never loads the whole recipe table into memory;
+# scoring then happens in Python over the narrowed set.
+
+# Words that appear in nearly every cooking question and would match nearly
+# every recipe, so they cost a query slot and buy nothing.
+_RETRIEVAL_STOPWORDS = frozenset(
+    [
+        "a", "an", "and", "any", "are", "as", "at", "be", "been", "but", "by",
+        "can", "could", "did", "do", "does", "for", "from", "get", "give",
+        "got", "had", "has", "have", "how", "i", "id", "if", "in", "into", "is",
+        "it", "its", "just", "know", "like", "make", "made", "me", "my", "need",
+        "not", "of", "on", "one", "or", "our", "out", "please", "should",
+        "show", "so", "some", "tell", "than", "that", "the", "their", "them",
+        "then", "there", "these", "they", "this", "those", "to", "up", "use",
+        "used", "using", "want", "was", "we", "what", "when", "where", "which",
+        "who", "why", "will", "with", "would", "you", "your", "recipe",
+        "recipes", "meal", "meals", "dish", "dishes", "cook", "cooking",
+        "cooked", "food", "foods", "eat", "eating", "dinner", "lunch",
+        "breakfast", "something", "anything", "nothing", "good", "best", "new",
+        "old",
+    ]
+)
+
+# A token has to be at least this long to be worth a LIKE scan. Two-letter
+# tokens ("ok", "hi") match far too much to be useful signal.
+_MIN_TOKEN_LEN = 3
+
+# Upper bound on how many DISTINCT tokens get their own SQL scan. A long
+# rambling message should not turn into thirty LIKE queries.
+_MAX_QUERY_TOKENS = 8
+
+
+def _retrieval_tokens(query: str | None) -> list[str]:
+    """Pure: a user message -> the distinct, ordered, useful tokens to
+    search on. Kept pure and separate so it can be unit-tested without a
+    database."""
+    if not query:
+        return []
+    raw = re.findall(r"[a-z0-9']+", query.lower())
+    seen: dict[str, None] = {}
+    for token in raw:
+        token = token.strip("'")
+        if len(token) < _MIN_TOKEN_LEN or token in _RETRIEVAL_STOPWORDS:
+            continue
+        # Crude singularisation, and deliberately crude: matching "onion"
+        # against a recipe that says "onions" is the whole point, and the
+        # allergen matcher learned the same lesson the hard way (a pound of
+        # cashews produced no tree-nut match until plurals were handled).
+        if token.endswith("es") and len(token) > 4:
+            seen.setdefault(token[:-2], None)
+        if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+            seen.setdefault(token[:-1], None)
+        seen.setdefault(token, None)
+        if len(seen) >= _MAX_QUERY_TOKENS:
+            break
+    return list(seen)
+
+
+# Relative weights. A title match is the strongest signal that a recipe IS
+# the thing being asked about; an ingredient match means the recipe merely
+# CONTAINS it, which is weaker but is exactly what an "what can I make
+# with..." question needs.
+_SCORE_TITLE = 5
+_SCORE_TAG = 3
+_SCORE_INGREDIENT = 2
+
+
+def score_recipe_against_tokens(title: str, tags: list[str], ingredient_names: list[str], tokens: list[str]) -> int:
+    """Pure scoring half of `find_relevant_recipes`, separated for testing.
+    Substring matching, not equality: "chick" should reach "chicken", and a
+    recipe ingredient reading "boneless skinless chicken thighs" should
+    match the token "chicken"."""
+    if not tokens:
+        return 0
+    title_l = (title or "").lower()
+    tags_l = [t.lower() for t in tags]
+    ingredients_l = [n.lower() for n in ingredient_names if n]
+    score = 0
+    for token in tokens:
+        if token in title_l:
+            score += _SCORE_TITLE
+        if any(token in tag for tag in tags_l):
+            score += _SCORE_TAG
+        if any(token in name for name in ingredients_l):
+            score += _SCORE_INGREDIENT
+    return score
+
+
+def find_relevant_recipes(db: Session, query: str | None, limit: int = 6) -> list[Recipe]:
+    """Recipes worth putting in front of the model for THIS message, most
+    relevant first. Returns ORM rows with ingredients and tags already
+    loaded. Empty list when the message yields no searchable tokens, or
+    when nothing matches -- a greeting must not drag six arbitrary recipes
+    into the prompt."""
+    tokens = _retrieval_tokens(query)
+    if not tokens:
+        return []
+
+    # Narrow in SQL. `ilike` on SQLite is case-insensitive for ASCII, which
+    # is what every ingredient name in this database is.
+    candidate_ids: set[int] = set()
+    for token in tokens:
+        pattern = f"%{token}%"
+        candidate_ids.update(
+            row[0]
+            for row in db.query(Recipe.id).filter(Recipe.title.ilike(pattern)).limit(200).all()
+        )
+        candidate_ids.update(
+            row[0]
+            for row in db.query(RecipeIngredient.recipe_id)
+            .filter(RecipeIngredient.ingredient_name.ilike(pattern))
+            .limit(400)
+            .all()
+        )
+        candidate_ids.update(
+            row[0]
+            for row in db.query(Recipe.id)
+            .join(Recipe.tags)
+            .filter(MealTag.name.ilike(pattern))
+            .limit(200)
+            .all()
+        )
+
+    if not candidate_ids:
+        return []
+
+    candidates = (
+        db.query(Recipe)
+        .options(selectinload(Recipe.ingredients), selectinload(Recipe.tags))
+        .filter(Recipe.id.in_(candidate_ids))
+        .all()
+    )
+
+    scored = []
+    for recipe in candidates:
+        score = score_recipe_against_tokens(
+            recipe.title,
+            [t.name for t in recipe.tags],
+            [i.ingredient_name for i in recipe.ingredients],
+            tokens,
+        )
+        if score > 0:
+            # Staples and highly-rated recipes break ties toward what the
+            # household actually cooks, matching how
+            # `meal_plan_service.build_recipe_catalog_summary` already
+            # orders its own catalog.
+            scored.append((score, 1 if recipe.is_staple else 0, recipe.rating or 0, recipe.title, recipe))
+
+    scored.sort(key=lambda row: (-row[0], -row[1], -row[2], row[3]))
+    return [row[4] for row in scored[:limit]]
+
+
+def summarize_recipe_for_context(recipe: Recipe, max_ingredients: int = 20) -> dict:
+    """A retrieved recipe, flattened to what a chat prompt can afford. Full
+    instructions are deliberately NOT included -- six recipes' worth of
+    method text would dominate the context window, and the questions this
+    retrieval exists to answer ("can I make this", "what goes in it",
+    "substitute for X") are all answerable from the ingredient list. The
+    model can ask the user to open the recipe for the steps."""
+    ingredients = []
+    for ing in recipe.ingredients[:max_ingredients]:
+        parts = []
+        if ing.quantity is not None:
+            parts.append(_format_quantity(ing.quantity))
+        if ing.unit:
+            parts.append(ing.unit)
+        parts.append(ing.ingredient_name)
+        ingredients.append(" ".join(p for p in parts if p))
+    truncated = max(0, len(recipe.ingredients) - max_ingredients)
+    return {
+        "id": recipe.id,
+        "title": recipe.title,
+        "default_servings": recipe.default_servings,
+        "is_staple": recipe.is_staple,
+        "rating": recipe.rating,
+        "tags": [t.name for t in recipe.tags],
+        "ingredients": ingredients,
+        "ingredients_truncated": truncated,
+    }

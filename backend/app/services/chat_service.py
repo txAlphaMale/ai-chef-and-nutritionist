@@ -20,7 +20,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HouseholdPreferences, InventoryItem, MealPlan, Recipe
-from app.services import health_service
+from app.services import health_service, recipe_service
 from app.services.recipe_service import _extract_json_object, _safe_float, _safe_int, coerce_recipe_fields
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -106,6 +106,18 @@ CHAT_SCHEMA = {
 CHAT_RESPONSE_TOKENS = 2000
 
 
+# How many id+title pairs the catalog block may spend. 200 titles is
+# roughly 2-3k tokens; past that the catalog crowds out the retrieved
+# recipes, which are worth more per token.
+RECIPE_CATALOG_LIMIT = 200
+
+# How many fully-detailed recipes retrieval may add. Six recipes with
+# ingredient lists is the point where the prompt stops being dominated by
+# them -- see recipe_service.summarize_recipe_for_context for why
+# instructions are excluded from each one.
+RELEVANT_RECIPE_LIMIT = 6
+
+
 def get_relevant_meal_plan(db: Session) -> MealPlan | None:
     """The plan the chat should reference: the active one if there is
     one, else the most recently created (by week_start_date) plan at
@@ -127,11 +139,36 @@ def build_chat_context(db: Session, query: str | None = None, inventory_limit: i
     household = db.query(HouseholdPreferences).first()
     plan = get_relevant_meal_plan(db)
     inventory_items = db.query(InventoryItem).order_by(InventoryItem.name).limit(inventory_limit).all()
-    # id+title only -- just enough for the model to reference an existing
-    # recipe by a real id in a recipe_update_proposal action (see
-    # ALLOWED_ACTION_TYPES above); the full recipe content isn't needed
-    # here since a proposal always supplies the complete post-edit recipe.
-    recipe_catalog = db.query(Recipe.id, Recipe.title).order_by(Recipe.title).limit(200).all()
+    # TWO recipe views go into the prompt, and they answer different
+    # questions (capstone review 2026-08-16).
+    #
+    # The CATALOG is id+title only -- enough for the model to reference an
+    # existing recipe by a real id in a recipe_update_proposal, which is all
+    # it was ever for, since a proposal supplies the complete post-edit
+    # recipe itself. It is capped, because a household with a few thousand
+    # imported bookmarks cannot have its whole catalog in every prompt.
+    # What changed: the cap now takes staples and highly-rated recipes
+    # FIRST (matching meal_plan_service.build_recipe_catalog_summary's
+    # ordering) instead of the alphabetically-first 200, and the prompt is
+    # told the list is partial -- previously the model could not tell a
+    # truncated catalog from a complete one, so "we don't have a recipe for
+    # that" was an answer it gave confidently about recipes filed under S.
+    #
+    # RELEVANT RECIPES are retrieved per message and carry their ingredient
+    # lists. Titles alone cannot answer "what can I make with the chicken
+    # that expires Thursday", which is the question this app exists to
+    # answer.
+    recipe_catalog_total = db.query(Recipe.id).count()
+    recipe_catalog = (
+        db.query(Recipe.id, Recipe.title)
+        .order_by(Recipe.is_staple.desc(), Recipe.rating.is_(None), Recipe.rating.desc(), Recipe.title)
+        .limit(RECIPE_CATALOG_LIMIT)
+        .all()
+    )
+    relevant_recipes = [
+        recipe_service.summarize_recipe_for_context(r)
+        for r in recipe_service.find_relevant_recipes(db, query, limit=RELEVANT_RECIPE_LIMIT)
+    ]
 
     plan_entries = []
     if plan is not None:
@@ -158,6 +195,8 @@ def build_chat_context(db: Session, query: str | None = None, inventory_limit: i
         "meal_plan_entries": plan_entries,
         "knowledge_context": knowledge_context,
         "recipe_catalog": [{"id": r.id, "title": r.title} for r in recipe_catalog],
+        "recipe_catalog_total": recipe_catalog_total,
+        "relevant_recipes": relevant_recipes,
         "inventory_items": [
             {
                 "id": i.id,
@@ -241,8 +280,9 @@ Current meal plan{plan_label}:
 
 Current inventory (id, name, quantity, unit, category{priority_note}):
 {inventory_lines}
-
-Known recipes (id: title) -- reference these by id for recipe_update_proposal:
+{relevant_recipes_section}
+Saved recipes (id: title){catalog_scope} -- reference these by id for \
+recipe_update_proposal:
 {recipe_catalog_lines}
 """
 
@@ -277,6 +317,51 @@ def _format_recipe_catalog(recipes: list[dict]) -> str:
     return "\n".join(f"- {r['id']}: {r['title']}" for r in recipes)
 
 
+def _format_relevant_recipes(recipes: list[dict]) -> str:
+    """The retrieved-recipes block. Returns "" when retrieval found
+    nothing, so a greeting gets no empty scaffolding in its prompt."""
+    if not recipes:
+        return ""
+    lines = [
+        "",
+        "Saved recipes that look relevant to THIS message, with their "
+        "ingredients (retrieved by keyword -- treat as a starting point, "
+        "not the complete set, and say so if the household seems to be "
+        "asking about something not listed here):",
+    ]
+    for r in recipes:
+        header = f"- id={r['id']}: {r['title']} ({r['default_servings']} servings"
+        if r.get("is_staple"):
+            header += ", staple"
+        if r.get("rating"):
+            header += f", rated {r['rating']}/5"
+        if r.get("tags"):
+            header += f", tags: {', '.join(r['tags'])}"
+        header += ")"
+        lines.append(header)
+        if r.get("ingredients"):
+            more = f" (+{r['ingredients_truncated']} more)" if r.get("ingredients_truncated") else ""
+            lines.append(f"    ingredients: {'; '.join(r['ingredients'])}{more}")
+        else:
+            lines.append("    ingredients: (none recorded)")
+    lines.append(
+        "    (Instructions are not included here -- if the household wants "
+        "the method, point them at the recipe page rather than inventing steps.)"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _format_catalog_scope(shown: int, total: int | None) -> str:
+    """Says out loud when the catalog list is partial. Without this the
+    model cannot distinguish "we have no such recipe" from "it did not fit
+    in the list I was given", and it answered the first when the truth was
+    the second."""
+    if not total or total <= shown:
+        return ""
+    return f", showing {shown} of {total} -- this list is PARTIAL, so do not conclude a recipe does not exist because it is missing here"
+
+
 def _format_knowledge_section(knowledge_context: str | None) -> str:
     if not knowledge_context:
         return ""
@@ -301,6 +386,10 @@ def build_chat_system_prompt(base_prompt: str, context: dict) -> str:
         priority_note="",
         inventory_lines=_format_inventory(context.get("inventory_items") or []),
         recipe_catalog_lines=_format_recipe_catalog(context.get("recipe_catalog") or []),
+        relevant_recipes_section=_format_relevant_recipes(context.get("relevant_recipes") or []),
+        catalog_scope=_format_catalog_scope(
+            len(context.get("recipe_catalog") or []), context.get("recipe_catalog_total")
+        ),
     )
     return f"{base_prompt}\n{context_block}"
 
