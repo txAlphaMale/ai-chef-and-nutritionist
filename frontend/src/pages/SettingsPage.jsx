@@ -114,6 +114,12 @@ const PREFERENCE_SETTING_KEYS = [
   // A preference rather than an integration: it is a judgement about how
   // many rows stay glanceable in that household's kitchen.
   "cook_timer_max_widgets",
+  // How many bookmarks one scan attempts before stopping to be reviewed.
+  // Same kind of judgement as the timer cap and it belongs beside it --
+  // how long one click may run for, and how long a review list may get.
+  // Without this entry it fell through to the Integrations tab, where the
+  // author went looking for it in Preferences and did not find it.
+  "bookmark_scan_batch_size",
 ];
 const DEFAULT_SETTINGS_TAB = "integrations";
 
