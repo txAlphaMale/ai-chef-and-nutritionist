@@ -36,7 +36,7 @@ QUALITY = {
     "level", "large", "medium", "small", "extra", "good", "ripe", "firm", "soft",
 }  # fmt: skip
 
-MAX_SHOWN = 25
+MAX_SHOWN = 60
 
 
 def words(text):
@@ -111,6 +111,35 @@ report(
         if len(by_recipe.get(r["id"], [])) < 2
     ],
 )
+
+# 3b. Pages that parsed cleanly and are not recipes. Curation, not a
+#     defect -- these are FLAGGED for a person, never acted on. A recipe
+#     with no stated amounts is a real thing (this catalog has several),
+#     and so is a one-ingredient one, so no single signal is enough to
+#     say "delete this". Two or more is worth a look.
+LOOKS_LIKE_AN_ARTICLE = re.compile(
+    r"\b(guide|collection|analysis|uses? for|substitutions?|selection|tips?|"
+    r"\d+\s+(ways?|steps?|things|recipes|flavors)|how to make perfect|what (is|are)|"
+    r"method|blend[s]?\b)",
+    re.IGNORECASE,
+)
+
+suspects = []
+for r in recipes:
+    rows = by_recipe.get(r["id"], [])
+    signals = []
+    if rows and all(i["quantity"] is None for i in rows):
+        signals.append("no amounts at all")
+    if LOOKS_LIKE_AN_ARTICLE.search(r["title"] or ""):
+        signals.append("title reads like an article")
+    if (r["default_servings"] or 0) > 50:
+        signals.append(f"servings={r['default_servings']}")
+    if len(rows) > 20:
+        signals.append(f"{len(rows)} ingredients")
+    if len(signals) >= 2:
+        suspects.append(f"r{r['id']:<4} {(r['title'] or '')[:44]:<44} {'; '.join(signals)}")
+
+report("MAYBE NOT RECIPES -- your call, nothing is changed here", suspects)
 
 # 4. Duplicates that got past dedup -- by title, and by the URL they came
 #    from, which is the one that would indicate a real regression.
