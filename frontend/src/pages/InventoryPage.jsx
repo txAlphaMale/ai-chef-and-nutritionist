@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import BarcodeScanner from "../components/BarcodeScanner";
 import InventoryItemForm from "../components/InventoryItemForm";
+import InfoTip from "../components/InfoTip";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, formatDateTime } from "../utils/datetime";
 
@@ -933,8 +934,21 @@ export default function InventoryPage() {
               <th>Qty</th>
               <th>Price</th>
               <th>Expires</th>
-              <th>Priority</th>
-              <th>Why it matters</th>
+              <th>
+                Priority
+                <InfoTip label="Priority" wikiEntry="expiration-urgency">
+                  A star you set by hand to say &quot;use this next&quot;. Meal-plan generation is told about
+                  starred items explicitly, on top of whatever it works out from expiry dates.
+                </InfoTip>
+              </th>
+              <th>
+                Why it matters
+                <InfoTip label="Urgency" wikiEntry="expiration-urgency">
+                  Chef&apos;s own reasoning for how urgent this item is &mdash; how close it is to expiring and how
+                  long it has sat unused. This is what the weekly plan is built around, so an empty inventory
+                  means the planner is working blind.
+                </InfoTip>
+              </th>
               <th></th>
             </tr>
           </thead>

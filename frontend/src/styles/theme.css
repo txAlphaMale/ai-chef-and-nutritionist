@@ -2964,3 +2964,110 @@ tr.urgency-low td {
     font-size: var(--font-lg);
   }
 }
+
+/* ==========================================================================
+   InfoTip -- the "?" beside a control (capstone review 2026-08-16).
+
+   Replaces the native `title=""` attribute, which only fires on mouse
+   hover and was therefore invisible on the phone and the iPad this app is
+   actually used on. Positioned absolutely against an inline-block wrapper
+   rather than with a portal: every placement in this app sits inside
+   normal document flow with no overflow:hidden ancestor, so a portal would
+   be machinery for no gain.
+   ========================================================================== */
+
+.infotip {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--spacing-1);
+  line-height: 1;
+}
+
+.infotip-trigger {
+  /* Deliberately not .btn: this sits inline inside labels and headings,
+     where a full button's padding would push text off its own baseline. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.infotip-trigger:hover,
+.infotip-trigger[aria-expanded="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.infotip-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.infotip-bubble {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  display: block;
+  width: max-content;
+  max-width: 280px;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  color: var(--color-text);
+  font-size: var(--font-sm);
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  /* These bubbles hang off labels and table headers, which are often bold
+     and sometimes uppercase -- neither should be inherited by prose. */
+  text-transform: none;
+  white-space: normal;
+}
+
+.infotip-title {
+  display: block;
+  margin-bottom: var(--spacing-1);
+  color: var(--color-primary);
+}
+
+.infotip-body {
+  display: block;
+}
+
+.infotip-link {
+  display: inline-block;
+  margin-top: var(--spacing-2);
+  font-size: var(--font-xs);
+}
+
+/* Right-anchored near the viewport edge. A bubble opened from a control on
+   the right-hand side of a narrow screen would otherwise push the document
+   wider -- the one thing the responsive pass confirmed nothing else in
+   this app does. */
+@media (max-width: 900px) {
+  .infotip-bubble {
+    left: auto;
+    right: 0;
+    max-width: min(280px, calc(100vw - 2 * var(--spacing-4)));
+  }
+}
+
+/* An explanation of a control is not part of the recipe. */
+@media print {
+  .infotip {
+    display: none;
+  }
+}

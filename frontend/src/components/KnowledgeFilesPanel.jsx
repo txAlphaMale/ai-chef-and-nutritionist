@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import InfoTip from "./InfoTip";
 
 /** Nutritionist knowledge file management -- upload a PDF/txt/md, see
  * whether text extraction succeeded (has_content), toggle it active
@@ -83,7 +84,14 @@ export default function KnowledgeFilesPanel() {
 
   return (
     <div className="card">
-      <h3>Nutritionist knowledge files</h3>
+      <h3>
+        Nutritionist knowledge files
+        <InfoTip label="Knowledge files" wikiEntry="knowledge-files">
+          Reference documents Chef retrieves from when planning a week or answering a question, so its advice
+          comes from something you chose rather than from whatever the model remembers. Bundled defaults ship
+          switched OFF.
+        </InfoTip>
+      </h3>
       <p className="hint">
         Upload reference material (a doctor's guidance sheet, a specific diet plan, PDF/txt/md) to ground meal-plan
         generation and chat. Only active files are used; only the most relevant excerpts are retrieved for a given

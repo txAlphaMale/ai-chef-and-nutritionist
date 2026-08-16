@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import InfoTip from "./InfoTip";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -49,7 +50,14 @@ export default function NutritionSummaryPanel({ planId, refreshKey }) {
 
   return (
     <div className="card">
-      <h3>Nutrition</h3>
+      <h3>
+        Nutrition
+        <InfoTip label="Nutrition provenance" wikiEntry="nutrition-provenance">
+          Check each recipe&apos;s provenance label before trusting these totals. <strong>Computed</strong> means
+          summed from real food records; <strong>AI estimated</strong> means a model guessed. Adding a free USDA
+          FoodData Central key in Settings is what moves recipes from guessed to computed.
+        </InfoTip>
+      </h3>
       <p className="hint">
         Totals assume one serving of each planned meal per person, per day -- there's no per-person meal-attendance
         tracking, so this is a household-wide read, not an individual log. Daily targets are estimates from each

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import InfoTip from "./InfoTip";
 
 /** Backlog B2.2 -- an HEI-2020-inspired diet-quality estimate for a
  * meal plan (GET /meal-plans/{planId}/diet-quality-score). Self-contained
@@ -38,7 +39,14 @@ export default function DietQualityPanel({ planId, refreshKey }) {
 
   return (
     <div className="card">
-      <h3>Diet quality estimate</h3>
+      <h3>
+        Diet quality estimate
+        <InfoTip label="Diet quality estimate" wikiEntry="diet-quality-and-patterns">
+          A 0&ndash;100 score modelled on the USDA&apos;s Healthy Eating Index, where the US average is
+          around 58. It is an honest approximation, not the certified index &mdash; useful for comparing your
+          own weeks to each other, not a clinical measurement.
+        </InfoTip>
+      </h3>
       {error && <p className="error-text">{error}</p>}
       {loading ? (
         <p>Loading diet quality estimate...</p>
