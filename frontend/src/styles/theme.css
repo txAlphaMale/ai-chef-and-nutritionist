@@ -405,7 +405,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 100vh, then 100dvh: on mobile browsers 100vh is the viewport with the
+     URL bar RETRACTED, so a 100vh element is taller than what is actually
+     visible while the bar is showing and the card sits partly below the
+     fold. `dvh` is the dynamic viewport unit that tracks the bar. The vh
+     line stays first as the fallback for anything that does not know the
+     unit -- a browser that ignores the second declaration keeps the first.
+     (Capstone review 2026-08-16.) */
   min-height: 100vh;
+  min-height: 100dvh;
   padding: var(--spacing-3);
 }
 
@@ -1773,8 +1781,14 @@ tr.urgency-low td {
   .chat-widget-panel {
     width: 100%;
     max-width: 100%;
+    /* See the .login-gate note above for why both units are declared. This
+       one mattered more: a full-screen chat panel at 100vh put its own
+       composer input below the fold on iOS Safari, so the send button was
+       unreachable until the page was scrolled. */
     height: 100vh;
+    height: 100dvh;
     max-height: 100vh;
+    max-height: 100dvh;
     border-radius: 0;
   }
 
@@ -2840,4 +2854,113 @@ tr.urgency-low td {
 
 .btn-delete-selected:hover:not(:disabled) {
   filter: brightness(0.9);
+}
+
+/* ==========================================================================
+   Capstone review 2026-08-16 -- the viewport bands between "phone portrait"
+   and "desktop".
+
+   Until this pass the entire responsive story was ONE breakpoint at 640px
+   (plus the print sheet). Measured in a real browser against the deployed
+   app, that left two device classes the author actually uses falling
+   through to the untouched desktop layout:
+
+     - iPad portrait      830x1108 CSS px -- 8-column tables at 767px wide,
+                          every cell wrapping to three or four lines
+     - Phone landscape    840x386  CSS px -- 56% of the viewport height was
+                          consumed by header + nav + job badge + toolbar
+                          before `main` even started, leaving 171px of
+                          usable content
+
+   Neither produced horizontal overflow (verified: documentElement
+   .scrollWidth never exceeded innerWidth at any size tested), so this is a
+   density and vertical-budget problem, not a broken-layout problem. The two
+   blocks below are scoped accordingly -- one on width, one on HEIGHT, which
+   is the axis phone landscape actually runs out of.
+   ========================================================================== */
+
+/* --- Tablet portrait and small laptops ---------------------------------- */
+@media (min-width: 641px) and (max-width: 900px) {
+  /* .app-shell is max-width: 960px, so between 641px and 900px the shell is
+     viewport-width and the desktop padding is a meaningful fraction of it. */
+  .app-shell {
+    padding: var(--spacing-3);
+  }
+
+  /* The nav only scrolled below 640px. It happens to FIT at 830px today
+     (777px of links in a 767px box is within rounding), but it is one nav
+     item away from silently clipping "WIKI" off the right edge with no
+     affordance -- the same failure the phone breakpoint already guards
+     against. Scroll it here too rather than waiting for the regression. */
+  .app-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .app-nav a {
+    flex-shrink: 0;
+  }
+
+  /* Tables stay tables here -- at 767px a table is still more scannable
+     than the phone breakpoint's stacked cards, and the inventory list is
+     read by column. They just need to stop spending 8 columns' worth of
+     desktop padding. */
+  .data-table th,
+  .data-table td {
+    padding: var(--spacing-1) var(--spacing-2);
+    font-size: var(--font-sm);
+  }
+
+  /* The urgency explanations are the longest free text in any table and
+     the least important to read in full at a glance. */
+  .reasons-cell {
+    font-size: var(--font-xs);
+  }
+}
+
+/* --- Short viewports (phone landscape, split-screen tablet) -------------- */
+/* Height-based, not width-based, deliberately: a 844x390 phone in landscape
+   is WIDER than an iPad in portrait, so no width breakpoint can distinguish
+   them. What makes it hard to use is 386px of height, and the fixed cost of
+   the app header is what eats it. */
+@media (max-height: 500px) and (min-width: 641px) {
+  .app-shell {
+    padding: var(--spacing-2);
+  }
+
+  .app-header h1 {
+    font-size: var(--font-lg);
+  }
+
+  /* "AI meal planning & kitchen inventory" is orientation copy for a first
+     visit, not something worth 24px of a 386px viewport on every page. */
+  .app-header .subtitle {
+    display: none;
+  }
+
+  .app-nav {
+    margin-top: var(--spacing-1);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .app-nav a {
+    flex-shrink: 0;
+  }
+
+  /* The floating chat toggle sat directly on top of the first table header
+     row once the viewport got this short -- confirmed visually at 844x390. */
+  .chat-widget-toggle {
+    transform: scale(0.85);
+    transform-origin: bottom right;
+  }
+
+  /* Cook mode is the one screen genuinely likely to be used in landscape
+     (a phone propped against a canister). Its whole point is large type, so
+     it is trimmed rather than shrunk to phone-portrait sizing. */
+  .cook-mode-step {
+    font-size: var(--font-lg);
+  }
 }
