@@ -117,6 +117,10 @@ export default function RecipesPage() {
   const [bookmarkFolder, setBookmarkFolder] = useState("");
   const [bookmarkTotal, setBookmarkTotal] = useState(0);
   const [bookmarkError, setBookmarkError] = useState(null);
+  // Off by default. A URL that 404'd stays 404'd, and re-fetching the
+  // whole failure set is what made batch 2 produce eight recipes where
+  // batch 1 produced twenty-one.
+  const [retryFailed, setRetryFailed] = useState(false);
   const bookmarkScanJob = useBackgroundJob("chef.job.recipe_bookmark_import");
 
   // Bookmark results feed the SAME review list the folder scan uses --
@@ -131,13 +135,21 @@ export default function RecipesPage() {
   // `no-use-before-define` is now on to make that structural.
   useEffect(() => {
     if (!bookmarkScanJob.result) return;
-    const { items, skipped, truncated, already_imported: alreadyImported, remaining } = bookmarkScanJob.result;
+    const {
+      items,
+      skipped,
+      truncated,
+      already_imported: alreadyImported,
+      known_bad: knownBad,
+      remaining,
+    } = bookmarkScanJob.result;
     setFolderScanMeta({
       skipped,
       truncated,
       scanned_folder: bookmarkFolder || "all bookmarks",
       error: null,
       alreadyImported,
+      knownBad,
       remaining,
     });
     setFolderItems(
@@ -197,6 +209,7 @@ export default function RecipesPage() {
     const body = new FormData();
     body.append("file", file);
     if (bookmarkFolder) body.append("folder_path", bookmarkFolder);
+    if (retryFailed) body.append("retry_failed", "true");
     try {
       const enqueued = await api.post("/recipes/import-bookmarks/scan", body);
       bookmarkScanJob.poll(enqueued.job_id);
@@ -537,6 +550,10 @@ export default function RecipesPage() {
               </label>
             )}
           </div>
+          <label className="checkbox-label inline">
+            <input type="checkbox" checked={retryFailed} onChange={(e) => setRetryFailed(e.target.checked)} />
+            Retry URLs that failed before (404s, dead links, pages with no recipe on them)
+          </label>
           <div className="form-actions">
             <button
               className="btn btn-secondary"
@@ -589,10 +606,12 @@ export default function RecipesPage() {
               imported is dropped before the cap, and each upload of the
               same file takes the next batch. This line is what makes that
               loop obvious instead of looking like the import gave up. */}
-          {(folderScanMeta?.alreadyImported > 0 || folderScanMeta?.remaining > 0) && (
+          {(folderScanMeta?.alreadyImported > 0 || folderScanMeta?.knownBad > 0 || folderScanMeta?.remaining > 0) && (
             <p className="hint">
               {folderScanMeta.alreadyImported > 0 &&
                 `${folderScanMeta.alreadyImported} already in your recipes and skipped without re-fetching. `}
+              {folderScanMeta.knownBad > 0 &&
+                `${folderScanMeta.knownBad} skipped because a previous run could not use them -- tick "Retry URLs that failed before" to try again. `}
               {folderScanMeta.remaining > 0
                 ? `${folderScanMeta.remaining} still to go -- confirm these, then upload the same file again to continue.`
                 : "That is the whole file."}

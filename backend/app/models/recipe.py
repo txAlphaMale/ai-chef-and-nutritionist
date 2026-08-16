@@ -35,6 +35,43 @@ class MealTag(Base):
     name: Mapped[str] = mapped_column(String(50), unique=True)
 
 
+class ImportSkip(Base, TimestampMixin):
+    """A URL an import already tried and could not use.
+
+    `already_imported_urls` only knows about SAVED recipes, so a 404, a
+    403, a dead domain or a page with no ingredients left no trace and
+    came back in every future batch. Measured on a real 478-URL export:
+    batch 1 attempted 40 and saved 21; batch 2 attempted 40 and saved 8,
+    because roughly nineteen of its attempts were batch 1's failures
+    fetched again. Worse, dead URLs sit EARLIER in the file, so each
+    subsequent batch would have been more of them and less new work --
+    the run gets slower and less productive the longer it goes.
+
+    Keyed on the normalized url (bookmark_import_service.normalize_url),
+    the same key the already-imported check uses, so the two agree about
+    what "the same page" means.
+
+    `permanent` is the discriminator. A 404 is not coming back and a
+    listing page is not going to grow ingredients; a DNS failure or a
+    model timeout might be this evening's network or this evening's GPU.
+    Transient rows are recorded for the count and retried anyway.
+
+    Deleting a recipe deliberately does NOT create one of these -- that is
+    a request to import the page again, and is how "clear the batch and
+    retry" works."""
+
+    __tablename__ = "import_skips"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    url_key: Mapped[str] = mapped_column(String(1000), unique=True, index=True)
+    # The URL as the bookmarks file wrote it, for showing the household
+    # something they can recognise and click.
+    url: Mapped[str] = mapped_column(String(1000))
+    reason: Mapped[str] = mapped_column(Text)
+    permanent: Mapped[bool] = mapped_column(Boolean, default=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class Recipe(Base, TimestampMixin):
     __tablename__ = "recipes"
 

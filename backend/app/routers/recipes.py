@@ -423,6 +423,7 @@ async def list_bookmark_folders(file: UploadFile = File(...)):
 async def scan_bookmarks(
     file: UploadFile = File(...),
     folder_path: str | None = Form(None),
+    retry_failed: bool = Form(False),
     _db: Session = Depends(get_db),
 ):
     """Imports every bookmark in the chosen folder (and its subfolders),
@@ -445,7 +446,7 @@ async def scan_bookmarks(
     def _run() -> dict:
         db = SessionLocal()
         try:
-            return bookmark_import_service.scan_and_parse(db, bookmarks)
+            return bookmark_import_service.scan_and_parse(db, bookmarks, retry_failed=retry_failed)
         finally:
             db.close()
 

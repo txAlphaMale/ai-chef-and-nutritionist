@@ -31,7 +31,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import lxml.html
 from sqlalchemy.orm import Session
 
-from app.models import Recipe
+from app.models import ImportSkip, Recipe
 from app.services import recipe_service
 
 # Bookmarks folders hold bookmarks, not only recipes, and a fetch plus up
@@ -241,7 +241,51 @@ def select(bookmarks: list[Bookmark], folder_path: str | None) -> list[Bookmark]
     return [b for b in bookmarks if b.folder_path == prefix or b.folder_path.startswith(f"{prefix}/")]
 
 
-def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS_PER_SCAN) -> dict:
+# Failures that will still be failures next week. A 404 is not coming
+# back and a category listing is not going to grow ingredients. Anything
+# NOT matching this is recorded but retried, because "no response at all"
+# covers a dead 2011 domain and this evening's flaky wifi equally, and a
+# model timeout is about the GPU rather than the page.
+_PERMANENT_FAILURE = re.compile(
+    r"(HTTP (4[0-9]{2}|410)|refusal rather than a missing page|Could not extract a recipe|"
+    r"probably an index or category page|probably a product page)",
+    re.IGNORECASE,
+)
+
+
+def known_bad_urls(db: Session, urls: list[str]) -> set[str]:
+    """Which of `urls` a previous run already tried and could not use.
+
+    Only PERMANENT failures suppress a retry. See ImportSkip for why the
+    distinction earns its keep."""
+    blocked = {row[0] for row in db.query(ImportSkip.url_key).filter(ImportSkip.permanent.is_(True)).all()}
+    return {url for url in urls if normalize_url(url) in blocked}
+
+
+def record_failure(db: Session, url: str, reason: str) -> None:
+    """Remember that this URL did not work, so the next batch spends its
+    forty attempts on pages it has not tried.
+
+    Upserts on the normalized key and counts attempts -- a transient row
+    that keeps failing is worth seeing, and is the evidence that would
+    justify treating its cause as permanent."""
+    key = normalize_url(url)
+    existing = db.query(ImportSkip).filter_by(url_key=key).first()
+    permanent = bool(_PERMANENT_FAILURE.search(reason or ""))
+    if existing:
+        existing.attempts += 1
+        existing.reason = reason
+        # Only ever hardens. A page that 404s after a timeout has told us
+        # something the timeout did not.
+        existing.permanent = existing.permanent or permanent
+    else:
+        db.add(ImportSkip(url_key=key, url=url, reason=reason, permanent=permanent, attempts=1))
+    db.commit()
+
+
+def scan_and_parse(
+    db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS_PER_SCAN, *, retry_failed: bool = False
+) -> dict:
     """Imports each bookmark, one at a time, and never raises for one bad
     URL.
 
@@ -264,7 +308,14 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
     `remaining` is what makes that loop legible: how many unimported URLs
     are still waiting once this batch is taken."""
     known = already_imported_urls(db, [b.url for b in bookmarks])
-    fresh = [b for b in bookmarks if b.url not in known]
+    # Failures are dropped alongside successes, and for the same reason:
+    # a batch's forty attempts are the scarce resource, and spending them
+    # on pages that already failed is how run 2 produced eight recipes
+    # where run 1 produced twenty-one. `retry_failed` exists because a
+    # permanent classification can be wrong, and the household should be
+    # able to say so without editing the database.
+    bad = set() if retry_failed else known_bad_urls(db, [b.url for b in bookmarks])
+    fresh = [b for b in bookmarks if b.url not in known and b.url not in bad]
 
     attempted = fresh[:limit]
     skipped = [[b.url, "over the per-scan limit"] for b in fresh[limit:]]
@@ -341,6 +392,12 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
         except Exception as exc:
             item["status"] = "error"
             item["error"] = str(exc)[:300]
+
+        # Recorded for anything that did not produce a usable recipe --
+        # the hard failures above and the `empty` ones (a listing page, a
+        # product page), which are just as certain not to work next time.
+        if item["status"] != "ok":
+            record_failure(db, bookmark.url, item["error"] or item["status"])
         items.append(item)
 
     return {
@@ -351,5 +408,6 @@ def scan_and_parse(db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS
         # 565-URL file and gets 40 rows back deserves to know the other
         # 525 were accounted for, and which way.
         "already_imported": len(known),
+        "known_bad": len(bad),
         "remaining": len(fresh) - len(attempted),
     }

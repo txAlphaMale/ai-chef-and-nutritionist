@@ -13,7 +13,7 @@ from app.models.inventory import (
 )
 from app.models.kitchen import KitchenProfile
 from app.models.meal_plan import GroceryListItem, MealPlan, MealPlanEntry
-from app.models.recipe import MealTag, Recipe, RecipeIngredient
+from app.models.recipe import ImportSkip, MealTag, Recipe, RecipeIngredient
 from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, SoundFile, SystemPrompt
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "HealthMetricEntry",
     "HouseholdMember",
     "HouseholdPreferences",
+    "ImportSkip",
     "IngredientAlias",
     "InventoryItem",
     "KitchenProfile",
