@@ -893,6 +893,42 @@ _QTY_RE = re.compile(
     r"^\s*(\d+\s+\d+/\d+|\d+\s*[" + _FRACTION_CHARS + r"]|\d+/\d+|\d+\.\d+|\d+|[" + _FRACTION_CHARS + r"])\s*"
 )
 
+# "1-2 tablespoons", "2 to 3 cups", "3 - 4 tbsp". _QTY_RE matches the
+# LOWER bound and stops, which left the rest of the range at the head of
+# the remainder -- so the stored name became "-2 tablespoons melted fat of
+# choice" and the unit was never read. Measured on a real batch
+# (2026-08-07): six of nineteen suspect ingredient names were this, across
+# five recipes.
+#
+# The upper bound is dropped rather than averaged, taking the lower one.
+# That is already this project's convention for a range -- cookingText.js
+# anchors a duration on its first bound and foodkeeper_service takes the
+# sooner end of a shelf life, both for the same reason: the conservative
+# end is the one that does not over-promise.
+#
+# `or` is deliberately NOT a range separator. "4 lamb shanks or 6 lamb
+# shoulder shanks" is an alternative ingredient, not an upper bound, and
+# it appears in this very batch.
+_RANGE_TAIL_RE = re.compile(
+    r"^\s*(?:-|\u2013|\u2014|to)\s*(?:\d+\s+\d+/\d+|\d+\s*["
+    + _FRACTION_CHARS
+    + r"]|\d+/\d+|\d+\.\d+|\d+|["
+    + _FRACTION_CHARS
+    + r"])\s*"
+)
+
+# A metric restatement of the amount just read -- "1/2 cup (100 g) red
+# lentils", "1 tsp (5 mL) salt". It is the same quantity said twice, so it
+# is not part of the food's name. Kept as a note rather than discarded,
+# since it is the source's own wording.
+_TRAILING_AMOUNT_PAREN_RE = re.compile(r"^\(\s*[\d./]+\s*[A-Za-z]+\s*\)\s*")
+
+# "1 heaping tablespoon", "2 scant cups", "1 rounded tsp" -- a size
+# adjective sitting between the number and the unit. Without this the unit
+# is never found and the whole phrase lands in the name.
+_MEASURE_ADJECTIVE_RE = re.compile(r"^(heaping|heaped|scant|rounded|generous|level|packed|slightly)\s+", re.IGNORECASE)
+
+
 # "3/4 cup PLUS 2 Tbsp. sugar" is one source line describing two amounts
 # of one ingredient. Summing them is wrong (the cook adds them at
 # different times, and the source says "divided" precisely because of
@@ -1042,7 +1078,10 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
     paying for it out of the ingredients it managed to list at all. The
     model's job is to find the lines; this function's job is to read
     them."""
-    original = (line or "").strip()
+    # Real pages use U+00A0 between a number and its unit, and every \s
+    # and \b below is blind to it -- measured on this batch as
+    # "figs\xa0soaked for 10 minutes". Normalised once, at the door.
+    original = (line or "").replace("\u00a0", " ").strip()
     remainder = original
     amounts: list[tuple[float | None, str | None]] = []
     notes: list[str] = []
@@ -1054,13 +1093,31 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
             quantity = _parse_quantity_token(m.group(1))
             remainder = remainder[m.end() :].strip()
 
+        # "1-2 tablespoons" -- take the lower bound and consume the rest
+        # of the range, or the unit is never reached.
+        if quantity is not None:
+            span = _RANGE_TAIL_RE.match(remainder)
+            if span:
+                remainder = remainder[span.end() :].strip()
+
         paren = _LEADING_PAREN_RE.match(remainder)
         if paren:
             if paren.group(1).strip():
                 notes.append(paren.group(1).strip())
             remainder = remainder[paren.end() :].strip()
 
+        adjective = _MEASURE_ADJECTIVE_RE.match(remainder)
+        if adjective:
+            notes.append(adjective.group(1).lower())
+            remainder = remainder[adjective.end() :].strip()
+
         unit, remainder = _take_unit(remainder)
+
+        # "(100 g)" AFTER the unit is the same amount restated in metric.
+        metric = _TRAILING_AMOUNT_PAREN_RE.match(remainder)
+        if metric:
+            notes.append(metric.group(0).strip().strip("()").strip())
+            remainder = remainder[metric.end() :].strip()
         if quantity is not None or unit is not None:
             amounts.append((quantity, unit))
 
