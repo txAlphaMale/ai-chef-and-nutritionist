@@ -1051,6 +1051,30 @@ _QUALITY_WORDS = frozenset(
 )
 
 
+def _prep_note_comma(text: str) -> int | None:
+    """Index of the comma that separates the food from its prep note, or
+    None when there isn't one.
+
+    A comma INSIDE parentheses is not that comma. Measured on a real
+    batch: `2 jalapeno peppers (or 1 serrano pepper, seeded)` split at the
+    comma within the bracket and stored the name as
+    `jalapeno peppers (or 1 serrano pepper` -- an unclosed bracket in the
+    join key, with `seeded)` as the note. `1 onion (about 2 cups,
+    chopped)` fails identically, and a parenthetical carrying its own
+    comma is ordinary recipe writing.
+
+    First comma at bracket depth zero, so `onion, diced` is unaffected."""
+    depth = 0
+    for index, char in enumerate(text or ""):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            return index
+    return None
+
+
 def _leads_with_only_qualities(text: str) -> bool:
     """True when everything before the first comma is quality words.
 
@@ -1132,11 +1156,11 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
     if remainder.lower().startswith("of "):
         remainder = remainder[3:].strip()
 
-    if "," in remainder and not _leads_with_only_qualities(remainder):
-        name_part, _, note_part = remainder.partition(",")
-        remainder = name_part.strip()
-        if note_part.strip():
-            notes.append(note_part.strip())
+    split_at = _prep_note_comma(remainder)
+    if split_at is not None and not _leads_with_only_qualities(remainder):
+        remainder, note_part = remainder[:split_at].strip(), remainder[split_at + 1 :].strip()
+        if note_part:
+            notes.append(note_part)
 
     trailing = _TRAILING_PAREN_RE.search(remainder)
     if trailing and _TRAILING_PAREN_RE.sub("", remainder).strip(" ."):

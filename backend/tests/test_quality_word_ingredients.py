@@ -73,3 +73,37 @@ def test_the_cashews_would_now_warn_a_nut_allergic_household():
     an ordinary way to write a shopping line, and it was invisible."""
     name = parse("1 cup raw, unsalted cashews")[0]["ingredient_name"]
     assert allergen_service.find_allergen_matches([name], ["tree_nuts"])
+
+
+# --- a comma inside brackets is not the prep-note comma ------------------
+
+
+@pytest.mark.parametrize(
+    ("line", "name", "note"),
+    [
+        # Measured on a real batch: this stored the name as
+        # `jalapeno peppers (or 1 serrano pepper` -- an unclosed bracket in
+        # the join key, with `seeded)` as the note.
+        ("2 jalapeno peppers (or 1 serrano pepper, seeded)", "jalapeno peppers", "or 1 serrano pepper, seeded"),
+        ("1 onion (about 2 cups, chopped)", "onion", "about 2 cups, chopped"),
+        ("1 cup nuts (walnuts, pecans, or almonds)", "nuts", "walnuts, pecans, or almonds"),
+    ],
+)
+def test_a_comma_inside_brackets_does_not_split(line, name, note):
+    entry = parse(line)[0]
+    assert entry["ingredient_name"] == name
+    assert entry["prep_note"] == note
+
+
+def test_a_comma_after_the_brackets_still_splits():
+    entry = parse("1 onion (peeled), diced")[0]
+    assert entry["ingredient_name"] == "onion"
+    assert "diced" in entry["prep_note"]
+    assert "peeled" in entry["prep_note"]
+
+
+def test_an_unclosed_bracket_does_not_swallow_the_rest_of_the_line():
+    """Real pages do publish mismatched brackets. Depth must not go
+    negative or a stray `)` would start splitting at commas again."""
+    entry = parse("1 onion) something, diced")[0]
+    assert entry["prep_note"] == "diced"
