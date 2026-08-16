@@ -186,3 +186,16 @@ def test_list_jobs_progress_reports_no_history_then_a_typical_estimate():
     # should now be populated rather than None.
     assert progress["typical_seconds"] is not None
     assert progress["elapsed_seconds"] >= 0
+
+
+def test_jobs_list_response_omits_result_payloads():
+    """Capstone review 2026-08-16. GET /api/jobs is polled every 2s by the
+    always-mounted header badge; including each job's full `result` made
+    that a 298 KB response against the live deployment, for data the badge
+    never reads. Guarding the schema rather than the router, because the
+    field being present on the model is the whole defect."""
+    from app.schemas.jobs import JobListResponse, JobRead, JobSummary
+
+    assert "result" in JobRead.model_fields, "the single-job endpoint must still return the result"
+    assert "result" not in JobSummary.model_fields
+    assert JobListResponse.model_fields["jobs"].annotation == list[JobSummary]

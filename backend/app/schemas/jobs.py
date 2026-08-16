@@ -52,8 +52,36 @@ class JobRead(BaseModel):
     result: dict | None = None
 
 
+class JobSummary(BaseModel):
+    """A recent job WITHOUT its result payload.
+
+    Capstone review 2026-08-16. `GET /api/jobs` used `JobRead` here, which
+    carries the job's full `result` -- and `result` for an import job is
+    every recipe or inventory row it parsed. Measured against the live
+    deployment: **298 KB per response**, polled every 2 seconds by the
+    always-mounted header badge, from every open page. Roughly 150 KB/s of
+    background traffic, indefinitely, on a phone that is also being used
+    at the store.
+
+    The badge reads `queued`, `running` and `progress` and nothing else --
+    the results in that payload had no consumer at all. Anything that
+    genuinely needs a result asks `GET /api/jobs/{job_id}`, which still
+    returns the full `JobRead`, and that is the endpoint the per-page
+    polling hook already uses.
+    """
+
+    id: str
+    kind: str
+    label: str
+    status: str  # queued|running|done|error
+    submitted_at: float
+    started_at: float | None = None
+    finished_at: float | None = None
+    error: str | None = None
+
+
 class JobListResponse(BaseModel):
     queued: int
     running: RunningJobSummary | None = None
     progress: JobProgress | None = None
-    jobs: list[JobRead]
+    jobs: list[JobSummary]
