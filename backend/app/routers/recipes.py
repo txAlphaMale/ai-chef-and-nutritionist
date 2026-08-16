@@ -14,7 +14,7 @@ import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal, get_db
 from app.models import Recipe, RecipeIngredient
@@ -171,7 +171,18 @@ def list_recipes(
     tag: str | None = None,
     search: str | None = None,
 ):
-    query = db.query(Recipe)
+    # Capstone review 2026-08-16: `_to_read` walks `recipe.ingredients` and
+    # (via `recipe_service`/`smart_tag_service`) `recipe.tags` for every row.
+    # Both are lazy relationships, so an un-hinted list query issued 2 extra
+    # SELECTs per recipe -- invisible at 20 recipes, a real stall once a
+    # bookmarks bulk-import puts hundreds in the catalog. Same class of
+    # defect as audit item P1-9 (which fixed the per-row household-
+    # preferences read), just on the relationships rather than a settings
+    # lookup.
+    query = db.query(Recipe).options(
+        selectinload(Recipe.ingredients),
+        selectinload(Recipe.tags),
+    )
     if is_staple is not None:
         query = query.filter(Recipe.is_staple == is_staple)
     if search:
@@ -728,7 +739,7 @@ def export_all_recipes_jsonld(request: Request, db: Session = Depends(get_db)):
     FastAPI's path matching requires the same number of segments, and
     there's no existing 'GET /{recipe_id}/export' route in this router
     to shadow it either."""
-    recipes = db.query(Recipe).all()
+    recipes = db.query(Recipe).options(selectinload(Recipe.ingredients), selectinload(Recipe.tags)).all()
     doc = {
         "@context": "https://schema.org",
         "@graph": [recipe_service.recipe_to_jsonld(r, image_url=_recipe_image_url(request, r)) for r in recipes],
