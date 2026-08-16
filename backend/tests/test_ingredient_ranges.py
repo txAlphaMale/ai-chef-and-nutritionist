@@ -102,3 +102,78 @@ def test_a_non_breaking_space_is_normalised():
 def test_everything_else_parses_as_it_did(line, expected):
     got = [(e["quantity"], e["unit"], e["ingredient_name"], e["prep_note"]) for e in parse(line)]
     assert got == expected
+
+
+# --- classes found on batch 4 of the real export -------------------------
+
+
+def test_a_compound_amount_with_an_article_and_adjective():
+    """`3 1/2 cups plus a scant 1/4 cup` -- the article and the size word
+    sat between the joiner and the number, so the compound branch never
+    saw a quantity and the whole tail became the name."""
+    entries = parse("3 1/2 cups plus a scant 1/4 cup (455 grams) all-purpose or bread flour")
+    assert [(e["quantity"], e["unit"]) for e in entries] == [(3.5, "cup"), (0.25, "cup")]
+    assert {e["ingredient_name"] for e in entries} == {"all-purpose or bread flour"}
+
+
+def test_a_range_inside_a_metric_parenthetical():
+    entry = parse("2 teaspoons (6 to 7 grams) instant yeast")[0]
+    assert entry["ingredient_name"] == "instant yeast"
+    assert "6 to 7 grams" in entry["prep_note"]
+
+
+@pytest.mark.parametrize(
+    ("line", "name", "note"),
+    [
+        ("1 1/2 cups / 170g hazelnuts or walnuts", "hazelnuts or walnuts", "170g"),
+        ("1/2 cup / 85g light brown sugar", "light brown sugar", "85g"),
+    ],
+)
+def test_a_slash_metric_restatement(line, name, note):
+    """How a British or dual-audience recipe writes the same amount
+    twice. Same thing as the parenthetical form, handled the same way."""
+    entry = parse(line)[0]
+    assert entry["ingredient_name"] == name
+    assert note in entry["prep_note"]
+
+
+def test_a_fraction_is_not_mistaken_for_a_slash_restatement():
+    """The guard on the rule above -- `1/2` must not be read as a slashed
+    amount."""
+    entry = parse("1/2 cup sugar")[0]
+    assert entry["quantity"] == 0.5
+    assert entry["ingredient_name"] == "sugar"
+
+
+# --- a bare ordinal is not an ingredient ---------------------------------
+
+
+def test_a_numbered_method_list_does_not_become_ingredients():
+    """Measured: a page's numbered METHOD list arrived as eight
+    ingredients named `1.` through `6.`."""
+    from app.services import recipe_service as rs
+
+    coerced = rs.coerce_recipe_fields(
+        {
+            "title": "Salad Dressings",
+            "ingredients": [
+                {"ingredient_name": "1."},
+                {"ingredient_name": "2."},
+                {"ingredient_name": "-"},
+                {"ingredient_name": "olive oil", "quantity": 1, "unit": "cup"},
+            ],
+        }
+    )
+    assert [i["ingredient_name"] for i in coerced["ingredients"]] == ["olive oil"]
+
+
+def test_a_name_that_merely_starts_with_a_digit_survives():
+    """The weakest possible test on purpose -- one letter anywhere. It
+    must not mistake a real ingredient for a number, which is the
+    direction that loses data."""
+    from app.services import recipe_service as rs
+
+    assert rs.names_a_food("2% milk")
+    assert rs.names_a_food("28-oz can tomatoes")
+    assert not rs.names_a_food("1.")
+    assert not rs.names_a_food("")

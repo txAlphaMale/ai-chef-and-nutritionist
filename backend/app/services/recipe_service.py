@@ -452,6 +452,20 @@ def split_absence_claim_tags(tags: list[str]) -> tuple[list[str], list[str]]:
     return kept, dropped
 
 
+def names_a_food(name: str) -> bool:
+    """False for a row that carries no word at all -- `1.`, `2.`, `-`.
+
+    Measured on a real import: a page's numbered METHOD list arrived as
+    eight ingredients named `1.` through `6.`. Whatever produced them,
+    a bare ordinal is not a food, and it is a row the household would
+    have to delete by hand from a recipe they otherwise wanted.
+
+    Deliberately the weakest possible test -- one letter anywhere. It
+    cannot mistake an ingredient for a number, which is the direction
+    that would lose data."""
+    return any(char.isalpha() for char in name or "")
+
+
 def coerce_recipe_fields(data: dict) -> dict:
     """Field coercion shared by recipe import (parse_recipe_response,
     above) and meal-plan generation (meal_plan_service.parse_meal_plan_
@@ -462,7 +476,7 @@ def coerce_recipe_fields(data: dict) -> dict:
     once rather than twice."""
     ingredients = []
     for ing in data.get("ingredients") or []:
-        if not isinstance(ing, dict) or not ing.get("ingredient_name"):
+        if not isinstance(ing, dict) or not names_a_food(str(ing.get("ingredient_name") or "")):
             continue
         ingredients.append(
             {
@@ -921,7 +935,13 @@ _RANGE_TAIL_RE = re.compile(
 # lentils", "1 tsp (5 mL) salt". It is the same quantity said twice, so it
 # is not part of the food's name. Kept as a note rather than discarded,
 # since it is the source's own wording.
-_TRAILING_AMOUNT_PAREN_RE = re.compile(r"^\(\s*[\d./]+\s*[A-Za-z]+\s*\)\s*")
+_TRAILING_AMOUNT_PAREN_RE = re.compile(r"^\(\s*[\d./]+(?:\s*(?:-|\u2013|\u2014|to)\s*[\d./]+)?\s*[A-Za-z]+\s*\)\s*")
+
+# "1 1/2 cups / 170g hazelnuts" -- the same amount again after a slash,
+# which is how a British or dual-audience recipe writes it. Same thing as
+# the parenthetical form and handled the same way: a note, not a name.
+# Requires trailing whitespace so it cannot eat part of a fraction.
+_SLASH_AMOUNT_RE = re.compile(r"^/\s*([\d./]+\s*[A-Za-z]+)\s+")
 
 # "1 heaping tablespoon", "2 scant cups", "1 rounded tsp" -- a size
 # adjective sitting between the number and the unit. Without this the unit
@@ -933,7 +953,14 @@ _MEASURE_ADJECTIVE_RE = re.compile(r"^(heaping|heaped|scant|rounded|generous|lev
 # of one ingredient. Summing them is wrong (the cook adds them at
 # different times, and the source says "divided" precisely because of
 # that) and dropping either is worse.
-_COMPOUND_AMOUNT_RE = re.compile(r"^(?:plus|and)\s+", re.IGNORECASE)
+# "3 1/2 cups PLUS A SCANT 1/4 cup" -- the article and the size adjective
+# sit between the joiner and the number, so the compound branch never saw
+# a quantity and the whole tail became the name. Measured on a real
+# import (2026-08-07).
+_COMPOUND_AMOUNT_RE = re.compile(
+    r"^(?:plus|and)\s+(?:an?\s+)?(?:(?:scant|heaping|heaped|rounded|generous|level|packed)\s+)?",
+    re.IGNORECASE,
+)
 
 # A leading qualifier in parentheses -- "3/4 (scant) cup" -- sits between
 # the number and the unit, so unit detection has to see past it. It is
@@ -1142,6 +1169,11 @@ def parse_ingredient_line_amounts(line: str) -> list[dict]:
         if metric:
             notes.append(metric.group(0).strip().strip("()").strip())
             remainder = remainder[metric.end() :].strip()
+        else:
+            slashed = _SLASH_AMOUNT_RE.match(remainder)
+            if slashed:
+                notes.append(slashed.group(1).strip())
+                remainder = remainder[slashed.end() :].strip()
         if quantity is not None or unit is not None:
             amounts.append((quantity, unit))
 
@@ -1905,7 +1937,7 @@ def ingredients_from_pass1_blocks(raw_blocks: list, source: str) -> Pass1Result:
         for line in kept:
             bare, bulleted = strip_list_bullet(line)
             for entry in parse_ingredient_line_amounts(bare):
-                if entry["ingredient_name"] and not _names_a_duration(entry):
+                if names_a_food(entry["ingredient_name"]) and not _names_a_duration(entry):
                     block_entries.append((entry, bulleted))
         ingredients.extend(_split_headings_from_ingredients(block_entries, component))
 
