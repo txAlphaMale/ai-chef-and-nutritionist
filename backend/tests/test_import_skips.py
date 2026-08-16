@@ -165,3 +165,47 @@ def test_the_skip_does_not_survive_deleting_a_recipe(db_session, outcomes):
     db_session.query(Recipe).delete()
     db_session.commit()
     assert bis.known_bad_urls(db_session, [url]) == set()
+
+
+# --- the batch size is a setting -----------------------------------------
+
+
+def test_the_default_is_forty(db_session):
+    assert bis.configured_batch_size(db_session) == bis.MAX_URLS_PER_SCAN == 40
+
+
+def test_a_household_can_raise_it(db_session):
+    from app.services import settings_service
+
+    settings_service.set_setting(db_session, "bookmark_scan_batch_size", "150")
+    assert bis.configured_batch_size(db_session) == 150
+
+
+@pytest.mark.parametrize("value", ["", "   ", "lots", "0", "-5", None])
+def test_nonsense_falls_back_to_forty_not_to_unlimited(db_session, value):
+    """A setting that silently means "unlimited" when someone clears the
+    box is a trap, and an uncapped import is the accident the cap was
+    added for."""
+    from app.services import settings_service
+
+    settings_service.set_setting(db_session, "bookmark_scan_batch_size", value)
+    assert bis.configured_batch_size(db_session) == 40
+
+
+def test_it_is_clamped(db_session):
+    """The setting is for clearing a large export in fewer runs. It is not
+    for turning one click into a thousand fetches."""
+    from app.services import settings_service
+
+    settings_service.set_setting(db_session, "bookmark_scan_batch_size", "99999")
+    assert bis.configured_batch_size(db_session) == bis.MAX_SCAN_BATCH_CEILING
+
+
+def test_the_scan_honours_it(db_session, outcomes, monkeypatch):
+    from app.services import settings_service
+
+    settings_service.set_setting(db_session, "bookmark_scan_batch_size", "3")
+    urls = [f"https://example.com/r{i}" for i in range(10)]
+    result = bis.scan_and_parse(db_session, _bookmarks(urls))
+    assert len(result["items"]) == 3
+    assert result["remaining"] == 7

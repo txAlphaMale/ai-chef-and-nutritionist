@@ -32,7 +32,7 @@ import lxml.html
 from sqlalchemy.orm import Session
 
 from app.models import ImportSkip, Recipe
-from app.services import recipe_service
+from app.services import recipe_service, settings_service
 
 # Bookmarks folders hold bookmarks, not only recipes, and a fetch plus up
 # to two model calls per URL is minutes of GPU time. The cap is a
@@ -40,6 +40,30 @@ from app.services import recipe_service
 # a judgement about how many recipes a household may have -- the response
 # says plainly how many were skipped and why.
 MAX_URLS_PER_SCAN = 40
+
+# A hard ceiling on what the setting can ask for. The setting exists so a
+# large export can be cleared in fewer runs; this exists so a typo in it
+# cannot turn one click into a thousand fetches and a review list nobody
+# will read.
+MAX_SCAN_BATCH_CEILING = 500
+
+
+def configured_batch_size(db: Session) -> int:
+    """`bookmark_scan_batch_size`, clamped and defaulted.
+
+    Blank or nonsense falls back to MAX_URLS_PER_SCAN rather than
+    disabling the limit -- an import with no cap is the accident the cap
+    was added for, and a setting that silently means "unlimited" when
+    someone clears the box is a trap."""
+    raw = settings_service.get_setting(db, "bookmark_scan_batch_size")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return MAX_URLS_PER_SCAN
+    if value < 1:
+        return MAX_URLS_PER_SCAN
+    return min(value, MAX_SCAN_BATCH_CEILING)
+
 
 # javascript: and data: bookmarks are real and are not recipes.
 ALLOWED_SCHEMES = ("http://", "https://")
@@ -284,7 +308,7 @@ def record_failure(db: Session, url: str, reason: str) -> None:
 
 
 def scan_and_parse(
-    db: Session, bookmarks: list[Bookmark], limit: int = MAX_URLS_PER_SCAN, *, retry_failed: bool = False
+    db: Session, bookmarks: list[Bookmark], limit: int | None = None, *, retry_failed: bool = False
 ) -> dict:
     """Imports each bookmark, one at a time, and never raises for one bad
     URL.
@@ -307,6 +331,8 @@ def scan_and_parse(
 
     `remaining` is what makes that loop legible: how many unimported URLs
     are still waiting once this batch is taken."""
+    if limit is None:
+        limit = configured_batch_size(db)
     known = already_imported_urls(db, [b.url for b in bookmarks])
     # Failures are dropped alongside successes, and for the same reason:
     # a batch's forty attempts are the scarce resource, and spending them

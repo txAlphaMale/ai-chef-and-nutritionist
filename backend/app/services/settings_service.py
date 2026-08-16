@@ -403,6 +403,23 @@ SETTING_SPECS: list[SettingSpec] = [
         ),
     ),
     SettingSpec(
+        key="bookmark_scan_batch_size",
+        label="URLs per bookmark scan",
+        is_secret=False,
+        default="40",
+        description=(
+            "How many bookmarks one scan attempts before stopping and asking you to "
+            "review. Forty is a comfortable review list and roughly an hour of work on "
+            "this hardware. Raise it to clear a large export in fewer, longer runs -- a "
+            "478-bookmark file is a dozen scans at forty. Nothing is ever saved without "
+            "your confirmation whatever this is set to, URLs that failed before are "
+            "skipped automatically, and a bigger number mostly buys a longer unattended "
+            "run and a longer list to read afterwards. Blank or nonsense falls back to "
+            "forty rather than disabling the limit, because an import with no cap at all "
+            "is the accident this setting is descended from."
+        ),
+    ),
+    SettingSpec(
         key="cors_allow_origins",
         label="Extra allowed browser origins (CORS)",
         is_secret=False,
