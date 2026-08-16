@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { formatDuration } from "../utils/cookingText";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -38,13 +39,18 @@ export default function JobsBadge() {
   const { running, queued, progress } = snapshot;
   let etaText = "";
   if (progress) {
-    const elapsed = Math.round(progress.elapsed_seconds);
+    // Clock time, not a raw second count. A bookmark import runs to
+    // "4697s typical", which nobody reads as an hour and eighteen
+    // minutes -- and the whole point of this badge is telling someone
+    // whether to wait or walk away. Same formatter the cook timers use,
+    // so a duration looks the same everywhere in the app.
+    const elapsed = formatDuration(progress.elapsed_seconds);
     etaText =
       progress.typical_seconds != null
-        ? ` (${elapsed}s of ~${Math.round(progress.typical_seconds)}s typical${
+        ? ` (${elapsed} of ~${formatDuration(progress.typical_seconds)} typical${
             progress.pct_of_typical != null ? `, ${progress.pct_of_typical}%` : ""
           })`
-        : ` (${elapsed}s, no history yet)`;
+        : ` (${elapsed}, no history yet)`;
   }
 
   return (
