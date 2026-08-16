@@ -234,6 +234,54 @@ class RecipeRead(RecipeBase):
     updated_at: datetime
 
 
+class RecipeListRead(BaseModel):
+    """One recipe as the Recipes LIST needs it, which is far less than
+    `RecipeRead` carries.
+
+    Capstone review 2026-08-16 (backlog B24.1). `GET /api/recipes` returned
+    full `RecipeRead` objects for every recipe in the catalog: every
+    ingredient row including its `nutrition_per_100g` blob, every
+    instruction step, tips, source metadata, per-ingredient resolution
+    provenance. Measured against the live deployment, **603 KB for 129
+    recipes** -- and the list page reads eight fields.
+
+    The fields below are exactly what `RecipesPage.jsx` renders, plus
+    `has_restriction_conflict`. `GET /api/recipes/{id}` still returns the
+    full `RecipeRead`, and the detail page was already fetching that
+    separately, so nothing loses information it was actually using.
+
+    **Why this is a slim serializer and not pagination**, which is what
+    B24.1 originally asked for: facets are built and applied entirely
+    client-side, across the WHOLE corpus (`buildFacets` counts every
+    recipe, `applyFacets` filters every recipe). Returning one page would
+    make the facet counts describe that page and make filtering search only
+    that page -- both silently wrong. Correct pagination therefore requires
+    moving faceting server-side, which is a much larger change and costs
+    the instant no-round-trip filtering that works well today. The slim
+    shape gets most of the benefit at a fraction of the risk. Pagination
+    stays on the backlog for the point where even this shape gets too big;
+    see B24.1's note.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    default_servings: int
+    is_staple: bool
+    rating: int | None = None
+    image_path: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    # Worked out from the ingredients on every read -- see DerivedTagRead.
+    derived_tags: list[DerivedTagRead] = Field(default_factory=list)
+    # A flag, not a clearance. True means an ingredient matched a household
+    # restriction; False means nothing MATCHED, which is not the same as
+    # nothing being there. The list renders it as a warning chip and never
+    # as a safety claim -- same discipline as the derived-tag exclusion
+    # filter. The full matches remain on RecipeRead for the detail page.
+    has_restriction_conflict: bool = False
+
+
 class IngredientProvenance(BaseModel):
     """How the previewed ingredients were produced -- see
     recipe_service.INGREDIENT_PROVENANCE_KEY for why this is on the wire

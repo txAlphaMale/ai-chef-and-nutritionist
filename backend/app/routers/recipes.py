@@ -32,6 +32,7 @@ from app.schemas.recipe import (
     RecipeFolderImportResponse,
     RecipeImportResponse,
     RecipeIngredientRead,
+    RecipeListRead,
     RecipeRatingUpdate,
     RecipeRead,
     RecipeUpdate,
@@ -143,6 +144,45 @@ def _to_read(
     )
 
 
+def _to_list_read(recipe: Recipe, restrictions: allergen_service.HouseholdRestrictions) -> RecipeListRead:
+    """The list shape. Deliberately does NOT call `_to_read`.
+
+    Capstone review 2026-08-16 (B24.1). `_to_read` scales every ingredient,
+    runs the display unit-system conversion over the result, and builds a
+    `RecipeIngredientRead` per row carrying a `nutrition_per_100g` dict --
+    all of it thrown away by a list page that renders a title, some chips
+    and a thumbnail. Measured: 603 KB for 129 recipes.
+
+    Two things still have to happen per recipe, and both need the
+    ingredient NAMES (which the endpoint eager-loads) but not their
+    serialized form: SmartTags are derived rather than stored, because
+    editing an ingredient changes what is true about a recipe and a stored
+    tag would not notice; and the restriction check runs against the
+    household's CURRENT restrictions, so a recipe saved before a
+    restriction changed still flags correctly.
+    """
+    names = [ing.ingredient_name for ing in recipe.ingredients]
+    # check_ingredients directly, not check_household_restrictions: this is
+    # always called in a loop with a `restrictions` already loaded once by
+    # the caller (audit item P1-9's whole point), so there is no database
+    # work to do here and no Session to hand it.
+    restriction_check = allergen_service.check_ingredients(
+        names, restrictions.restricted_allergens, restrictions.gluten_observance_level
+    )
+    derived_tags = smart_tag_service.derive_tags(names, recipe.nutrition, recipe.nutrition_provenance)
+    return RecipeListRead(
+        id=recipe.id,
+        title=recipe.title,
+        default_servings=recipe.default_servings,
+        is_staple=recipe.is_staple,
+        rating=recipe.rating,
+        image_path=recipe.image_path,
+        tags=[t.name for t in recipe.tags],
+        derived_tags=[DerivedTagRead(tag=t.tag, basis=t.basis) for t in derived_tags],
+        has_restriction_conflict=bool(restriction_check.matches),
+    )
+
+
 def _apply_ingredients(db: Session, recipe: Recipe, ingredients: list) -> None:
     recipe.ingredients.clear()
     for ing in ingredients:
@@ -164,7 +204,7 @@ def _apply_ingredients(db: Session, recipe: Recipe, ingredients: list) -> None:
         )
 
 
-@router.get("", response_model=list[RecipeRead])
+@router.get("", response_model=list[RecipeListRead])
 def list_recipes(
     db: Session = Depends(get_db),
     is_staple: bool | None = None,
@@ -191,7 +231,7 @@ def list_recipes(
     if tag:
         recipes = [r for r in recipes if tag.lower() in {t.name for t in r.tags}]
     restrictions = allergen_service.load_household_restrictions(db)
-    return [_to_read(r, db, restrictions=restrictions) for r in recipes]
+    return [_to_list_read(r, restrictions=restrictions) for r in recipes]
 
 
 @router.post("/import", response_model=JobEnqueuedResponse, status_code=202)

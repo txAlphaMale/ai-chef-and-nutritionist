@@ -773,6 +773,17 @@ export default function RecipesPage() {
                   <Link to={`/recipes/${r.id}`}>
                     <strong>{r.title}</strong>
                   </Link>
+                  {/* A flag, never a clearance. The chip appears when an
+                      ingredient MATCHED a household restriction; its absence
+                      means nothing matched, which is not the same as nothing
+                      being there -- same rule the derived-tag chips and the
+                      exclusion filter follow. The detail page shows which
+                      ingredient and why. */}
+                  {r.has_restriction_conflict && (
+                    <span className="tag tag-warning" title="An ingredient matches a household dietary restriction">
+                      ⚠ restricted ingredient
+                    </span>
+                  )}
                   {r.is_staple && <span className="tag">★ staple</span>}
                   {r.rating != null && <span className="tag">{"★".repeat(r.rating)}</span>}
                   <span className="tag">{r.default_servings} servings</span>
