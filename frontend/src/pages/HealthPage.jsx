@@ -3,14 +3,12 @@ import { api } from "../api";
 import KnowledgeFilesPanel from "../components/KnowledgeFilesPanel";
 import TrendChart from "../components/TrendChart";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
+import { formatDate, todayIso } from "../utils/datetime";
 
 const KG_PER_LB = 0.45359237;
 const kgToLbs = (kg) => (kg == null ? "" : Math.round((kg / KG_PER_LB) * 10) / 10);
 const lbsToKg = (lbs) => (lbs === "" || lbs == null ? null : Math.round(Number(lbs) * KG_PER_LB * 100) / 100);
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 const emptyMemberForm = { name: "", age: "", height_cm: "", sex: "", activity_level: "", notes: "" };
 const emptyMetricForm = {
@@ -1041,7 +1039,7 @@ export default function HealthPage() {
               <tbody>
                 {metrics.map((m) => (
                   <tr key={m.id}>
-                    <td>{m.entry_date}</td>
+                    <td>{formatDate(m.entry_date)}</td>
                     <td>{m.weight_kg != null ? `${kgToLbs(m.weight_kg)} lbs` : "—"}</td>
                     <td>{m.steps != null ? m.steps.toLocaleString() : "—"}</td>
                     <td>{m.bmi ?? "—"}</td>

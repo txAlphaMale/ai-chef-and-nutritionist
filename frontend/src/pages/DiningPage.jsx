@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { formatDate } from "../utils/datetime";
 
 // Backlog B10.1 -- see dining_service.py's module docstring for the full
 // research writeup (OSM diet:* tag coverage, its hard limitations, and
@@ -484,7 +485,7 @@ export default function DiningPage() {
                       >
                         {plans.map((p) => (
                           <option key={p.id} value={p.id}>
-                            Week of {p.week_start_date} ({p.status})
+                            Week of {formatDate(p.week_start_date)} ({p.status})
                           </option>
                         ))}
                       </select>

@@ -6,6 +6,7 @@ import MealPlanEntryRow from "../components/MealPlanEntryRow";
 import NutritionSummaryPanel from "../components/NutritionSummaryPanel";
 import RestrictionWarnings from "../components/RestrictionWarnings";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
+import { formatDate, toIsoDate } from "../utils/datetime";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -17,7 +18,10 @@ function defaultWeekStart() {
   const day = d.getDay(); // 0=Sun..6=Sat
   const diff = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  // toIsoDate, not toISOString().slice(0, 10): the latter serializes in
+  // UTC, so west of Greenwich an evening visit returned the NEXT day
+  // (Capstone review 2026-08-16 -- see utils/datetime.js).
+  return toIsoDate(d);
 }
 
 function emptyGuidance() {
@@ -222,7 +226,7 @@ export default function MealPlanPage() {
           >
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
-                Week of {p.week_start_date} ({p.status})
+                Week of {formatDate(p.week_start_date)} ({p.status})
               </option>
             ))}
           </select>
@@ -427,7 +431,7 @@ export default function MealPlanPage() {
           <div className="card">
             <div className="page-toolbar">
               <h3 className="u-no-margin">
-                Week of {selectedPlan.week_start_date} <span className="tag">{selectedPlan.status}</span>
+                Week of {formatDate(selectedPlan.week_start_date)} <span className="tag">{selectedPlan.status}</span>
               </h3>
               <a
                 className="btn-link"

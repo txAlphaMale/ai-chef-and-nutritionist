@@ -3,6 +3,7 @@ import { api } from "../api";
 import BarcodeScanner from "../components/BarcodeScanner";
 import InventoryItemForm from "../components/InventoryItemForm";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
+import { formatDate, formatDateTime } from "../utils/datetime";
 
 // Same category enum the backend's InventoryItemBase and
 // RECEIPT_IMPORT_PROMPT use, duplicated here like
@@ -545,7 +546,7 @@ export default function InventoryPage() {
         <p className="hint recall-check-line">
           No active recall matches
           {recallStatus.last_checked_at
-            ? ` -- last checked ${new Date(recallStatus.last_checked_at).toLocaleString()}.`
+            ? ` -- last checked ${formatDateTime(recallStatus.last_checked_at)}.`
             : " -- not checked yet."}{" "}
           <button type="button" className="btn-link" onClick={checkRecallsNow} disabled={recallChecking}>
             {recallChecking ? "Checking..." : "Check for recalls now"}
@@ -900,7 +901,7 @@ export default function InventoryPage() {
                     {d.estimated_quantity != null && ` — ${d.estimated_quantity}${d.unit ? " " + d.unit : ""}`}
                     {" "}
                     <span className="tag">{d.category}</span>
-                    {d.expiration_date && <span className="tag">exp {d.expiration_date}</span>}
+                    {d.expiration_date && <span className="tag">exp {formatDate(d.expiration_date)}</span>}
                     {d.confidence_note && <em> ({d.confidence_note})</em>}
                   </li>
                 ))}
@@ -971,7 +972,7 @@ export default function InventoryPage() {
                     ) : null}
                   </td>
                   <td data-label="Price">{item.unit_price != null ? `$${item.unit_price.toFixed(2)}` : "—"}</td>
-                  <td data-label="Expires">{item.expiration_date || "—"}</td>
+                  <td data-label="Expires">{formatDate(item.expiration_date)}</td>
                   <td data-label="Priority">{item.is_priority ? "★" : ""}</td>
                   <td className="reasons-cell" data-label="Why it matters">
                     {(urgencyByItemId[item.id]?.reasons || []).join("; ")}

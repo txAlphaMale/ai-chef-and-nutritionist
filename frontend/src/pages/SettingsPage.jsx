@@ -3,6 +3,7 @@ import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
 import IngredientAliasManager from "../components/IngredientAliasManager";
 import SoundLibraryPanel from "../components/SoundLibraryPanel";
+import { formatDate } from "../utils/datetime";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
 // Tavily key) and system prompts are edited here, one field/prompt at a
@@ -1391,7 +1392,7 @@ export default function SettingsPage() {
                   {tlsStatus.expired ? (
                     <span className="error-text">expired</span>
                   ) : (
-                    `expires ${new Date(tlsStatus.expires_at * 1000).toLocaleDateString()} (${tlsStatus.days_remaining} days)`
+                    `expires ${formatDate(tlsStatus.expires_at)} (${tlsStatus.days_remaining} days)`
                   )}
                 </p>
               )}

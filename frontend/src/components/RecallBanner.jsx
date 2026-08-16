@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { formatDate } from "../utils/datetime";
 
 // Backlog B3.3 (2026-08-01): app-shell recall-awareness banner, same
 // "outside <Routes>, always mounted" placement as ExpiringDigestBanner
@@ -98,7 +99,7 @@ export default function RecallBanner() {
                 {a.status && <span className="recall-status-tag"> [{a.status}]</span>}
               </div>
               {a.reason && <div className="hint">{a.reason}</div>}
-              {a.recall_date && <div className="hint">Recall date: {a.recall_date}</div>}
+              {a.recall_date && <div className="hint">Recall date: {formatDate(a.recall_date)}</div>}
               <button
                 type="button"
                 className="btn-link"

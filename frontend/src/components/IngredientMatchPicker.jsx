@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatDate } from "../utils/datetime";
 
 /**
  * Audit P1-5 -- the "which item did you mean?" prompt.
@@ -72,7 +73,7 @@ export default function IngredientMatchPicker({ resolution, onPick, busy = false
             </span>
             <span className="match-picker-option-meta">
               {c.quantity != null && `${c.quantity}${c.unit ? ` ${c.unit}` : ""} on hand`}
-              {c.expiration_date && ` · expires ${c.expiration_date}`}
+              {c.expiration_date && ` · expires ${formatDate(c.expiration_date)}`}
             </span>
             {/* The resolver's own explanation, shown verbatim. A candidate
                 list that only showed names would throw away the useful
