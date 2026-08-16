@@ -71,6 +71,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Capstone review 2026-08-16 -- the third gate. eslint and `vite
+      # build` both PASS a component that throws on its first render:
+      # verified on this repo by reintroducing a render-time defect in
+      # RecipesPage.jsx and watching lint and build stay green while this
+      # step failed with the exact TypeError. Neither of the other two
+      # gates ever executes a component. See
+      # frontend/scripts/ssr-probe.jsx for what a pass does and does not
+      # prove.
+      - name: Render probe (SSR)
+        run: npm run ssr-probe
+
   # The frontend and backend now ship as ONE image built from the repo
   # root. Building it in CI is the check that would have caught the
   # crash-loop that went unnoticed for as long as it did: the old

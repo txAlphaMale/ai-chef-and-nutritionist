@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "ssr-probe": "esbuild scripts/ssr-probe.jsx --bundle --format=esm --jsx=automatic --platform=node --packages=external --loader:.css=empty --log-level=warning --outfile=node_modules/.cache/ssr-probe.mjs && node node_modules/.cache/ssr-probe.mjs"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
