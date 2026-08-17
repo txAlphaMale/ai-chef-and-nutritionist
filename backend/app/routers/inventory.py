@@ -67,6 +67,7 @@ from app.services import (
     ingredient_resolution_service,
     inventory_service,
     job_queue,
+    log_service,
     meal_plan_service,
     ollama_client,
     order_import_service,
@@ -479,10 +480,9 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
     budget = ollama_client.content_char_budget(
         db, prompt_overhead_chars=len(prompt_template), response_reserve_tokens=INVENTORY_RESPONSE_TOKENS
     )
-    print(
-        f"[inventory._receipt_text_extraction] extracted_content_chars={len(content)} "
-        f"budget_chars={budget} truncated={len(content) > budget}",
-        flush=True,
+    log_service.debug(
+        "inventory.receipt_import",
+        f"extracted_content_chars={len(content)} budget_chars={budget} truncated={len(content) > budget}",
     )
     prompt = prompt_template.replace("{content}", content[:budget]).replace("{today}", date.today().isoformat())
     raw_output = ollama_client.chat_json(
@@ -491,7 +491,7 @@ def _receipt_text_extraction(db: Session, content: str) -> str:
         schema=INVENTORY_SCHEMA,
         response_tokens=INVENTORY_RESPONSE_TOKENS,
     )
-    print(f"[inventory._receipt_text_extraction] raw_output_chars={len(raw_output)}", flush=True)
+    log_service.debug("inventory.receipt_import", f"raw_output_chars={len(raw_output)}")
     return raw_output
 
 
@@ -509,10 +509,9 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
     try:
         raw_output = extractor(db)
         detected = inventory_service.parse_vision_response(raw_output)
-        print(
-            f"[inventory._inventory_import_job] source_type={source_type!r} "
-            f"raw_output_chars={len(raw_output)} detected_items={len(detected)}",
-            flush=True,
+        log_service.info(
+            "inventory.import",
+            f"source_type={source_type!r} raw_output_chars={len(raw_output)} detected_items={len(detected)}",
         )
         if raw_output and not detected:
             # A non-empty response that parses to zero items looks
@@ -525,10 +524,9 @@ def _inventory_import_job(source_type: str, extractor) -> dict:
             # import adds no noise.
             head = raw_output[:500].replace("\n", " ")
             tail = raw_output[-300:].replace("\n", " ")
-            print(
-                f"[inventory._inventory_import_job] ZERO ITEMS from a non-empty response -- "
-                f"head={head!r} tail={tail!r}",
-                flush=True,
+            log_service.error(
+                "inventory.import",
+                f"ZERO ITEMS from a non-empty response -- head={head!r} tail={tail!r}",
             )
         return InventoryImportResponse(
             detected_items=detected, raw_model_output=raw_output, source_type=source_type

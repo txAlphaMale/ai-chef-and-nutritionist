@@ -25,6 +25,8 @@
  *                          (expiry, lab draw date, week start).
  *   - `formatDateTime`  -- a machine event where the time of day matters
  *                          (last recall check, last sync, job finished).
+ *   - `formatTimestamp` -- the same, with SECONDS, where ordering within a
+ *                          minute is the point (the Logs view).
  *   - `formatRelativeDay` -- pair with `formatDate` when "is this soon?"
  *                          is the actual question being asked (expiry
  *                          urgency), never on its own: "in 3 days" without
@@ -105,6 +107,29 @@ export function formatDateTime(value, { fallback = EMPTY_VALUE } = {}) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+  });
+}
+
+/** "Aug 16, 2026, 3:04:12 PM" -- the same thing as `formatDateTime` but
+ * with SECONDS, for machine output where ordering within a minute is the
+ * point.
+ *
+ * Added 2026-08-16 after looking at the rendered Logs view: nine entries
+ * written milliseconds apart all displayed as "5:50 PM", which makes the
+ * one thing a log is for -- what happened in what order -- unreadable.
+ * `formatDateTime` is still right everywhere else; "last recall check,
+ * 8:00:21 PM" is noise, and dropping the seconds there was the point.
+ * Two precisions, one source, each documented for when it applies. */
+export function formatTimestamp(value, { fallback = EMPTY_VALUE } = {}) {
+  const d = toDate(value);
+  if (!d) return fallback;
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
   });
 }
 

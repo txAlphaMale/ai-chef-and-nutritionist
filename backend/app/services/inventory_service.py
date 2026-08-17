@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.models import InventoryItem
-from app.services import ingredient_resolution_service, package_parsing, unit_conversion_service
+from app.services import ingredient_resolution_service, log_service, package_parsing, unit_conversion_service
 from app.services.ai_json_extraction import extract_json_array
 
 # --- Urgency scoring -------------------------------------------------
@@ -382,11 +382,11 @@ def deduct_item(
                 item.last_used_date = date.today()
                 db.commit()
                 db.refresh(item)
-                print(
-                    f"[inventory_service] not deducting {quantity} {unit!r} from {item.name!r} "
+                log_service.warning(
+                    "inventory_service",
+                    f"not deducting {quantity} {unit!r} from {item.name!r} "
                     f"(stored in {item.unit!r}) -- no conversion available between those units; "
                     f"marked used but quantity left unchanged",
-                    flush=True,
                 )
                 return DeductionOutcome(
                     status=DEDUCT_UNIT_MISMATCH,

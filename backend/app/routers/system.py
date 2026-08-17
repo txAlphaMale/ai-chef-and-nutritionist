@@ -17,12 +17,14 @@ from app import prompt_defaults
 from app.database import get_db
 from app.models import SystemPrompt
 from app.schemas.dashboard import DashboardResponse
+from app.schemas.log import AppLogClearResult, AppLogPage
 from app.schemas.system import PromptUpdate, SettingUpdate
 from app.services import (
     backup_service,
     dashboard_service,
     google_calendar_service,
     icloud_calendar_service,
+    log_service,
     ollama_client,
     settings_service,
     tavily_client,
@@ -193,6 +195,45 @@ def dashboard(db: Session = Depends(get_db)):
     calls to Ollama and the calendar providers, and merging them would put
     a network round trip on the app's landing page."""
     return dashboard_service.build_dashboard(db)
+
+
+@router.get("/logs", response_model=AppLogPage)
+def get_logs(
+    level: str | None = None,
+    source: str | None = None,
+    job_id: str | None = None,
+    search: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Backlog B24.2 -- the application log, readable from inside the app.
+
+    Before this, answering "why did that import produce nothing" meant
+    `docker compose logs` and a shell on the host. `limit` is clamped
+    rather than trusted: this is the one endpoint whose table is designed
+    to get large, and an unbounded `?limit=` would hand a caller the whole
+    thing."""
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    entries, total = log_service.list_entries(
+        db, level=level, source=source, job_id=job_id, search=search, limit=limit, offset=offset
+    )
+    return AppLogPage(
+        entries=entries,
+        total=total,
+        limit=limit,
+        offset=offset,
+        sources=log_service.list_sources(db),
+    )
+
+
+@router.delete("/logs", response_model=AppLogClearResult)
+def clear_logs(db: Session = Depends(get_db)):
+    """Empties the log. Retention trims it automatically (30 days /
+    20,000 rows, see log_service), so this is for deliberately discarding
+    a noisy period rather than routine housekeeping."""
+    return AppLogClearResult(deleted=log_service.clear(db))
 
 
 @router.get("/backup/manifest")

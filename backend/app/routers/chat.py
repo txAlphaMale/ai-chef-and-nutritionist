@@ -33,7 +33,7 @@ from app.database import SessionLocal, get_db
 from app.models import ChatMessage
 from app.schemas.chat import ChatMessageRead, ChatSendRequest, ChatSendResponse, ChatSessionSummary
 from app.schemas.jobs import JobEnqueuedResponse
-from app.services import chat_service, job_queue, ollama_client
+from app.services import chat_service, job_queue, log_service, ollama_client
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -150,11 +150,11 @@ def send_message(payload: ChatSendRequest, db: Session = Depends(get_db)):
                 response_tokens=chat_service.CHAT_RESPONSE_TOKENS + _history_token_estimate(history),
             )
             if truncated:
-                print(
-                    "[chat.send] grounding context exceeded the configured context window and was "
+                log_service.warning(
+                    "chat.send",
+                    "grounding context exceeded the configured context window and was "
                     "trimmed -- raise 'Ollama context window' in Settings if replies seem unaware "
                     "of recent inventory or recipes",
-                    flush=True,
                 )
 
             messages = [{"role": "system", "content": system_prompt}]

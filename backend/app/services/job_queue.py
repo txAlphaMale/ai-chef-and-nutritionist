@@ -59,6 +59,8 @@ import time
 import uuid
 from collections.abc import Callable
 
+from app.services import log_service
+
 _JOBS: dict[str, dict] = {}
 _JOBS_ORDER: list[str] = []
 _JOBS_LOCK = threading.Lock()
@@ -96,7 +98,7 @@ def _ensure_worker_alive() -> None:
     with _WORKER_LOCK:
         if _worker_thread is not None and _worker_thread.is_alive():
             return
-        print("[job_queue] worker thread not alive -- starting a new one", flush=True)
+        log_service.warning("job_queue", "worker thread not alive -- starting a new one")
         _worker_thread = threading.Thread(target=_worker, daemon=True, name="chef-job-worker")
         _worker_thread.start()
 

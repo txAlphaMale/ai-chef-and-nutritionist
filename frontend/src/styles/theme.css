@@ -3173,3 +3173,54 @@ tr.urgency-low td {
   font-size: var(--font-xs);
   font-weight: 400;
 }
+
+/* ==========================================================================
+   Settings > Logs (capstone review 2026-08-16, backlog B24.2).
+   ========================================================================== */
+
+/* A log line is machine output. Monospace keeps the timestamps and the
+   `key=value` fragments in the messages aligned enough to scan down a
+   column, which proportional type does not. */
+.log-table .log-time,
+.log-table .log-message {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  font-size: var(--font-sm);
+}
+
+.log-table .log-time {
+  white-space: nowrap;
+}
+
+.log-table .log-message {
+  /* Messages carry long paths, URLs and base64-ish fragments; without this
+     one line can force the whole table wider than the viewport -- the one
+     thing the responsive audit confirmed nothing else in this app does. */
+  overflow-wrap: anywhere;
+}
+
+.log-level {
+  text-transform: uppercase;
+  font-size: var(--font-xs);
+  letter-spacing: 0.04em;
+}
+
+/* Colour carries the level, but never alone -- the text says "error" too,
+   because roughly 1 in 12 men has some form of colour vision deficiency
+   and this is a diagnostic surface (continuing B7.4's pass). */
+.log-level-error {
+  background: var(--color-danger);
+  color: var(--color-on-danger);
+  border-color: var(--color-danger);
+}
+
+/* --color-warning does not exist in any theme -- checked rather than
+   assumed. Reuses the accent wash `.tag-warning` already uses, so warning
+   reads as distinct from error (which is a filled danger chip) without
+   inventing a token every theme would then have to define. */
+.log-level-warning {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.log-level-debug {
+  color: var(--color-text-muted);
+}

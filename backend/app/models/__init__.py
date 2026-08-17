@@ -12,11 +12,13 @@ from app.models.inventory import (
     RecallCheckState,
 )
 from app.models.kitchen import KitchenProfile
+from app.models.log import AppLogEntry
 from app.models.meal_plan import GroceryListItem, MealPlan, MealPlanEntry
 from app.models.recipe import ImportSkip, MealTag, Recipe, RecipeIngredient
 from app.models.settings import AppSetting, KnowledgeChunk, KnowledgeFile, SoundFile, SystemPrompt
 
 __all__ = [
+    "AppLogEntry",
     "AppSetting",
     "ChatMessage",
     "GroceryListItem",

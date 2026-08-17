@@ -46,6 +46,7 @@ from app.services import (
     icloud_calendar_service,
     inventory_service,
     job_queue,
+    log_service,
     meal_plan_service,
     ollama_client,
     recipe_service,
@@ -299,10 +300,10 @@ def generate_meal_plan(payload: MealPlanGenerateRequest):
                 response_tokens=meal_plan_service.MEAL_PLAN_RESPONSE_TOKENS,
             )
             if truncated:
-                print(
-                    "[meal_plan.generate] grounding context exceeded the configured context window and "
+                log_service.warning(
+                    "meal_plan.generate",
+                    "grounding context exceeded the configured context window and "
                     "was trimmed -- raise 'Ollama context window' in Settings, or reduce the recipe catalog",
-                    flush=True,
                 )
             raw_output = ollama_client.chat_json(
                 db,

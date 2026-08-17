@@ -43,7 +43,7 @@ import ollama
 from sqlalchemy.orm import Session
 
 from app.models import SystemPrompt
-from app.services import settings_service
+from app.services import log_service, settings_service
 
 # Deliberately conservative chars-per-token estimate. There is no real
 # tokenizer available here (the model doing the tokenizing is whatever
@@ -156,10 +156,10 @@ def get_active_prompt(db: Session, prompt_key: str) -> str | None:
 
 
 def _log_call(label: str, base_url: str, model: str, num_ctx: int, prompt_chars: int, structured: bool) -> None:
-    print(
-        f"[ollama_client] -> {label} model={model!r} num_ctx={num_ctx} "
+    log_service.debug(
+        "ollama_client",
+        f"-> {label} model={model!r} num_ctx={num_ctx} "
         f"prompt_chars={prompt_chars} structured={structured} base_url={base_url!r}",
-        flush=True,
     )
 
 
@@ -172,17 +172,17 @@ def _log_response(label: str, response) -> None:
     `done_reason` is the field worth watching: "length" means generation
     hit the token ceiling and the answer is cut off mid-structure."""
     if not hasattr(response, "get"):
-        print(f"[ollama_client] <- {label} UNEXPECTED response type={type(response).__name__}", flush=True)
+        log_service.warning("ollama_client", f"<- {label} UNEXPECTED response type={type(response).__name__}")
         return
     message = response.get("message") or {}
     content = (message.get("content") if hasattr(message, "get") else None) or ""
     thinking = (message.get("thinking") if hasattr(message, "get") else None) or ""
     preview = content[:200].replace("\n", " ")
-    print(
-        f"[ollama_client] <- {label} done={response.get('done')} done_reason={response.get('done_reason')!r} "
+    log_service.debug(
+        "ollama_client",
+        f"<- {label} done={response.get('done')} done_reason={response.get('done_reason')!r} "
         f"eval_count={response.get('eval_count')} prompt_eval_count={response.get('prompt_eval_count')} "
         f"content_chars={len(content)} content_preview={preview!r} thinking_chars={len(thinking)}",
-        flush=True,
     )
 
 
@@ -257,18 +257,18 @@ def _chat_raw(
         except ollama.ResponseError as exc:
             message = str(exc).lower()
             if "think" in message and kwargs:
-                print(f"[ollama_client] {label}: server rejected think parameter, retrying without it", flush=True)
+                log_service.info("ollama_client", f"{label}: server rejected think parameter, retrying without it")
                 last_exc = exc
                 continue
             if fmt is not None and ("format" in message or "schema" in message):
-                print(f"[ollama_client] {label}: server rejected structured format, retrying unconstrained", flush=True)
+                log_service.info("ollama_client", f"{label}: server rejected structured format, retrying unconstrained")
                 last_exc = exc
                 fmt = None
                 continue
-            print(f"[ollama_client] {label} RESPONSE ERROR: {exc}", flush=True)
+            log_service.error("ollama_client", f"{label} RESPONSE ERROR: {exc}")
             raise
         except Exception as exc:
-            print(f"[ollama_client] {label} EXCEPTION: {type(exc).__name__}: {exc}", flush=True)
+            log_service.error("ollama_client", f"{label} EXCEPTION: {type(exc).__name__}: {exc}")
             raise
     raise last_exc or RuntimeError(f"{label} failed with no usable Ollama call")
 

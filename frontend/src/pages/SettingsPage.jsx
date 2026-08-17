@@ -3,6 +3,7 @@ import { api, backendOrigin } from "../api";
 import { THEME_OPTIONS, applyTheme } from "../themes";
 import IngredientAliasManager from "../components/IngredientAliasManager";
 import SoundLibraryPanel from "../components/SoundLibraryPanel";
+import LogsPanel from "../components/LogsPanel";
 import { formatDate } from "../utils/datetime";
 
 // Settings GUI (Phase 8): DB-backed settings (Ollama endpoint/models,
@@ -131,6 +132,7 @@ const SETTINGS_TABS = [
   { key: "preferences", label: "Preferences" },
   { key: "security", label: "Security" },
   { key: "backup", label: "Backup & Data" },
+  { key: "logs", label: "Logs" },
 ];
 const SETTINGS_TAB_STORAGE_KEY = "chefSettingsTab";
 
@@ -1566,6 +1568,13 @@ export default function SettingsPage() {
           </a>
         </div>
       )}
+
+      {/* Backlog B24.2 -- kept in its own component rather than inlined
+          like the tabs above it. This page was already flagged as crowded
+          once (B14.1, which is why these tabs exist at all), and a log
+          viewer with filters and paging is 200 lines that have nothing to
+          do with settings. */}
+      {activeTab === "logs" && <LogsPanel />}
     </div>
   );
 }

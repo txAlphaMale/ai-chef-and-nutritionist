@@ -29,7 +29,7 @@ from app.schemas.ai_extraction import (
     ExtractedRecipeEdit,
     schema_of,
 )
-from app.services import ollama_client, recipe_image_service, unit_conversion_service
+from app.services import log_service, ollama_client, recipe_image_service, unit_conversion_service
 from app.services.ai_json_extraction import extract_json_object
 from app.services.food_data_service import NUTRITION_PROMPT_HINT
 from app.services.unit_conversion_service import MASS_UNITS, VOLUME_UNITS, normalize_unit
@@ -503,10 +503,10 @@ def coerce_recipe_fields(data: dict) -> dict:
         [str(t).strip().lower() for t in (data.get("tags") or []) if str(t).strip()]
     )
     if dropped_tags:
-        print(
-            f"[recipe_tags] dropped {len(dropped_tags)} absence-claim tag(s): "
+        log_service.info(
+            "recipe_tags",
+            f"dropped {len(dropped_tags)} absence-claim tag(s): "
             f"{', '.join(sorted(dropped_tags))} -- see _ABSENCE_CLAIM_PATTERNS",
-            flush=True,
         )
     tips = [str(t).strip() for t in (data.get("tips") or []) if str(t).strip()]
 
@@ -615,10 +615,10 @@ def _page_text_unweaving_overlays(page) -> str:
     overlay = _interleaved_overlay_styles(page)
     if not overlay:
         return page.extract_text() or ""
-    print(
-        f"[recipe_import] page {page.page_number}: {len(overlay)} character style(s) found interleaved "
+    log_service.debug(
+        "recipe_import",
+        f"page {page.page_number}: {len(overlay)} character style(s) found interleaved "
         f"through the text ({sorted(overlay)}). Separating them; the overlay is kept, at the end.",
-        flush=True,
     )
 
     def is_overlay_char(obj) -> bool:
@@ -664,7 +664,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             return "\n".join(_page_text_unweaving_overlays(page) for page in pdf.pages)
     except Exception as exc:
-        print(f"[recipe_import] pdfplumber failed ({type(exc).__name__}: {exc}); falling back to pypdf.", flush=True)
+        log_service.warning("recipe_import", f"pdfplumber failed ({type(exc).__name__}: {exc}); falling back to pypdf.")
         reader = PdfReader(io.BytesIO(pdf_bytes))
         return "\n".join(page.extract_text() or "" for page in reader.pages)
 
@@ -1762,11 +1762,11 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
         # A truncated transcription is a partial one, and the whole point
         # of the completeness gate below is that partial is worse than
         # nothing -- so decline here too rather than salvage a fragment.
-        print(
-            "[recipe_import] two-pass DECLINED: pass 1 hit the response token cap "
+        log_service.warning(
+            "recipe_import",
+            "two-pass DECLINED: pass 1 hit the response token cap "
             f"({INGREDIENT_LINES_RESPONSE_TOKENS}) and its output is truncated. "
-            "Keeping the single-call ingredients.",
-            flush=True,
+            "Keeping the single-call ingredients."
         )
         return []
     data = _extract_json_object(raw)
@@ -1791,10 +1791,10 @@ def extract_ingredients_two_pass(db: Session, content: str) -> list[dict]:
     # that does not is dropped without taking its neighbours with it.
     result = ingredients_from_pass1_blocks(data.get("blocks") or [], content)
     if result.duplicate_blocks:
-        print(
-            f"[recipe_import] pass 1 repeated itself: {result.blocks_returned} block(s) returned, "
+        log_service.warning(
+            "recipe_import",
+            f"pass 1 repeated itself: {result.blocks_returned} block(s) returned, "
             f"{result.blocks_returned - result.duplicate_blocks} distinct. Duplicates collapsed.",
-            flush=True,
         )
     for message in result.messages:
         print(f"[recipe_import] {message}", flush=True)
