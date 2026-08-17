@@ -3071,3 +3071,105 @@ tr.urgency-low td {
     display: none;
   }
 }
+
+/* ==========================================================================
+   Home dashboard (capstone review 2026-08-16, backlog B24.3).
+
+   A responsive card grid using `auto-fit` + `minmax` rather than explicit
+   breakpoints: the cards are independent and equally important, so letting
+   them reflow by available width is both simpler and correct at every size
+   -- including the two viewport bands added earlier in this review, which
+   this then needs no special case for.
+   ========================================================================== */
+
+.dashboard-grid {
+  display: grid;
+  /* 380px, not 280px, and the reason is the shell rather than the cards:
+     .app-shell caps content at 960px, so a 280px minimum produced three
+     columns and left the fourth card stranded on a row of its own with a
+     gap beside it. 380px gives a balanced 2x2 on desktop and tablet and
+     still collapses to one column on a phone. */
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: var(--spacing-3);
+  /* Cards size to their own content instead of stretching to the tallest
+     in the row. Without this the "Tonight" card carried ~200px of empty
+     space whenever the expiring list beside it was long -- confirmed in a
+     real browser screenshot, not reasoned about. */
+  align-items: start;
+}
+
+.dashboard-card {
+  /* The cards carry their own margin via .card; the grid gap supplies the
+     spacing between them, so a doubled-up margin would break the rhythm. */
+  margin: 0;
+}
+
+.dashboard-card h3 {
+  margin-top: 0;
+}
+
+/* The first-run checklist sits above the grid at full width -- it is a
+   sequence to work through, not one card among peers, and it is gone
+   entirely once every item is done. */
+.dashboard-setup {
+  border-left: 3px solid var(--color-primary);
+}
+
+.dashboard-setup-list {
+  margin: 0;
+  padding-left: var(--spacing-4);
+}
+
+.dashboard-setup-list li {
+  margin-bottom: var(--spacing-2);
+}
+
+.dashboard-meals,
+.dashboard-expiring {
+  margin: 0 0 var(--spacing-2);
+  padding-left: 0;
+  list-style: none;
+}
+
+.dashboard-meals li,
+.dashboard-expiring li {
+  padding: var(--spacing-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dashboard-meals li:last-child,
+.dashboard-expiring li:last-child {
+  border-bottom: none;
+}
+
+.dashboard-week-line {
+  margin-bottom: 0;
+}
+
+/* A definition list rather than a table: these are label/value pairs, not
+   rows of a dataset, and the phone breakpoint's data-table card treatment
+   would be actively wrong for them. */
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-2);
+}
+
+.dashboard-stats dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-sm);
+}
+
+.dashboard-stats dd {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 600;
+}
+
+/* The date beside a reading is context, not the reading. */
+.dashboard-stats dd .hint {
+  display: block;
+  font-size: var(--font-xs);
+  font-weight: 400;
+}

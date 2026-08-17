@@ -16,9 +16,11 @@ from sqlalchemy.orm import Session
 from app import prompt_defaults
 from app.database import get_db
 from app.models import SystemPrompt
+from app.schemas.dashboard import DashboardResponse
 from app.schemas.system import PromptUpdate, SettingUpdate
 from app.services import (
     backup_service,
+    dashboard_service,
     google_calendar_service,
     icloud_calendar_service,
     ollama_client,
@@ -180,6 +182,17 @@ def status(db: Session = Depends(get_db)):
             },
         ],
     }
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+def dashboard(db: Session = Depends(get_db)):
+    """Backlog B24.3 -- everything the Home page shows, in one read.
+
+    Deliberately NOT on `/status`, which the Settings page polls for
+    connection state: this is DB-only and fast, `/status` makes network
+    calls to Ollama and the calendar providers, and merging them would put
+    a network round trip on the app's landing page."""
+    return dashboard_service.build_dashboard(db)
 
 
 @router.get("/backup/manifest")

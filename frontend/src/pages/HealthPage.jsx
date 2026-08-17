@@ -4,10 +4,8 @@ import KnowledgeFilesPanel from "../components/KnowledgeFilesPanel";
 import TrendChart from "../components/TrendChart";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, todayIso } from "../utils/datetime";
+import { kgToLbs, lbsToKg } from "../utils/units";
 
-const KG_PER_LB = 0.45359237;
-const kgToLbs = (kg) => (kg == null ? "" : Math.round((kg / KG_PER_LB) * 10) / 10);
-const lbsToKg = (lbs) => (lbs === "" || lbs == null ? null : Math.round(Number(lbs) * KG_PER_LB * 100) / 100);
 
 
 const emptyMemberForm = { name: "", age: "", height_cm: "", sex: "", activity_level: "", notes: "" };
