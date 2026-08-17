@@ -13,7 +13,7 @@ output often wraps JSON in prose or markdown fences.
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import HouseholdPreferences, InventoryItem, KitchenProfile, MealPlan, Recipe
 from app.schemas.ai_extraction import ExtractedMealPlan, schema_of
@@ -52,25 +52,95 @@ def get_household_preferences(db: Session) -> HouseholdPreferences | None:
     return db.query(HouseholdPreferences).first()
 
 
-def build_recipe_catalog_summary(db: Session, limit: int = 40) -> list[dict]:
-    """Compact catalog for the generation prompt -- staples and highly
-    rated recipes first, since those are the best candidates to reuse."""
+# How many recipes the catalog block may spend. Two halves, because they
+# answer different questions and a single ranked list cannot do both.
+#
+# The HEAD is "what this household actually cooks" -- staples and
+# highly-rated recipes, which are the best candidates to reuse and are
+# worth showing whether or not they match this particular week.
+CATALOG_HEAD_LIMIT = 40
+# The RETRIEVED half is "what fits THIS week" -- recipes that use the
+# ingredients about to expire, or match the guidance given for a slot.
+# Before this existed, a recipe using the spinach that expires Thursday
+# was invisible to generation unless it also happened to be in the top 40
+# by staple/rating, which is not correlated with it at all.
+CATALOG_RETRIEVED_LIMIT = 20
+
+
+def _catalog_row(recipe: Recipe) -> dict:
+    return {
+        "id": recipe.id,
+        "title": recipe.title,
+        "default_servings": recipe.default_servings,
+        "is_staple": recipe.is_staple,
+        "rating": recipe.rating,
+        "tags": [t.name for t in recipe.tags],
+    }
+
+
+def build_catalog_retrieval_query(priority_ingredients: list[dict] | None, slots: list[dict] | None) -> str:
+    """The synthetic query the catalog is retrieved against.
+
+    Generation has no single natural user question the way chat does, so
+    one is composed from the two things that actually constrain the week:
+    the ingredients that need using up, and whatever the household typed
+    into the per-day guidance boxes. Same approach `_build_knowledge_query`
+    already takes for knowledge retrieval, just aimed at recipes.
+    """
+    parts: list[str] = []
+    for item in (priority_ingredients or [])[:12]:
+        name = item.get("name")
+        if name:
+            parts.append(str(name))
+    for slot in slots or []:
+        parts.extend(str(t) for t in (slot.get("tags") or []))
+        if slot.get("notes"):
+            parts.append(str(slot["notes"]))
+    return " ".join(parts)
+
+
+def build_recipe_catalog_summary(
+    db: Session,
+    limit: int = CATALOG_HEAD_LIMIT,
+    *,
+    priority_ingredients: list[dict] | None = None,
+    slots: list[dict] | None = None,
+    retrieved_limit: int = CATALOG_RETRIEVED_LIMIT,
+) -> list[dict]:
+    """Compact catalog for the generation prompt.
+
+    Capstone review 2026-08-16 (backlog B24.5). This used to be the first
+    40 recipes by staple/rating and nothing else, which had the same defect
+    chat's catalog had until earlier the same day: with a few hundred
+    imported recipes, generation planned the week as though the household
+    owned forty, and had no way to know it was seeing a fraction. Worse
+    than chat's case, because the recipes most worth surfacing here are the
+    ones that use the food about to go off -- and "uses the expiring
+    spinach" has nothing to do with "is a staple".
+
+    So: the staple/rating head, PLUS recipes retrieved against this week's
+    priority ingredients and slot guidance, deduplicated. The caller is told
+    the total separately (see `build_generation_context`) so the prompt can
+    say the list is partial rather than implying it is everything.
+    """
     recipes = (
         db.query(Recipe)
+        .options(selectinload(Recipe.tags))
         .order_by(Recipe.is_staple.desc(), Recipe.rating.is_(None), Recipe.rating.desc(), Recipe.title)
         .limit(limit)
         .all()
     )
+    seen = {r.id for r in recipes}
+
+    query = build_catalog_retrieval_query(priority_ingredients, slots)
+    if query.strip():
+        for recipe in recipe_service.find_relevant_recipes(db, query, limit=retrieved_limit):
+            if recipe.id not in seen:
+                recipes.append(recipe)
+                seen.add(recipe.id)
+
     return [
-        {
-            "id": r.id,
-            "title": r.title,
-            "default_servings": r.default_servings,
-            "is_staple": r.is_staple,
-            "rating": r.rating,
-            "tags": [t.name for t in r.tags],
-        }
-        for r in recipes
+        _catalog_row(r) for r in recipes
     ]
 
 
@@ -105,6 +175,8 @@ def gather_generation_context(
                 }
             )
 
+    priority_ingredients = build_priority_ingredients_summary(db)
+
     return {
         "household_size": household_size or (household.household_size if household else 2),
         "dietary_restrictions": (household.dietary_restrictions if household else []) or [],
@@ -121,8 +193,16 @@ def gather_generation_context(
         "kitchen_name": kitchen.name if kitchen else None,
         "kitchen_profile_id": kitchen.id if kitchen else None,
         "equipment": (kitchen.equipment if kitchen else []) or [],
-        "priority_ingredients": build_priority_ingredients_summary(db),
-        "recipe_catalog": build_recipe_catalog_summary(db),
+        "priority_ingredients": priority_ingredients,
+        # Retrieval is driven by THIS week's expiring ingredients and slot
+        # guidance, not just by staple/rating -- see
+        # build_recipe_catalog_summary (B24.5).
+        "recipe_catalog": build_recipe_catalog_summary(
+            db, priority_ingredients=priority_ingredients, slots=slots
+        ),
+        # So the prompt can say the catalog is partial and how partial,
+        # instead of the model reasoning as though it is everything.
+        "recipe_catalog_total": db.query(Recipe.id).count(),
         "meal_types_requested": meal_types,
         "slots": slots,
         "notes": notes,
@@ -201,8 +281,8 @@ time, or explicitly flagged by the household) -- work a sensible subset \
 of these into the week without overusing any single one:
 {priority_ingredients}
 
-Existing recipe catalog (id, title, tags, staple/rating) -- STRONGLY \
-prefer reusing a good-fit id from here, especially staples, over \
+Existing recipe catalog (id, title, tags, staple/rating){catalog_scope} -- \
+STRONGLY prefer reusing a good-fit id from here, especially staples, over \
 proposing a new recipe for every slot:
 {recipe_catalog}
 {health_section}{knowledge_section}
@@ -234,6 +314,24 @@ def _format_priority_ingredients(items: list[dict]) -> str:
         reasons = ", ".join(it.get("reasons") or [])
         lines.append(f"- {it['name']}" + (f" ({reasons})" if reasons else ""))
     return "\n".join(lines)
+
+
+def _format_catalog_scope(shown: int, total: int | None) -> str:
+    """Says out loud when the catalog is a subset.
+
+    Without this the model cannot tell "the household owns no pasta
+    recipe" from "no pasta recipe fit in the list I was given", and it
+    confidently proposes a brand-new recipe for a slot the catalog could
+    already have filled. Same fix, same wording discipline, as the chat
+    catalog got in the same review."""
+    if not total or total <= shown:
+        return ""
+    return (
+        f" -- showing {shown} of {total} saved recipes, selected by staple/rating and by fit "
+        f"with this week's priority ingredients. This list is PARTIAL: a recipe not listed here "
+        f"may still exist, so prefer a listed id where one fits and only propose a new_recipe "
+        f"when nothing listed does"
+    )
 
 
 def _format_recipe_catalog(catalog: list[dict]) -> str:
@@ -350,6 +448,9 @@ def build_generation_prompt(context: dict) -> str:
         equipment=", ".join(context.get("equipment") or []) or "unspecified",
         priority_ingredients=_format_priority_ingredients(context.get("priority_ingredients") or []),
         recipe_catalog=_format_recipe_catalog(context.get("recipe_catalog") or []),
+        catalog_scope=_format_catalog_scope(
+            len(context.get("recipe_catalog") or []), context.get("recipe_catalog_total")
+        ),
         health_section=_format_health_section(context.get("health_summary")),
         knowledge_section=_format_knowledge_section(context.get("knowledge_context")),
         slots=_format_slots(context.get("slots") or []),
