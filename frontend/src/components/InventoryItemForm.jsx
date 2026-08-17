@@ -45,9 +45,26 @@ const emptyForm = {
   notes: "",
 };
 
-/** Shared add/edit form. Pass `initial` + `onSubmit` for edit mode. */
-export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
+// Fields worth carrying over to the next item when adding several in a
+// row. Somebody working through a pantry shelf is entering twenty things
+// that are all `pantry`, bought on the same trip, in the same place --
+// retyping that per item is most of the typing. The identity of the item
+// (name, quantity, package, price, expiry, priority) never carries over,
+// because carrying THOSE over is how you end up with twenty rows that all
+// claim to be 12 oz.
+const CARRY_OVER_FIELDS = ["category", "location", "unit"];
+
+/** Shared add/edit form. Pass `initial` + `onSubmit` for edit mode.
+ *
+ * `onSubmitAndContinue`, when given, adds a second submit button that
+ * saves and immediately resets for the next item instead of closing the
+ * form (capstone review 2026-08-16). Without it, bulk entry was: click
+ * "Add item", fill, save, watch the form close, click "Add item" again --
+ * once per item, which is a tap and a context switch per row for a job
+ * that is fifty rows long. */
+export default function InventoryItemForm({ initial, onSubmit, onSubmitAndContinue, onCancel }) {
   const [form, setForm] = useState({ ...emptyForm, ...initial });
+  const nameInputRef = useRef(null);
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -128,9 +145,8 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
     }
   }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    const payload = {
+  function buildPayload() {
+    return {
       ...form,
       quantity: Number(form.quantity) || 0,
       expiration_date: form.expiration_date || null,
@@ -144,7 +160,30 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
       unit_price: form.unit_price === "" || form.unit_price == null ? null : Number(form.unit_price),
       notes: form.notes || null,
     };
-    onSubmit(payload);
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    onSubmit(buildPayload());
+  }
+
+  function handleSubmitAndContinue(e) {
+    // Runs the form's own validation first -- this is a plain button, not
+    // a submit, so `required` on the name field would otherwise be
+    // bypassed entirely and blank rows would sail through.
+    const formEl = e.currentTarget.form;
+    if (formEl && !formEl.reportValidity()) return;
+
+    onSubmitAndContinue(buildPayload());
+    setForm((f) => {
+      const next = { ...emptyForm };
+      for (const field of CARRY_OVER_FIELDS) next[field] = f[field];
+      return next;
+    });
+    // Focus back to the top of the form, so the next item can be typed
+    // without reaching for the mouse. This is the whole point of the
+    // button: hands stay on the keyboard for a long, repetitive job.
+    nameInputRef.current?.focus();
   }
 
   return (
@@ -152,7 +191,7 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
       <div className="form-row">
         <label>
           Name
-          <input required value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <input ref={nameInputRef} required value={form.name} onChange={(e) => set("name", e.target.value)} />
         </label>
         <label>
           Category
@@ -284,6 +323,11 @@ export default function InventoryItemForm({ initial, onSubmit, onCancel }) {
         <button type="submit" className="btn btn-primary">
           Save
         </button>
+        {onSubmitAndContinue && (
+          <button type="button" className="btn btn-secondary" onClick={handleSubmitAndContinue}>
+            Save &amp; add another
+          </button>
+        )}
         {onCancel && (
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             Cancel

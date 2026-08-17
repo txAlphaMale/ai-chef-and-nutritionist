@@ -16,7 +16,7 @@ import { BrowserCodeReader, BrowserMultiFormatReader } from "@zxing/browser";
 // reliably than a phone at close range -- a physical limitation, not
 // something this component can code around. The manual entry field below
 // exists for that case, and for a barcode too worn to scan at all.
-export default function BarcodeScanner({ onDetected, onClose }) {
+export default function BarcodeScanner({ onDetected, onClose, paused = false }) {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
   const controlsRef = useRef(null);
@@ -37,6 +37,16 @@ export default function BarcodeScanner({ onDetected, onClose }) {
   useEffect(() => {
     onDetectedRef.current = onDetected;
   }, [onDetected]);
+
+  // `paused` goes through a ref for the same reason `onDetected` does, and
+  // it matters more here: the ZXing frame callback below is created once,
+  // when decoding starts, so it would capture the value of `paused` at
+  // that moment and never see it change. Reading a ref inside the callback
+  // is what makes pausing work at all without tearing the camera down.
+  const pausedRef = useRef(paused);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   const stopEverything = useCallback(() => {
     // controls.stop() disposes the stream ZXing was given, but it only
@@ -118,7 +128,13 @@ export default function BarcodeScanner({ onDetected, onClose }) {
       try {
         const controls = await readerRef.current.decodeFromStream(stream, videoRef.current, (result, err) => {
           if (result) {
-            stopEverything();
+            // Paused means "a scan is being reviewed upstairs" -- keep
+            // decoding frames but ignore them, so the camera does not have
+            // to be torn down and warmed back up between items. Camera
+            // start-up is 1-3 seconds on a phone, which is the dominant
+            // cost when adding a shelf of packaged goods one barcode at a
+            // time (capstone review 2026-08-16).
+            if (pausedRef.current) return;
             onDetectedRef.current(result.getText());
             return;
           }
@@ -150,8 +166,12 @@ export default function BarcodeScanner({ onDetected, onClose }) {
   function handleManualSubmit(e) {
     e.preventDefault();
     if (!manualBarcode.trim()) return;
-    stopEverything();
+    // Deliberately does NOT stop the camera any more. The scanner now has
+    // exactly one lifecycle rule -- it stays up until you close it -- and
+    // typing one worn barcode by hand in the middle of a run of scans
+    // should not end the run.
     onDetected(manualBarcode.trim());
+    setManualBarcode("");
   }
 
   function handleClose() {

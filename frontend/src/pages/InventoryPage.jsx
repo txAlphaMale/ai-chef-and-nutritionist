@@ -81,13 +81,20 @@ export default function InventoryPage() {
   // never touches Ollama or job_queue: GET /api/inventory/barcode-lookup
   // is one fast Open Food Facts round trip, so there is nothing to poll
   // -- just a normal async call.
+  // Purely a feedback counter for a long, repetitive job -- "17 added"
+  // is the difference between grinding through a shelf and wondering
+  // whether anything is happening. Resets on reload; nothing depends on it.
+  const [addedThisSession, setAddedThisSession] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState(null);
   const [barcodeLookupBusy, setBarcodeLookupBusy] = useState(false);
   const [barcodeLookupError, setBarcodeLookupError] = useState(null);
 
   const handleBarcodeDetected = useCallback(async (barcode) => {
-    setShowScanner(false);
+    // The scanner stays MOUNTED and the camera stays live -- it is paused
+    // instead (see BarcodeScanner's `paused` prop). Camera start-up is 1-3
+    // seconds on a phone, and closing/reopening per item made that the
+    // dominant cost of adding a shelf of packaged goods.
     setBarcodeLookupBusy(true);
     setBarcodeLookupError(null);
     setBarcodeResult(null);
@@ -103,6 +110,9 @@ export default function InventoryPage() {
   async function confirmBarcodeItem(payload) {
     await handleCreate(payload);
     setBarcodeResult(null);
+    setAddedThisSession((n) => n + 1);
+    // Nothing to reopen: the scanner never closed. Clearing the result
+    // un-pauses it, so the next barcode can be read immediately.
   }
 
   // Vision intake enqueues a background job and polls rather than
@@ -237,6 +247,16 @@ export default function InventoryPage() {
   async function handleCreate(payload) {
     await api.post("/inventory", payload);
     setShowAddForm(false);
+    refresh();
+  }
+
+  /** Save without closing the form, for entering several items in a row.
+   * Capstone review 2026-08-16: `handleCreate` closes the add form, which
+   * is right for one item and wrong for the fifty-item job of populating a
+   * pantry from scratch -- it cost a click and a context switch per row. */
+  async function handleCreateAndContinue(payload) {
+    await api.post("/inventory", payload);
+    setAddedThisSession((n) => n + 1);
     refresh();
   }
 
@@ -541,6 +561,14 @@ export default function InventoryPage() {
         >
           🔎 Scan barcode
         </button>
+        {/* Feedback for a long, repetitive job. "17 added" is the
+            difference between grinding through a shelf and wondering
+            whether anything is happening. */}
+        {addedThisSession > 0 && (
+          <span className="hint added-this-session" role="status">
+            {addedThisSession} added
+          </span>
+        )}
       </div>
 
       {recallStatus && recallStatus.alerts.length === 0 && (
@@ -558,14 +586,22 @@ export default function InventoryPage() {
       {showAddForm && (
         <div className="card">
           <h3>New item</h3>
-          <InventoryItemForm onSubmit={handleCreate} onCancel={() => setShowAddForm(false)} />
+          <InventoryItemForm
+            onSubmit={handleCreate}
+            onSubmitAndContinue={handleCreateAndContinue}
+            onCancel={() => setShowAddForm(false)}
+          />
         </div>
       )}
 
       {showScanner && (
         <div className="card">
           <h3>Scan a barcode</h3>
-          <BarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />
+          <BarcodeScanner
+            onDetected={handleBarcodeDetected}
+            onClose={() => setShowScanner(false)}
+            paused={barcodeLookupBusy || barcodeResult != null}
+          />
         </div>
       )}
 

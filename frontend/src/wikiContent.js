@@ -636,6 +636,16 @@ export const WIKI_ENTRIES = [
           "Open Food Facts is crowd-sourced, so store-brand and local items often are not in it. A barcode " +
           "that comes back empty is normal, not a fault -- add it by hand and it works the same afterwards.",
       },
+      {
+        type: "p",
+        text:
+          "**Adding a lot at once?** Two things are built for that. The manual form has a **Save & add " +
+          "another** button that keeps the form open, clears the item but carries the category, location and " +
+          "unit over, and puts the cursor back in the Name field -- so a shelf of pantry items is type, Enter, " +
+          "type, Enter. And the barcode scanner **stays running between items**: scan, confirm, scan again, " +
+          "without the camera closing and taking a couple of seconds to wake up each time. A running count of " +
+          "what you have added this session sits beside the toolbar.",
+      },
     ],
   },
   {

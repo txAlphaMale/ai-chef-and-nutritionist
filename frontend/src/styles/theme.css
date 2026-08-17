@@ -3224,3 +3224,11 @@ tr.urgency-low td {
 .log-level-debug {
   color: var(--color-text-muted);
 }
+
+/* The "N added" counter beside the Inventory toolbar (capstone review
+   2026-08-16). Aligned to the buttons it sits with rather than the text
+   baseline, since the toolbar wraps to two rows below 900px. */
+.added-this-session {
+  align-self: center;
+  white-space: nowrap;
+}
