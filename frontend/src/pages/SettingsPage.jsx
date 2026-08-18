@@ -1117,7 +1117,7 @@ export default function SettingsPage() {
           <div className="card">
             <h3>Google Calendar</h3>
             <p className="hint">
-              Backlog B12.1 -- pushes your weekly meal plan into a dedicated "Chef Meal Plan" calendar in your Google
+              Pushes your weekly meal plan into a dedicated "Chef Meal Plan" calendar in your Google
               account, kept in sync automatically as the plan changes. Share that calendar with the rest of the
               household from Google Calendar's own sharing settings. First-time setup needs your own free Google
               Cloud OAuth client -- see the full walkthrough in the <a href="#/wiki?entry=google-calendar-setup">WIKI</a>.
@@ -1203,7 +1203,7 @@ export default function SettingsPage() {
           <div className="card">
             <h3>iCloud Calendar</h3>
             <p className="hint">
-              Backlog B12.2 -- the same one-way push sync as Google Calendar above, into a dedicated "Chef Meal
+              The same one-way push sync as Google Calendar above, into a dedicated "Chef Meal
               Plan" calendar in your iCloud account. Needs an app-specific password (NOT your normal Apple ID
               password) generated at{" "}
               <a href="https://appleid.apple.com" target="_blank" rel="noreferrer">

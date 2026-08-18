@@ -9,7 +9,11 @@ import { kgToLbs, lbsToKg } from "../utils/units";
 
 
 
-const emptyMemberForm = { name: "", age: "", height_cm: "", sex: "", activity_level: "", notes: "" };
+// birth_date, not age (2026-08-18). A stored age is wrong the day after
+// it is entered and nothing would ever say so -- it quietly skews the DRI
+// targets that are the whole reason this is collected. The API still
+// RETURNS `age`, computed from the birth date, for display.
+const emptyMemberForm = { name: "", birth_date: "", height_cm: "", sex: "", activity_level: "", notes: "" };
 const emptyMetricForm = {
   entry_date: todayIso(),
   weight_lbs: "",
@@ -43,6 +47,8 @@ export default function HealthPage() {
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [showMemberForm, setShowMemberForm] = useState(false);
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
+  // null = the form is adding; an id = it is editing that member.
+  const [editingMemberId, setEditingMemberId] = useState(null);
 
   const [metrics, setMetrics] = useState([]);
   const [trends, setTrends] = useState(null);
@@ -184,21 +190,49 @@ export default function HealthPage() {
     });
   }
 
-  async function handleAddMember(e) {
+  /** One handler for add AND edit (2026-08-18, author-requested). The
+   * backend has had PATCH /household/members/{id} since members existed;
+   * there was simply no way to reach it from the UI, so a typo in a height
+   * meant deleting the member and losing their metrics history with them. */
+  async function handleSubmitMember(e) {
     e.preventDefault();
-    const created = await api.post("/household/members", {
+    const payload = {
       name: memberForm.name,
-      age: memberForm.age === "" ? null : Number(memberForm.age),
+      birth_date: memberForm.birth_date || null,
       height_cm: memberForm.height_cm === "" ? null : Number(memberForm.height_cm),
       sex: memberForm.sex || null,
       activity_level: memberForm.activity_level || null,
       notes: memberForm.notes || null,
+    };
+    const saved = editingMemberId
+      ? await api.patch(`/household/members/${editingMemberId}`, payload)
+      : await api.post("/household/members", payload);
+    setMemberForm(emptyMemberForm);
+    setEditingMemberId(null);
+    setShowMemberForm(false);
+    setMembers(await api.get("/household/members"));
+    setSelectedMemberId(saved.id);
+  }
+
+  function startEditingMember(member) {
+    setEditingMemberId(member.id);
+    setMemberForm({
+      name: member.name || "",
+      // Already `YYYY-MM-DD` from the API, which is exactly what
+      // <input type="date"> wants -- no parsing, no timezone to get wrong.
+      birth_date: member.birth_date || "",
+      height_cm: member.height_cm ?? "",
+      sex: member.sex || "",
+      activity_level: member.activity_level || "",
+      notes: member.notes || "",
     });
+    setShowMemberForm(true);
+  }
+
+  function cancelMemberForm() {
+    setEditingMemberId(null);
     setMemberForm(emptyMemberForm);
     setShowMemberForm(false);
-    const memberList = await api.get("/household/members");
-    setMembers(memberList);
-    setSelectedMemberId(created.id);
   }
 
   async function handleDeleteMember(memberId) {
@@ -444,27 +478,38 @@ export default function HealthPage() {
                 </select>
               </label>
             </div>
-            <label>
-              Dietary restrictions (comma-separated)
-              <input
+            <label className="field-block">
+              Dietary restrictions
+              <textarea
+                rows={2}
                 placeholder="gluten_free, celiac, low_sodium"
                 value={prefsForm.dietary_restrictions}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, dietary_restrictions: e.target.value }))}
               />
+              <span className="hint">
+                Comma-separated, free text. Given to the AI as context. For restrictions you want checked
+                deterministically against every recipe, tick them under <strong>Allergens &amp; restrictions</strong>{" "}
+                below instead &mdash; that check is code, not a model.
+              </span>
             </label>
-            <label>
+            <label className="field-block">
               Goals
               <textarea
-                rows={2}
-                placeholder="e.g. reduce LDL cholesterol, quick weeknight prep"
+                rows={4}
+                placeholder={"e.g. Reduce LDL cholesterol. Quick weeknight prep, 30 minutes or less.\nLeftovers welcome. Both of us are about 20lb over ideal weight."}
                 value={prefsForm.goals}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, goals: e.target.value }))}
               />
+              <span className="hint">
+                Plain sentences, as you would say them to a dietitian. This goes into every meal-plan prompt, so
+                specifics ("30 minutes or less", "no seafood on weeknights") steer it far better than one word.
+              </span>
             </label>
-            <label>
-              Pantry staples -- always on hand, never on the grocery list (Backlog B5.5)
-              <input
-                placeholder="salt, pepper, olive oil"
+            <label className="field-block">
+              Pantry staples &mdash; always on hand, never on the grocery list
+              <textarea
+                rows={2}
+                placeholder="salt, pepper, olive oil, flour, sugar"
                 value={prefsForm.pantry_staples}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, pantry_staples: e.target.value }))}
               />
@@ -473,8 +518,8 @@ export default function HealthPage() {
                 currently tracked in inventory.
               </span>
             </label>
-            <label>
-              Dietary pattern (Backlog B2.3)
+            <label className="field-block">
+              Dietary pattern
               <select
                 value={prefsForm.dietary_pattern}
                 onChange={(e) => setPrefsForm((f) => ({ ...f, dietary_pattern: e.target.value }))}
@@ -494,7 +539,7 @@ export default function HealthPage() {
             </label>
 
             <fieldset>
-              <legend>Allergens &amp; restrictions to check for (Backlog B3.1)</legend>
+              <legend>Allergens &amp; restrictions to check for</legend>
               <p className="hint">
                 Checked items are matched against every recipe's ingredients automatically -- at import, in the
                 weekly meal-plan preview, and again before a meal is confirmed as made.
@@ -550,15 +595,20 @@ export default function HealthPage() {
         </div>
 
         {showMemberForm && (
-          <form className="item-form" onSubmit={handleAddMember}>
+          <form className="item-form" onSubmit={handleSubmitMember}>
             <div className="form-row">
               <label>
                 Name
                 <input required value={memberForm.name} onChange={(e) => setMemberForm((f) => ({ ...f, name: e.target.value }))} />
               </label>
               <label>
-                Age
-                <input type="number" min="0" value={memberForm.age} onChange={(e) => setMemberForm((f) => ({ ...f, age: e.target.value }))} />
+                Birth date
+                <input
+                  type="date"
+                  value={memberForm.birth_date}
+                  max={todayIso()}
+                  onChange={(e) => setMemberForm((f) => ({ ...f, birth_date: e.target.value }))}
+                />
               </label>
               <label>
                 Height (cm)
@@ -596,7 +646,10 @@ export default function HealthPage() {
             </div>
             <div className="form-actions">
               <button className="btn btn-primary" type="submit">
-                Add member
+                {editingMemberId ? "Save changes" : "Add member"}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={cancelMemberForm}>
+                Cancel
               </button>
             </div>
           </form>
@@ -614,8 +667,13 @@ export default function HealthPage() {
                   {m.name}
                 </button>
                 <span className="hint">
-                  {m.age ? `${m.age}y` : ""} {m.height_cm ? `${m.height_cm}cm` : ""} {m.activity_level || ""}
+                  {m.age != null ? `${m.age}y` : ""} {m.height_cm ? `${m.height_cm}cm` : ""}{" "}
+                  {m.activity_level || ""}
+                  {!m.birth_date && m.age != null && " (age entered directly -- edit to add a birth date)"}
                 </span>
+                <button className="btn-link" onClick={() => startEditingMember(m)}>
+                  Edit
+                </button>
                 <button className="btn-link btn-link-danger" onClick={() => handleDeleteMember(m.id)}>
                   Remove
                 </button>
@@ -728,7 +786,7 @@ export default function HealthPage() {
           </form>
 
           <button type="button" className="btn-link" onClick={() => setShowBloodworkImport((v) => !v)}>
-            {showBloodworkImport ? "Hide" : "Show"} bloodwork import (backlog B8.1)
+            {showBloodworkImport ? "Hide" : "Show"} bloodwork import
           </button>
           {showBloodworkImport && (
             <div className="bloodwork-import">
@@ -907,7 +965,7 @@ export default function HealthPage() {
           )}
 
           <button type="button" className="btn-link" onClick={() => setShowWearableImport((v) => !v)}>
-            {showWearableImport ? "Hide" : "Show"} wearable/health-app import (backlog B8.2)
+            {showWearableImport ? "Hide" : "Show"} wearable / health-app import
           </button>
           {showWearableImport && (
             <div className="bloodwork-import">

@@ -573,7 +573,20 @@ body {
 }
 
 /* --- Forms --- */
-.item-form label {
+/* `form label`, not `.item-form label` (2026-08-18).
+   This rule -- a label stacked above its control -- was the ONLY thing
+   making forms in this app readable, and it was scoped to one class. Five
+   forms never opted in (Household preferences, meal-plan generate, the
+   bloodwork and wearable importers, the dining search), so their labels
+   fell back to the browser default of `display: inline` and ran together
+   horizontally with the inputs jammed against the text. The Household
+   preferences card was the visible symptom: three free-text fields and
+   their captions collapsed into one unreadable line.
+   Scoping to `form` fixes all five at once and is the one-source
+   behaviour the rest of this stylesheet already assumes. `.form-row label`
+   and `.checkbox-label` below still override it where a row of fields or
+   an inline checkbox is wanted. */
+form label {
   display: flex;
   flex-direction: column;
   font-size: var(--font-sm);
@@ -3231,4 +3244,40 @@ tr.urgency-low td {
 .added-this-session {
   align-self: center;
   white-space: nowrap;
+}
+
+/* A form field that holds real prose or a long comma-separated list, given
+   the width and height the content actually needs (2026-08-18). The
+   household's dietary restrictions, goals and pantry staples were single-
+   line inputs roughly 200px wide holding values like
+   "gluten_free, celiac, low_sodium, ..." -- readable only by scrolling
+   inside the box. */
+.field-block {
+  /* flex column, NOT display:block. A class beats `form label`'s element
+     selector, so `display: block` silently undid the stacking for any
+     inline control -- the Dietary pattern <select> ended up beside its own
+     caption. Textareas hid the bug by being block-level children anyway. */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.field-block textarea,
+.field-block input,
+.field-block select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.field-block textarea {
+  /* Vertical only: horizontal resize inside a flex/grid card lets a user
+     drag the field wider than its container. */
+  resize: vertical;
+  min-height: 3.5em;
+  font-family: inherit;
+}
+
+/* The explanatory line under a field, as opposed to the label above it. */
+.field-block .hint {
+  margin: 2px 0 0;
 }
