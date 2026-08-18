@@ -5,6 +5,7 @@ import GroceryListPanel from "../components/GroceryListPanel";
 import MealPlanEntryRow from "../components/MealPlanEntryRow";
 import NutritionSummaryPanel from "../components/NutritionSummaryPanel";
 import RestrictionWarnings from "../components/RestrictionWarnings";
+import InfoTip from "../components/InfoTip";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, toIsoDate } from "../utils/datetime";
 
@@ -240,7 +241,14 @@ export default function MealPlanPage() {
 
       {showGenerateForm && (
         <div className="card">
-          <h3>Generate a weekly meal plan</h3>
+          <h3>
+            Generate a weekly meal plan
+            <InfoTip label="Meal plan generation" wikiEntry="meal-plan-generation">
+              Built from your household, restrictions, the food closest to expiring, your saved recipes, your
+              kitchen equipment and any active knowledge files. The per-day guidance boxes steer it far more
+              reliably than editing the result afterwards.
+            </InfoTip>
+          </h3>
           <p className="hint">
             The chef will favor ingredients expiring soon or flagged as priority in your inventory, reuse
             staple recipes where they fit, and respect your household's dietary preferences and current

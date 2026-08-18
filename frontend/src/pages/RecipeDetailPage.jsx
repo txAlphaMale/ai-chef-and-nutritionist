@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, backendOrigin } from "../api";
+import InfoTip from "../components/InfoTip";
 import DerivedTags from "../components/DerivedTags";
 import RecipeForm from "../components/RecipeForm";
 import RecipeChat from "../components/RecipeChat";
@@ -274,6 +275,12 @@ export default function RecipeDetailPage() {
         </label>
         <label>
           Units
+          <InfoTip label="Units" wikiEntry="units-and-scaling">
+            Changes what is displayed only &mdash; the saved recipe is untouched. <strong>Weight</strong> is the
+            one that matters for gluten-free baking, where flour blends measured by volume are unreliable. It
+            needs a density for that specific ingredient; where none is known the conversion is shown as
+            unavailable rather than guessed.
+          </InfoTip>
           <select value={unitSystem} onChange={(e) => handleUnitSystemChange(e.target.value)}>
             {UNIT_SYSTEM_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>

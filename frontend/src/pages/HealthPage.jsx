@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import KnowledgeFilesPanel from "../components/KnowledgeFilesPanel";
 import TrendChart from "../components/TrendChart";
+import InfoTip from "../components/InfoTip";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, todayIso } from "../utils/datetime";
 import { kgToLbs, lbsToKg } from "../utils/units";
@@ -410,7 +411,14 @@ export default function HealthPage() {
       {error && <p className="error-text">{error}</p>}
 
       <div className="card">
-        <h3>Household preferences</h3>
+        <h3>
+          Household preferences
+          <InfoTip label="Household preferences" wikiEntry="allergens-and-claims">
+            Restrictions here are structured data checked by ordinary code, not by asking a model &mdash; a
+            recipe containing something you exclude is flagged every time. Chef flags what it finds; it never
+            certifies what it did not find.
+          </InfoTip>
+        </h3>
         {prefsForm && (
           <form onSubmit={savePreferences}>
             <div className="form-row">

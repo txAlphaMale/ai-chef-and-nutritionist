@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { formatDate } from "../utils/datetime";
+import InfoTip from "../components/InfoTip";
 
 // Backlog B10.1 -- see dining_service.py's module docstring for the full
 // research writeup (OSM diet:* tag coverage, its hard limitations, and
@@ -284,7 +285,14 @@ export default function DiningPage() {
   return (
     <div>
       <div className="card">
-        <h3>Find a place to eat out</h3>
+        <h3>
+          Find a place to eat out
+          <InfoTip label="Dining out" wikiEntry="dining-out">
+            Restaurant diet data is crowd-sourced and often stale, so these are <strong>candidates to
+            verify</strong>, never a clearance. Chef shows where each claim came from and will not tell you a
+            restaurant is safe. Call ahead.
+          </InfoTip>
+        </h3>
         <p className="hint">
           Results come from OpenStreetMap's crowd-sourced dietary tags, checked against your household's
           restricted allergens. This is a best-effort check, not a guarantee -- always confirm with the
