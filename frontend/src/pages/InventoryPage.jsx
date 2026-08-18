@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import BarcodeScanner from "../components/BarcodeScanner";
 import InventoryItemForm from "../components/InventoryItemForm";
+
+// Lazy, and this is the single biggest win available in the bundle
+// (capstone review 2026-08-16, backlog B24.4). BarcodeScanner pulls in
+// @zxing/browser and @zxing/library, which together are the largest
+// dependency in this app -- and it is used on ONE screen, behind a button,
+// on a page most visits never open the scanner from. Eagerly importing it
+// meant every page load on every device paid for a barcode decoder,
+// including the phone in the kitchen that is the whole reason it exists.
+//
+// Conditionally rendered already (`showScanner`), so this costs nothing at
+// first paint and the chunk is fetched on the tap that opens the camera.
+const BarcodeScanner = lazy(() => import("../components/BarcodeScanner"));
 import InfoTip from "../components/InfoTip";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, formatDateTime } from "../utils/datetime";
@@ -596,12 +607,21 @@ export default function InventoryPage() {
 
       {showScanner && (
         <div className="card">
-          <h3>Scan a barcode</h3>
-          <BarcodeScanner
-            onDetected={handleBarcodeDetected}
-            onClose={() => setShowScanner(false)}
-            paused={barcodeLookupBusy || barcodeResult != null}
-          />
+          <h3>
+            Scan a barcode
+            <InfoTip label="Barcode scanning" wikiEntry="inventory-intake">
+              Looks the code up in Open Food Facts. The camera stays on between items, so you can scan, confirm,
+              and scan the next one. Store-brand items are often missing from the database &mdash; that is normal,
+              add those by hand.
+            </InfoTip>
+          </h3>
+          <Suspense fallback={<p className="hint">Loading the scanner...</p>}>
+            <BarcodeScanner
+              onDetected={handleBarcodeDetected}
+              onClose={() => setShowScanner(false)}
+              paused={barcodeLookupBusy || barcodeResult != null}
+            />
+          </Suspense>
         </div>
       )}
 

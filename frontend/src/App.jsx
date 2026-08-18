@@ -1,15 +1,28 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { NavLink, Route, HashRouter as Router, Routes } from "react-router-dom";
 import { api } from "./api";
 import HomePage from "./pages/HomePage";
-import InventoryPage from "./pages/InventoryPage";
-import RecipesPage from "./pages/RecipesPage";
-import RecipeDetailPage from "./pages/RecipeDetailPage";
-import MealPlanPage from "./pages/MealPlanPage";
-import DiningPage from "./pages/DiningPage";
-import HealthPage from "./pages/HealthPage";
-import SettingsPage from "./pages/SettingsPage";
-import WikiPage from "./pages/WikiPage";
+
+// Route-level code splitting (capstone review 2026-08-16, backlog B24.4).
+//
+// HomePage stays EAGER: it is the landing route, so lazy-loading it would
+// add a round trip to the one navigation that has no previous page to hide
+// it behind.
+//
+// Everything else is fetched on first navigation to it. On a LAN that is a
+// few milliseconds; what it buys is a first paint that does not carry the
+// Settings page's forms, the WIKI's 35 entries of prose and the dining
+// finder for somebody who opened the app to see what is for dinner. The
+// far larger win is BarcodeScanner, split separately at its own use site
+// (see InventoryPage) because it is behind a button rather than a route.
+const InventoryPage = lazy(() => import("./pages/InventoryPage"));
+const RecipesPage = lazy(() => import("./pages/RecipesPage"));
+const RecipeDetailPage = lazy(() => import("./pages/RecipeDetailPage"));
+const MealPlanPage = lazy(() => import("./pages/MealPlanPage"));
+const DiningPage = lazy(() => import("./pages/DiningPage"));
+const HealthPage = lazy(() => import("./pages/HealthPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const WikiPage = lazy(() => import("./pages/WikiPage"));
 import ChatWidget from "./components/ChatWidget";
 import LoginGate from "./components/LoginGate";
 import ExpiringDigestBanner from "./components/ExpiringDigestBanner";
@@ -105,17 +118,22 @@ export default function App() {
             elsewhere in the app. */}
         <TimersBadge />
         <main>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/recipes" element={<RecipesPage />} />
-            <Route path="/recipes/:id" element={<RecipeDetailPage />} />
-            <Route path="/meal-plan" element={<MealPlanPage />} />
-            <Route path="/dining" element={<DiningPage />} />
-            <Route path="/health" element={<HealthPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/wiki" element={<WikiPage />} />
-          </Routes>
+          {/* One boundary around the whole route table rather than one per
+              route: they are mutually exclusive, so a shared fallback is
+              the same behaviour with less machinery. */}
+          <Suspense fallback={<p>Loading...</p>}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/recipes" element={<RecipesPage />} />
+              <Route path="/recipes/:id" element={<RecipeDetailPage />} />
+              <Route path="/meal-plan" element={<MealPlanPage />} />
+              <Route path="/dining" element={<DiningPage />} />
+              <Route path="/health" element={<HealthPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/wiki" element={<WikiPage />} />
+            </Routes>
+          </Suspense>
         </main>
         {/* Mounted here, outside <Routes>, so it stays alive (history,
             in-flight sends, panel open/closed state) across route
