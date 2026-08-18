@@ -18,7 +18,7 @@ from app.schemas.household import (
     HouseholdPreferencesRead,
     HouseholdPreferencesUpdate,
 )
-from app.services import allergen_service, dietary_pattern_service
+from app.services import allergen_service, dietary_pattern_service, household_age
 
 router = APIRouter(prefix="/api/household", tags=["household"])
 
@@ -61,9 +61,21 @@ def update_preferences(payload: HouseholdPreferencesUpdate, db: Session = Depend
     return prefs
 
 
+def _member_read(member: HouseholdMember) -> HouseholdMemberRead:
+    """Always reports the EFFECTIVE age -- computed from `birth_date` where
+    there is one, else the legacy stored value. Doing it here rather than
+    leaving it to `from_attributes` means no client ever has to know the
+    fallback rule, and none of them can render a stale stored number
+    (2026-08-18). See app/services/household_age.py."""
+    read = HouseholdMemberRead.model_validate(member)
+    read.age = household_age.effective_age(member)
+    return read
+
+
 @router.get("/members", response_model=list[HouseholdMemberRead])
 def list_members(db: Session = Depends(get_db)):
-    return db.query(HouseholdMember).order_by(HouseholdMember.name).all()
+    members = db.query(HouseholdMember).order_by(HouseholdMember.name).all()
+    return [_member_read(m) for m in members]
 
 
 @router.post("/members", response_model=HouseholdMemberRead, status_code=201)
@@ -72,7 +84,7 @@ def create_member(payload: HouseholdMemberCreate, db: Session = Depends(get_db))
     db.add(member)
     db.commit()
     db.refresh(member)
-    return member
+    return _member_read(member)
 
 
 @router.patch("/members/{member_id}", response_model=HouseholdMemberRead)
@@ -84,7 +96,7 @@ def update_member(member_id: int, payload: HouseholdMemberUpdate, db: Session = 
         setattr(member, field, value)
     db.commit()
     db.refresh(member)
-    return member
+    return _member_read(member)
 
 
 @router.delete("/members/{member_id}", status_code=204)

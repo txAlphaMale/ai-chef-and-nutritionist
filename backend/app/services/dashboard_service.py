@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -213,7 +213,13 @@ def _setup_checklist(db: Session) -> list[dict]:
     prefs = db.query(HouseholdPreferences).first()
     member_with_body_data = (
         db.query(HouseholdMember.id)
-        .filter(HouseholdMember.height_cm.isnot(None), HouseholdMember.age.isnot(None))
+        .filter(
+            HouseholdMember.height_cm.isnot(None),
+            # Either source of age counts -- a member entered with a birth
+            # date has an age, and the checklist must not keep nagging for
+            # one they have already given (2026-08-18).
+            or_(HouseholdMember.birth_date.isnot(None), HouseholdMember.age.isnot(None)),
+        )
         .first()
     )
     return [
@@ -226,7 +232,7 @@ def _setup_checklist(db: Session) -> list[dict]:
         },
         {
             "key": "member_body_data",
-            "label": "Add age and height for a household member",
+            "label": "Add a birth date and height for a household member",
             "done": member_with_body_data is not None,
             "hint": "Health > Members. Unlocks BMI and DRI-based daily nutrient targets.",
             "route": "#/health",

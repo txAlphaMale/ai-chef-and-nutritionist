@@ -171,3 +171,82 @@ def test_compute_member_daily_targets_reports_every_missing_field(db_session):
     targets, missing = dri.compute_member_daily_targets(db_session, member)
     assert targets is None
     assert set(missing) == {"weight", "height", "age"}
+
+
+# --- Age from a birth date (author-requested 2026-08-18) ------------------
+
+
+def test_age_is_computed_from_a_birth_date():
+    from datetime import date
+
+    from app.services.household_age import age_from_birth_date
+
+    born = date(1977, 6, 15)
+    assert age_from_birth_date(born, today=date(2026, 6, 14)) == 48, "day before the birthday"
+    assert age_from_birth_date(born, today=date(2026, 6, 15)) == 49, "on the birthday"
+    assert age_from_birth_date(born, today=date(2026, 6, 16)) == 49
+
+
+def test_a_leap_day_birthday_does_not_crash_in_a_common_year():
+    from datetime import date
+
+    from app.services.household_age import age_from_birth_date
+
+    born = date(2000, 2, 29)
+    # Treated as not-yet-reached until 1 March in a non-leap year: the
+    # conservative convention, and immaterial to a nutrient target.
+    assert age_from_birth_date(born, today=date(2026, 2, 28)) == 25
+    assert age_from_birth_date(born, today=date(2026, 3, 1)) == 26
+
+
+def test_a_future_or_missing_birth_date_is_no_age_rather_than_a_negative_one():
+    from datetime import date
+
+    from app.services.household_age import age_from_birth_date
+
+    assert age_from_birth_date(None) is None
+    assert age_from_birth_date(date(2030, 1, 1), today=date(2026, 1, 1)) is None
+
+
+def test_birth_date_wins_over_a_legacy_stored_age():
+    from datetime import date
+
+    from app.services.household_age import effective_age
+
+    class Stub:
+        birth_date = date(1977, 6, 15)
+        age = 12  # stale, entered years ago
+
+    assert effective_age(Stub(), today=date(2026, 8, 18)) == 49
+
+
+def test_a_member_with_no_birth_date_still_uses_the_legacy_age(db_session):
+    """Nobody's existing profile loses its DRI targets on upgrade."""
+    from app.services.household_age import effective_age
+
+    class Stub:
+        birth_date = None
+        age = 51
+
+    assert effective_age(Stub()) == 51
+
+
+def test_dri_targets_work_from_a_birth_date_alone(db_session):
+    """The end of the chain that matters: a member entered the NEW way, with
+    no legacy age at all, must still produce targets rather than reporting
+    'age' as missing."""
+    from datetime import date
+
+    from app.models import HealthMetricEntry, HouseholdMember
+    from app.services import dri_service
+
+    member = HouseholdMember(name="Birthdate Only", birth_date=date(1977, 6, 15), height_cm=180.0, sex="male")
+    db_session.add(member)
+    db_session.flush()
+    db_session.add(HealthMetricEntry(household_member_id=member.id, entry_date=date.today(), weight_kg=92.0))
+    db_session.commit()
+
+    targets, missing = dri_service.compute_member_daily_targets(db_session, member)
+
+    assert missing == []
+    assert targets is not None

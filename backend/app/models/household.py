@@ -9,7 +9,9 @@ pulled down and run by other households, not just the original author's.
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Float, Integer, String, Text
+from datetime import date
+
+from sqlalchemy import JSON, Date, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -76,6 +78,15 @@ class HouseholdMember(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
+    # Birth date is the source of truth for age (2026-08-18, author-
+    # requested). A stored age is wrong the day after it is entered and
+    # nothing in the app was ever going to tell you -- it silently skews
+    # every DRI target computed from it, and those targets are the point
+    # of collecting this at all.
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Legacy fallback ONLY, for members entered before birth_date existed.
+    # Never written by the UI any more; `effective_age()` prefers
+    # birth_date and falls back to this. See app/services/household_age.py.
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
     sex: Mapped[str | None] = mapped_column(String(20), nullable=True)

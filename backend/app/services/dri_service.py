@@ -55,6 +55,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models import HealthMetricEntry, HouseholdMember
+from app.services import household_age
 
 ACTIVITY_MULTIPLIERS: dict[str, float] = {
     "sedentary": 1.2,
@@ -156,14 +157,18 @@ def compute_member_daily_targets(db: Session, member: HouseholdMember) -> tuple[
         missing.append("weight")
     if member.height_cm is None:
         missing.append("height")
-    if member.age is None:
+    # Effective age, not the stored column: a member with a birth date and
+    # no legacy `age` would otherwise be reported as missing an age it
+    # demonstrably has (2026-08-18).
+    member_age = household_age.effective_age(member)
+    if member_age is None:
         missing.append("age")
     if missing:
         return None, missing
     targets = compute_daily_targets(
         weight_kg=weight_kg,
         height_cm=member.height_cm,
-        age=member.age,
+        age=member_age,
         sex=member.sex,
         activity_level=member.activity_level,
     )

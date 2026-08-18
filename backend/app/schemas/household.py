@@ -3,7 +3,7 @@ individual member profiles."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -76,6 +76,9 @@ class HouseholdPreferencesRead(BaseModel):
 
 class HouseholdMemberBase(BaseModel):
     name: str
+    # Birth date is what the UI collects; `age` is derived from it on read
+    # and is legacy-only on write (see app/services/household_age.py).
+    birth_date: date | None = None
     age: int | None = None
     height_cm: float | None = None
     sex: str | None = None
@@ -89,6 +92,7 @@ class HouseholdMemberCreate(HouseholdMemberBase):
 
 class HouseholdMemberUpdate(BaseModel):
     name: str | None = None
+    birth_date: date | None = None
     age: int | None = None
     height_cm: float | None = None
     sex: str | None = None
@@ -100,5 +104,9 @@ class HouseholdMemberRead(HouseholdMemberBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    # ALWAYS the effective age -- computed from birth_date where there is
+    # one, so a client never has to know the fallback rule and can never
+    # render a stale stored number. Populated in routers/household.py.
+    age: int | None = None
     created_at: datetime
     updated_at: datetime
