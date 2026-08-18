@@ -4,6 +4,7 @@ import { api, backendOrigin } from "../api";
 import IngredientProvenance from "../components/IngredientProvenance";
 import RecipeForm from "../components/RecipeForm";
 import RecipeFacetFilter from "../components/RecipeFacetFilter";
+import InfoTip from "../components/InfoTip";
 import RestrictionWarnings from "../components/RestrictionWarnings";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { applyFacets, derivedTagBases, derivedTagLabel, emptySelection } from "../utils/recipeFacets";
@@ -25,6 +26,10 @@ export default function RecipesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [stapleOnly, setStapleOnly] = useState(false);
   const [search, setSearch] = useState("");
+  // Sorting is the server's job (B24.8). Doing it in the browser would
+  // mean sorting whatever subset the server happened to return, which is
+  // the same class of quiet wrongness the catalog truncation was.
+  const [sort, setSort] = useState("title");
   // Facet selection lives here rather than in the query string: derived
   // tags are recomputed per read and never stored, so the server cannot
   // filter on them at all. The server still narrows by title/staple; the
@@ -268,6 +273,7 @@ export default function RecipesPage() {
       const params = new URLSearchParams();
       if (stapleOnly) params.set("is_staple", "true");
       if (search) params.set("search", search);
+      if (sort !== "title") params.set("sort", sort);
       const qs = params.toString();
       const list = await api.get(`/recipes${qs ? `?${qs}` : ""}`);
       setRecipes(list);
@@ -281,7 +287,7 @@ export default function RecipesPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stapleOnly, search]);
+  }, [stapleOnly, search, sort]);
 
   async function uploadImageIfNeeded(recipeId, imageFile) {
     if (!imageFile) return;
@@ -406,11 +412,21 @@ export default function RecipesPage() {
     <div>
       <div className="page-toolbar">
         <input
-          placeholder="Search recipes..."
-          aria-label="Search recipes"
+          placeholder="Search title or ingredient..."
+          aria-label="Search recipes by title or ingredient"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <label className="inline">
+          Sort
+          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort recipes">
+            <option value="title">Title (A-Z)</option>
+            <option value="staples">Staples first</option>
+            <option value="rating">Highest rated</option>
+            <option value="newest">Recently added</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </label>
         <label className="checkbox-label inline">
           <input type="checkbox" checked={stapleOnly} onChange={(e) => setStapleOnly(e.target.checked)} />
           Staples only
@@ -434,7 +450,14 @@ export default function RecipesPage() {
       )}
 
       <div className="card">
-        <h3>Import a recipe</h3>
+        <h3>
+          Import a recipe
+          <InfoTip label="Recipe import" wikiEntry="recipe-import">
+            A URL, pasted text, a PDF, a photo, or a whole browser bookmarks export. Structured data is read
+            first where a site publishes it; the AI is the fallback, not the default. Nothing saves until you
+            review it.
+          </InfoTip>
+        </h3>
         <p className="hint">
           From a URL, pasted text, a photo, or a PDF. Ads, stories, and other boilerplate are
           filtered out; useful substitutions/variations and the source citation are kept.

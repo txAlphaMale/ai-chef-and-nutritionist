@@ -14,10 +14,11 @@ import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal, get_db
-from app.models import Recipe, RecipeIngredient
+from app.models import MealTag, Recipe, RecipeIngredient
 from app.schemas.jobs import JobEnqueuedResponse
 from app.schemas.recipe import (
     BookmarkFolder,
@@ -204,12 +205,28 @@ def _apply_ingredients(db: Session, recipe: Recipe, ingredients: list) -> None:
         )
 
 
+# The orderings the Recipes page offers. Declared here rather than built
+# from a raw `?sort=` string so an unknown value degrades to the default
+# instead of reaching SQLAlchemy (capstone review 2026-08-16, B24.8).
+RECIPE_SORTS = {
+    "title": (Recipe.title.asc(),),
+    "rating": (Recipe.rating.is_(None), Recipe.rating.desc(), Recipe.title.asc()),
+    "newest": (Recipe.created_at.desc(),),
+    "oldest": (Recipe.created_at.asc(),),
+    # Staples first, then rating -- "what we actually cook", the same
+    # ordering meal-plan generation uses for its own catalog head.
+    "staples": (Recipe.is_staple.desc(), Recipe.rating.is_(None), Recipe.rating.desc(), Recipe.title.asc()),
+}
+DEFAULT_RECIPE_SORT = "title"
+
+
 @router.get("", response_model=list[RecipeListRead])
 def list_recipes(
     db: Session = Depends(get_db),
     is_staple: bool | None = None,
     tag: str | None = None,
     search: str | None = None,
+    sort: str = DEFAULT_RECIPE_SORT,
 ):
     # Capstone review 2026-08-16: `_to_read` walks `recipe.ingredients` and
     # (via `recipe_service`/`smart_tag_service`) `recipe.tags` for every row.
@@ -226,10 +243,26 @@ def list_recipes(
     if is_staple is not None:
         query = query.filter(Recipe.is_staple == is_staple)
     if search:
-        query = query.filter(Recipe.title.ilike(f"%{search}%"))
-    recipes = query.order_by(Recipe.title).all()
+        # Title OR ingredient (B24.8). Title-only search was fine at twenty
+        # recipes and useless at several hundred: "what have I got with
+        # chickpeas in it" is the question somebody types into a recipe
+        # search box, and no recipe is called "Chickpeas".
+        pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Recipe.title.ilike(pattern),
+                Recipe.id.in_(
+                    select(RecipeIngredient.recipe_id).where(RecipeIngredient.ingredient_name.ilike(pattern))
+                ),
+            )
+        )
     if tag:
-        recipes = [r for r in recipes if tag.lower() in {t.name for t in r.tags}]
+        # In SQL rather than a Python filter over every loaded row -- the
+        # old version fetched the entire catalog and threw most of it away
+        # after paying to serialize the relationships.
+        query = query.join(Recipe.tags).filter(func.lower(MealTag.name) == tag.lower())
+
+    recipes = query.order_by(*RECIPE_SORTS.get(sort, RECIPE_SORTS[DEFAULT_RECIPE_SORT])).all()
     restrictions = allergen_service.load_household_restrictions(db)
     return [_to_list_read(r, restrictions=restrictions) for r in recipes]
 

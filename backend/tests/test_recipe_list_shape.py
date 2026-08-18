@@ -183,3 +183,69 @@ def test_the_declared_response_model_matches_what_is_returned(db_session):
         r for r in app.routes if getattr(r, "path", None) == "/api/recipes" and "GET" in getattr(r, "methods", set())
     )
     assert route.response_model == list[RecipeListRead]
+
+
+# --- Sorting and filtering, server-side (B24.8) ---------------------------
+
+
+def test_search_matches_an_ingredient_not_only_the_title(db_session):
+    """No recipe is called "Chickpeas", but "what have I got with chickpeas
+    in it" is exactly what somebody types into a recipe search box. Title-
+    only search was fine at twenty recipes and useless at several hundred."""
+    from app.routers.recipes import list_recipes
+
+    _make_recipe(db_session, title="Marbella Traybake", ingredients=("chickpeas", "olives"))
+    _make_recipe(db_session, title="Beef Stew", ingredients=("beef", "carrot"))
+
+    found = list_recipes(db=db_session, search="chickpea")
+
+    assert [r.title for r in found] == ["Marbella Traybake"]
+
+
+def test_search_still_matches_titles(db_session):
+    from app.routers.recipes import list_recipes
+
+    _make_recipe(db_session, title="Marbella Traybake", ingredients=("chickpeas",))
+    _make_recipe(db_session, title="Beef Stew", ingredients=("beef",))
+
+    assert [r.title for r in list_recipes(db=db_session, search="stew")] == ["Beef Stew"]
+
+
+def test_tag_filtering_happens_in_sql_and_is_case_insensitive(db_session):
+    """It used to load the WHOLE catalog and filter in Python, paying to
+    serialize every row it then threw away."""
+    from app.routers.recipes import list_recipes
+
+    _make_recipe(db_session, title="Quick Pasta", tags=("quick",))
+    _make_recipe(db_session, title="Slow Roast", tags=("sunday",))
+
+    assert [r.title for r in list_recipes(db=db_session, tag="QUICK")] == ["Quick Pasta"]
+
+
+def test_each_sort_orders_as_named(db_session):
+    from app.routers.recipes import list_recipes
+
+    first = _make_recipe(db_session, title="Bbb Older", tags=())
+    first.rating = 2
+    first.is_staple = False
+    second = _make_recipe(db_session, title="Aaa Newer", tags=())
+    second.rating = 5
+    second.is_staple = True
+    db_session.commit()
+
+    assert [r.title for r in list_recipes(db=db_session, sort="title")] == ["Aaa Newer", "Bbb Older"]
+    assert next(r.title for r in list_recipes(db=db_session, sort="rating")) == "Aaa Newer"
+    assert next(r.title for r in list_recipes(db=db_session, sort="staples")) == "Aaa Newer"
+    assert [r.title for r in list_recipes(db=db_session, sort="oldest")] == ["Bbb Older", "Aaa Newer"]
+    assert [r.title for r in list_recipes(db=db_session, sort="newest")] == ["Aaa Newer", "Bbb Older"]
+
+
+def test_an_unknown_sort_falls_back_instead_of_reaching_sqlalchemy(db_session):
+    """`?sort=; DROP TABLE` should be a no-op, not an error and certainly
+    not a column expression. The allowed orderings are a fixed dict."""
+    from app.routers.recipes import list_recipes
+
+    _make_recipe(db_session, title="Bbb", tags=())
+    _make_recipe(db_session, title="Aaa", tags=())
+
+    assert [r.title for r in list_recipes(db=db_session, sort="nonsense")] == ["Aaa", "Bbb"]
