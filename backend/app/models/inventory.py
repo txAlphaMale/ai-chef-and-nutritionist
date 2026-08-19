@@ -97,6 +97,37 @@ class InventoryItem(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(20), default="manual")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Backlog B19.1: processing / nutritional classification --------
+    #
+    # Captured from the Open Food Facts product response the barcode
+    # scanner already fetches, at no extra API call. All three are
+    # populated together, and ONLY by a barcode scan -- that constraint is
+    # the point, not an implementation shortcut.
+    #
+    # A barcode identifies exactly one manufactured product, so a NOVA
+    # group attached to it is a fact about the thing in the cupboard. The
+    # app's other route into Open Food Facts -- `resolve_ingredient_name`
+    # -- is a free-text search whose documented rule is "first search
+    # result wins". That is acceptable for a per-100g nutrient estimate
+    # and actively wrong for a processing classification: the top OFF hit
+    # for "olive oil" being a flavoured cooking spray would stamp NOVA-4
+    # onto the household's olive oil, with nothing on screen to say the
+    # identity was a guess. So the "and the resolved ingredient" half of
+    # B19.1 is deliberately not built; see PROJECT-PLAN.md.
+    #
+    # `off_barcode` is stored alongside the grades as their provenance --
+    # it answers "where did this classification come from", and lets a
+    # later pass re-fetch, which a bare letter could not.
+    off_barcode: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # 1-4, or NULL meaning "Open Food Facts does not classify this". NULL
+    # is not NOVA-1 and must never be counted as one -- B19.2's
+    # ultra-processed share has to report its own denominator.
+    nova_group: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A single letter a-e, or NULL. OFF's own "unknown"/"not-applicable"
+    # strings are normalised to NULL on the way in; see
+    # food_data_service.parse_off_nutriscore_grade.
+    nutriscore_grade: Mapped[str | None] = mapped_column(String(1), nullable=True)
+
 
 class IngredientAlias(Base, TimestampMixin):
     """Audit P1-5: one remembered answer to "which inventory item did you

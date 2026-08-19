@@ -13,6 +13,7 @@ import InventoryItemForm from "../components/InventoryItemForm";
 // Conditionally rendered already (`showScanner`), so this costs nothing at
 // first paint and the chunk is fetched on the tap that opens the camera.
 const BarcodeScanner = lazy(() => import("../components/BarcodeScanner"));
+import FoodGradeChips from "../components/FoodGradeChips";
 import InfoTip from "../components/InfoTip";
 import { useBackgroundJob } from "../hooks/useBackgroundJob";
 import { formatDate, formatDateTime } from "../utils/datetime";
@@ -119,7 +120,19 @@ export default function InventoryPage() {
   }, []);
 
   async function confirmBarcodeItem(payload) {
-    await handleCreate(payload);
+    // B19.1. The classification and the barcode are attached HERE rather
+    // than routed through InventoryItemForm, deliberately: they are not
+    // fields anybody edits. They are a record of what Open Food Facts
+    // said about this specific scanned product, and a form field would
+    // make them look like an opinion the household could type. The
+    // backend drops all three unless source is "barcode" (see
+    // InventoryItemCreate) so this cannot be spoofed by a manual add.
+    await handleCreate({
+      ...payload,
+      off_barcode: barcodeResult?.barcode ?? null,
+      nova_group: barcodeResult?.nova_group ?? null,
+      nutriscore_grade: barcodeResult?.nutriscore_grade ?? null,
+    });
     setBarcodeResult(null);
     setAddedThisSession((n) => n + 1);
     // Nothing to reopen: the scanner never closed. Clearing the result
@@ -651,6 +664,7 @@ export default function InventoryPage() {
           {barcodeResult.image_url && (
             <img src={barcodeResult.image_url} alt="" className="barcode-result-image" />
           )}
+          {barcodeResult.found && <FoodGradeChips item={barcodeResult} />}
           <InventoryItemForm
             initial={{
               name: barcodeResult.name || "",
@@ -1027,7 +1041,17 @@ export default function InventoryPage() {
                       it re-labels each cell as a stacked "Label: value"
                       row via `content: attr(data-label)`, no JS needed for
                       the actual layout switch, just this one attribute. */}
-                  <td data-label="Name">{item.name}</td>
+                  <td data-label="Name">
+                    {item.name}
+                    {/* B19.1 -- inline under the name rather than in a
+                        column of their own: the table already carries
+                        eight, and below the mobile breakpoint every
+                        column becomes its own stacked row. A chip that
+                        only exists for scanned items would leave a
+                        labelled empty row on most of them. Renders
+                        nothing at all when unclassified. */}
+                    <FoodGradeChips item={item} compact />
+                  </td>
                   <td data-label="Category">{item.category}</td>
                   <td data-label="Qty">
                     {formatQuantity(item.quantity)} {item.unit || ""}

@@ -698,6 +698,57 @@ export const WIKI_ENTRIES = [
     ],
   },
   {
+    id: "food-classification",
+    category: "Kitchen inventory",
+    title: "NOVA group and Nutri-Score",
+    body: [
+      {
+        type: "p",
+        text:
+          "When you add an item by scanning its **barcode**, Chef also records two classifications that Open " +
+          "Food Facts publishes for that product, at no extra lookup. They appear as small chips under the " +
+          "item name in your inventory.",
+      },
+      {
+        type: "p",
+        text:
+          "**NOVA** is a food-classification system from the University of São Paulo. It groups foods by how " +
+          "much industrial processing they have had, not by their nutrients: group 1 is unprocessed or " +
+          "minimally processed, group 2 is a culinary ingredient like oil or butter, group 3 is a processed " +
+          "food, and group 4 is ultra-processed. Open Food Facts works the group out from the product's " +
+          "ingredient list.",
+      },
+      {
+        type: "p",
+        text:
+          "**Nutri-Score** is the front-of-pack grade used across much of Europe, A (best) through E (worst). " +
+          "It scores nutrient composition per 100g -- energy, sugar, saturated fat and salt weighed against " +
+          "fibre, protein and fruit/vegetable content.",
+      },
+      {
+        type: "note",
+        text:
+          "Neither grade is a verdict on whether a food belongs in your diet, and neither is Chef's opinion. " +
+          "Nutri-Score in particular compares like with like within a category and nothing else, which is why " +
+          "olive oil grades poorly and diet soda grades well.",
+      },
+      {
+        type: "note",
+        text:
+          "A blank means Open Food Facts does not classify that product -- it is crowd-sourced, and a NOVA " +
+          "group needs a readable ingredient list. Blank never means unprocessed. It is common: Nutella has a " +
+          "Nutri-Score and no NOVA group at all, because too many of its ingredients could not be identified.",
+      },
+      {
+        type: "p",
+        text:
+          "Items already in your pantry, and items added by hand, by photo or by import, carry no " +
+          "classification. There is no barcode on those rows to look one up by, and Chef will not guess one " +
+          "from the name you typed.",
+      },
+    ],
+  },
+  {
     id: "recall-awareness",
     category: "Kitchen inventory",
     title: "Recall awareness",

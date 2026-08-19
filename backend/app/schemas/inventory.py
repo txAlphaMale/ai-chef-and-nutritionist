@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class InventoryItemBase(BaseModel):
@@ -50,6 +50,31 @@ class InventoryItemBase(BaseModel):
 class InventoryItemCreate(InventoryItemBase):
     source: str = "manual"  # manual|vision|chat|import_photo|import_pdf|import_text|import_order_history|barcode
 
+    # --- B19.1 -----------------------------------------------------------
+    # Only a barcode scan may carry these. The model comment on
+    # InventoryItem explains why the classification is tied to a scanned
+    # product identity; this validator is what makes that an invariant
+    # rather than a comment. Anything sent on a manual/photo/CSV create is
+    # dropped silently rather than rejected -- a client that copies a
+    # scanned item's fields into a hand-typed one should get an item, not
+    # a 422, and it should not get a classification it cannot justify.
+    off_barcode: str | None = None
+    nova_group: int | None = None
+    nutriscore_grade: str | None = None
+
+    @model_validator(mode="after")
+    def _classification_requires_a_scan(self) -> "InventoryItemCreate":
+        if self.source != "barcode":
+            self.off_barcode = None
+            self.nova_group = None
+            self.nutriscore_grade = None
+            return self
+        if self.nova_group not in (1, 2, 3, 4):
+            self.nova_group = None
+        grade = (self.nutriscore_grade or "").strip().lower()
+        self.nutriscore_grade = grade if grade in ("a", "b", "c", "d", "e") else None
+        return self
+
 
 class InventoryItemUpdate(BaseModel):
     """All fields optional -- PATCH semantics."""
@@ -77,6 +102,12 @@ class InventoryItemRead(InventoryItemBase):
 
     id: int
     source: str
+    # B19.1. Null means Open Food Facts does not classify this item, or
+    # the item never came from a scan -- never "unprocessed". The UI must
+    # render null as absence, not as a good score.
+    off_barcode: str | None = None
+    nova_group: int | None = None
+    nutriscore_grade: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -189,6 +220,13 @@ class BarcodeLookupResponse(BaseModel):
     category: str | None = None
     image_url: str | None = None
     confidence_note: str | None = None
+    # B19.1 -- both ride along in this same response at no extra cost.
+    # Null on either means Open Food Facts does not classify this product;
+    # the scanner preview says so in words rather than showing a blank
+    # chip. See food_data_service.parse_off_nova_group for the field
+    # shapes, which were read off live responses rather than docs.
+    nova_group: int | None = None
+    nutriscore_grade: str | None = None
 
 
 class VisionDetectedItem(BaseModel):

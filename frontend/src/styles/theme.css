@@ -3281,3 +3281,89 @@ tr.urgency-low td {
 .field-block .hint {
   margin: 2px 0 0;
 }
+
+/* --- Food classification chips (backlog B19.1) ----------------------
+   NOVA group and Nutri-Score, captured from Open Food Facts on a barcode
+   scan. Built on the same `--font-xs` / muted-border language as `.tag`
+   above rather than as a new visual idiom, because these ARE tags: facts
+   attached to an item, not controls.
+
+   Only NOVA 4 and the Nutri-Score letters get colour. Two reasons for
+   holding back everywhere else: a table of items each carrying two
+   coloured chips becomes unreadable, and colouring "NOVA 2" as though it
+   were a caution would state a judgement neither this app nor the NOVA
+   authors make -- group 2 is olive oil and butter.
+
+   Never used to signal absence. An unclassified item renders no chip at
+   all (see FoodGradeChips.jsx); there is deliberately no "unknown" chip
+   style here, because a grey chip in a column of coloured ones reads as
+   a result. */
+.food-grades {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin: var(--spacing-2) 0;
+}
+
+/* In the Inventory table the chips sit under the item name, so they need
+   no vertical margin of their own and must be able to wrap under a long
+   name rather than widening the column. */
+.food-grades-compact {
+  margin: 2px 0 0;
+}
+
+.food-grade-chip {
+  display: inline-block;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: var(--font-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* The one group B19.2 will count, and the only claim strong enough to
+   earn the warning hue the rest of the app uses for it. */
+.food-grade-nova-4 {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+/* Nutri-Score's own A-E ramp, green through red, matched to this theme's
+   existing secondary/accent/danger hues rather than to the official
+   palette's exact values -- the letter carries the meaning, and importing
+   five foreign brand colours would fight every other surface in the app.
+   Both text and border shift, so the grade survives greyscale printing
+   and colour-blind viewing; the letter itself is always spelled out. */
+.food-grade-nutriscore-a {
+  border-color: var(--color-secondary);
+  color: var(--color-secondary);
+  background: color-mix(in srgb, var(--color-secondary) 12%, transparent);
+}
+
+.food-grade-nutriscore-b {
+  border-color: color-mix(in srgb, var(--color-secondary) 60%, var(--color-accent));
+  color: color-mix(in srgb, var(--color-secondary) 60%, var(--color-text));
+  background: color-mix(in srgb, var(--color-secondary) 7%, transparent);
+}
+
+.food-grade-nutriscore-c {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.food-grade-nutriscore-d {
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-danger));
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+}
+
+.food-grade-nutriscore-e {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}

@@ -146,6 +146,87 @@ OFF_NUTRIENT_MAP: dict[str, str] = {
 # (recipe_service.py's nutrition prompt uses sodium_mg/cholesterol_mg).
 OFF_GRAMS_TO_MG_KEYS = {"sodium_mg", "cholesterol_mg"}
 
+# --- B19.1: NOVA group and Nutri-Score --------------------------------
+#
+# These two fields ride along in the SAME product response the barcode
+# scanner already fetches, at zero extra API cost, and both are things no
+# meal planner in the capstone benchmark surfaces.
+#
+# The shape below is not inferred from documentation -- it was read off
+# live `world.openfoodfacts.org/api/v2/product/{barcode}.json` responses
+# on 2026-08-19 (five real barcodes, via the author's browser, because
+# this sandbox's proxy 403s the domain). What that showed:
+#
+#   nova_group        int, 1-4. ABSENT ENTIRELY when OFF could not
+#                     classify the product -- there is no null and no
+#                     sentinel, the key simply is not in the response.
+#                     This is common, not exotic: barcode 3017624010701
+#                     (Nutella, one of the most-scanned products on
+#                     earth) has no nova_group, and carries a sibling
+#                     field `nova_group_debug` reading "no nova group if
+#                     too many ingredients are unknown: 6 out of 7".
+#   nova_groups       the SAME value as a string ("4"). A v0-era alias,
+#                     present and absent in lockstep with nova_group.
+#   nutriscore_grade  lowercase string. Usually present -- but "unknown"
+#                     and "not-applicable" are REAL VALUES it takes, not
+#                     absences. Verified: en:coffees products return
+#                     "unknown"; en:wines products return
+#                     "not-applicable". Storing either verbatim would put
+#                     a badge reading "NOT-APPLICABLE" on the item.
+#   nutrition_grades  the v0-era alias for nutriscore_grade, same value
+#                     including the same two sentinels.
+#   nutriscore_score  int, negative is better (oats -4, Nutella +31).
+#
+# `nutriscore_score` is deliberately NOT captured. It is not comparable
+# across products: Coca-Cola scores 12 and potato crisps score 19, yet
+# both are grade "e", because beverages are graded on their own
+# threshold table. A number the app displayed next to another number
+# would invite exactly the comparison it does not support. The letter
+# already carries the category-correct judgement.
+OFF_NOVA_KEYS = ("nova_group", "nova_groups")
+OFF_NUTRISCORE_KEYS = ("nutriscore_grade", "nutrition_grades")
+NOVA_GROUPS = (1, 2, 3, 4)
+NUTRISCORE_GRADES = ("a", "b", "c", "d", "e")
+
+
+def parse_off_nova_group(product: dict) -> int | None:
+    """1-4, or None when Open Food Facts has not classified this product.
+
+    None means "OFF does not say", and every caller must render it as
+    such. It must never be floored to 1: an unclassified product is
+    disproportionately likely to be one with an unreadable ingredient
+    list, which is the opposite of a NOVA-1 whole food.
+    """
+    for key in OFF_NOVA_KEYS:
+        raw = (product or {}).get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+        if value in NOVA_GROUPS:
+            return value
+    return None
+
+
+def parse_off_nutriscore_grade(product: dict) -> str | None:
+    """A single lowercase letter a-e, or None.
+
+    Everything that is not one of the five letters -- including OFF's own
+    "unknown" and "not-applicable" strings -- becomes None, because this
+    column exists to be shown as a grade badge and those two are not
+    grades.
+    """
+    for key in OFF_NUTRISCORE_KEYS:
+        raw = (product or {}).get(key)
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip().lower()
+        if value in NUTRISCORE_GRADES:
+            return value
+    return None
+
 
 @dataclass
 class ResolvedFood:

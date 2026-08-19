@@ -295,6 +295,8 @@ def barcode_lookup(barcode: str):
         package_descriptor=package_descriptor,
         category=category or "other",
         image_url=image_url,
+        nova_group=food_data_service.parse_off_nova_group(product),
+        nutriscore_grade=food_data_service.parse_off_nutriscore_grade(product),
         confidence_note=None
         if name
         else "Found on Open Food Facts, but that record has no product name -- fill it in manually.",
