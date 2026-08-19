@@ -31,7 +31,19 @@ from app.services import health_service, job_queue, ollama_client
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
-TREND_FIELDS = ["weight_kg", "bmi", "ldl_mg_dl", "hdl_mg_dl", "total_cholesterol_mg_dl"]
+TREND_FIELDS = [
+    "weight_kg",
+    "bmi",
+    "ldl_mg_dl",
+    "hdl_mg_dl",
+    "total_cholesterol_mg_dl",
+    # Backlog B18.1. Lp(a) is deliberately absent: it is reported in two
+    # non-interconvertible units, so a single trend line over it could be
+    # mixing scales. It is shown as a value with its unit instead.
+    "apob_mg_dl",
+    "hba1c_percent",
+    "waist_cm",
+]
 
 
 def _compute_bmi_for_entry(db: Session, household_member_id: int | None, weight_kg: float | None) -> float | None:
@@ -176,6 +188,9 @@ def get_trends(household_member_id: int, window_days: int = 90, db: Session = De
             "ldl_mg_dl": e.ldl_mg_dl,
             "hdl_mg_dl": e.hdl_mg_dl,
             "total_cholesterol_mg_dl": e.total_cholesterol_mg_dl,
+            "apob_mg_dl": e.apob_mg_dl,
+            "hba1c_percent": e.hba1c_percent,
+            "waist_cm": e.waist_cm,
         }
         for e in entries
     ]

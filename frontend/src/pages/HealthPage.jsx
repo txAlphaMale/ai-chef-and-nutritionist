@@ -24,6 +24,14 @@ const emptyMetricForm = {
   blood_pressure_systolic: "",
   blood_pressure_diastolic: "",
   blood_glucose_mg_dl: "",
+  // Backlog B18.1 (2026-08-18). The 2026 ACC/AHA dyslipidemia guideline
+  // names ApoB and Lp(a) as measurements that change risk assessment, and
+  // these are the numbers a household working on LDL actually gets handed.
+  apob_mg_dl: "",
+  lpa_value: "",
+  lpa_unit: "",
+  hba1c_percent: "",
+  waist_cm: "",
   notes: "",
 };
 
@@ -260,6 +268,13 @@ export default function HealthPage() {
         blood_pressure_systolic: metricForm.blood_pressure_systolic === "" ? null : Number(metricForm.blood_pressure_systolic),
         blood_pressure_diastolic: metricForm.blood_pressure_diastolic === "" ? null : Number(metricForm.blood_pressure_diastolic),
         blood_glucose_mg_dl: metricForm.blood_glucose_mg_dl === "" ? null : Number(metricForm.blood_glucose_mg_dl),
+        apob_mg_dl: metricForm.apob_mg_dl === "" ? null : Number(metricForm.apob_mg_dl),
+        lpa_value: metricForm.lpa_value === "" ? null : Number(metricForm.lpa_value),
+        // The unit rides with the value or neither is sent -- an Lp(a)
+        // number whose scale is unknown is worse than no number.
+        lpa_unit: metricForm.lpa_value === "" ? null : metricForm.lpa_unit || null,
+        hba1c_percent: metricForm.hba1c_percent === "" ? null : Number(metricForm.hba1c_percent),
+        waist_cm: metricForm.waist_cm === "" ? null : Number(metricForm.waist_cm),
         notes: metricForm.notes || null,
       });
       setMetricForm(emptyMetricForm);
@@ -439,6 +454,18 @@ export default function HealthPage() {
   }
 
   const selectedMember = members.find((m) => m.id === selectedMemberId) || null;
+
+  /** Waist-to-height for the selected member (B18.3). Deliberately a ratio
+   * and nothing else -- no band, no colour, no "your risk is". Interpreting
+   * it is a clinician's job and this app has no standing to hand somebody a
+   * risk label; the number and its trend are what a feedback loop needs.
+   * Mirrors health_service.waist_to_height_ratio, which is the server-side
+   * source of the same figure. */
+  function waistToHeight(waistCm) {
+    const height = selectedMember?.height_cm;
+    if (!waistCm || !height) return null;
+    return (Math.round((waistCm / height) * 1000) / 1000).toFixed(3);
+  }
 
   return (
     <div>
@@ -778,6 +805,73 @@ export default function HealthPage() {
                 />
               </label>
             </div>
+            <div className="form-row">
+              <label>
+                ApoB (mg/dL)
+                <InfoTip label="ApoB" wikiEntry="biomarkers">
+                  Apolipoprotein B counts the atherogenic particles themselves rather than the cholesterol they
+                  carry. The 2026 ACC/AHA guideline treats it as a measurement that can change risk assessment
+                  when it disagrees with LDL-C.
+                </InfoTip>
+                <input
+                  type="number"
+                  step="any"
+                  value={metricForm.apob_mg_dl}
+                  onChange={(e) => setMetricForm((f) => ({ ...f, apob_mg_dl: e.target.value }))}
+                />
+              </label>
+              <label>
+                Lp(a)
+                <InfoTip label="Lp(a)" wikiEntry="biomarkers">
+                  Lipoprotein(a) is largely genetic and stable for life, so one measurement is usually enough.
+                  It is reported in two units that are <strong>not</strong> reliably interconvertible &mdash;
+                  enter the number and the unit your lab printed, and Chef will not convert between them.
+                </InfoTip>
+                <input
+                  type="number"
+                  step="any"
+                  value={metricForm.lpa_value}
+                  onChange={(e) => setMetricForm((f) => ({ ...f, lpa_value: e.target.value }))}
+                />
+              </label>
+              <label>
+                Lp(a) unit
+                <select
+                  value={metricForm.lpa_unit}
+                  // Required only once there is a number to attach it to.
+                  required={metricForm.lpa_value !== ""}
+                  onChange={(e) => setMetricForm((f) => ({ ...f, lpa_unit: e.target.value }))}
+                >
+                  <option value="">-- pick one --</option>
+                  <option value="mg_dl">mg/dL</option>
+                  <option value="nmol_l">nmol/L</option>
+                </select>
+              </label>
+              <label>
+                HbA1c (%)
+                <input
+                  type="number"
+                  step="any"
+                  value={metricForm.hba1c_percent}
+                  onChange={(e) => setMetricForm((f) => ({ ...f, hba1c_percent: e.target.value }))}
+                />
+              </label>
+              <label>
+                Waist (cm)
+                <InfoTip label="Waist circumference" wikiEntry="biomarkers">
+                  Shown beside BMI, never instead of it. BMI cannot tell where mass sits, and the 2025 Lancet
+                  Commission on clinical obesity moved diagnosis toward BMI <em>plus</em> a measure like this
+                  one. Chef shows the waist-to-height ratio and its trend, and deliberately attaches no risk
+                  label to it.
+                </InfoTip>
+                <input
+                  type="number"
+                  step="any"
+                  value={metricForm.waist_cm}
+                  onChange={(e) => setMetricForm((f) => ({ ...f, waist_cm: e.target.value }))}
+                />
+              </label>
+            </div>
             <div className="form-actions">
               <button className="btn btn-primary" type="submit" disabled={metricBusy}>
                 {metricBusy ? "Saving..." : "Log entry"}
@@ -1096,6 +1190,10 @@ export default function HealthPage() {
                   <th>Steps</th>
                   <th>BMI</th>
                   <th>LDL / HDL</th>
+                  <th>ApoB</th>
+                  <th>Lp(a)</th>
+                  <th>HbA1c</th>
+                  <th>Waist</th>
                   <th>BP</th>
                   <th></th>
                 </tr>
@@ -1109,6 +1207,22 @@ export default function HealthPage() {
                     <td>{m.bmi ?? "—"}</td>
                     <td>
                       {m.ldl_mg_dl ?? "—"} / {m.hdl_mg_dl ?? "—"}
+                    </td>
+                    <td>{m.apob_mg_dl ?? "—"}</td>
+                    <td>
+                      {/* The unit is shown WITH the value, always. mg/dL and
+                          nmol/L are not reliably interconvertible, so a bare
+                          number here would be ambiguous by roughly 2.5x. */}
+                      {m.lpa_value != null
+                        ? `${m.lpa_value} ${m.lpa_unit === "nmol_l" ? "nmol/L" : "mg/dL"}`
+                        : "—"}
+                    </td>
+                    <td>{m.hba1c_percent != null ? `${m.hba1c_percent}%` : "—"}</td>
+                    <td>
+                      {m.waist_cm != null ? `${m.waist_cm}cm` : "—"}
+                      {waistToHeight(m.waist_cm) && (
+                        <div className="hint">W/H {waistToHeight(m.waist_cm)}</div>
+                      )}
                     </td>
                     <td>
                       {m.blood_pressure_systolic && m.blood_pressure_diastolic

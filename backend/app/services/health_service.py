@@ -30,6 +30,26 @@ def compute_bmi(weight_kg: float | None, height_cm: float | None) -> float | Non
     return round(weight_kg / (height_m**2), 1)
 
 
+def waist_to_height_ratio(waist_cm: float | None, height_cm: float | None) -> float | None:
+    """Backlog B18.3 (2026-08-18). Shown BESIDE BMI, never instead of it.
+
+    The 2025 Lancet Commission on clinical obesity moved diagnosis off BMI
+    alone toward BMI plus an anthropometric measure, because BMI cannot
+    distinguish where mass sits and central adiposity is what carries the
+    cardiometabolic risk this household is trying to move. Waist-to-height
+    is the cheapest such measure -- a tape measure and a number already on
+    the member's profile.
+
+    Deliberately returns a RATIO and nothing else. No category, no
+    threshold, no "your risk is". Interpreting it is a clinician's job and
+    this app does not have the standing to hand somebody a risk label. The
+    UI shows the number and the trend; that is what a feedback loop needs.
+    """
+    if not waist_cm or not height_cm or height_cm <= 0:
+        return None
+    return round(waist_cm / height_cm, 3)
+
+
 def bmi_category(bmi: float) -> str:
     """Standard WHO adult BMI bands. Informational only -- not medical
     advice; surfaced in the UI/AI grounding as a rough signal, not a
@@ -91,6 +111,21 @@ def format_member_health_line(name: str, latest: dict, weight_trend: dict | None
         parts.append(f"HDL {latest['hdl_mg_dl']} mg/dL")
     if latest.get("total_cholesterol_mg_dl") is not None:
         parts.append(f"total cholesterol {latest['total_cholesterol_mg_dl']} mg/dL")
+    # Backlog B18.1. These reach the meal-plan prompt for the same reason
+    # LDL always has: they are what this household is trying to move, and a
+    # planner that cannot see them is steering blind. Lp(a) carries its unit
+    # into the text rather than being normalized -- see the model.
+    if latest.get("apob_mg_dl") is not None:
+        parts.append(f"ApoB {latest['apob_mg_dl']} mg/dL")
+    if latest.get("lpa_value") is not None and latest.get("lpa_unit"):
+        unit = "mg/dL" if latest["lpa_unit"] == "mg_dl" else "nmol/L"
+        parts.append(f"Lp(a) {latest['lpa_value']} {unit}")
+    if latest.get("hba1c_percent") is not None:
+        parts.append(f"HbA1c {latest['hba1c_percent']}%")
+    if latest.get("waist_cm") is not None:
+        parts.append(f"waist {latest['waist_cm']}cm")
+    if latest.get("waist_to_height") is not None:
+        parts.append(f"waist-to-height {latest['waist_to_height']}")
     if not parts:
         return ""
 
@@ -99,6 +134,30 @@ def format_member_health_line(name: str, latest: dict, weight_trend: dict | None
         direction = "down" if weight_trend["delta"] < 0 else "up"
         line += f"; weight {direction} {abs(weight_trend['delta'])}kg over the last {weight_trend['days_span']} days"
     return line
+
+
+def _latest_value_per_metric(entry_dicts: list[dict]) -> dict:
+    """The most recent non-null reading of EACH metric, not the fields of
+    the most recent entry.
+
+    Fixed 2026-08-18, alongside B18.1. This previously took
+    `entry_dicts[0]` -- the newest entry -- which meant a member who logged
+    a weight this morning handed the meal-plan prompt a health line with no
+    cholesterol in it at all, because a lipid panel and a weigh-in are
+    almost never the same row. The planner then steered for a household
+    whose LDL it could not see. Same defect, and the same fix, as the Home
+    dashboard's `_health_section`.
+
+    `entry_dicts` must be newest-first, which is how the caller queries.
+    """
+    latest: dict = {}
+    for entry in entry_dicts:
+        for field, value in entry.items():
+            if field == "entry_date":
+                continue
+            if value is not None and field not in latest:
+                latest[field] = value
+    return latest
 
 
 def build_health_context_summary(db: Session) -> str:
@@ -121,10 +180,19 @@ def build_health_context_summary(db: Session) -> str:
                 "ldl_mg_dl": e.ldl_mg_dl,
                 "hdl_mg_dl": e.hdl_mg_dl,
                 "total_cholesterol_mg_dl": e.total_cholesterol_mg_dl,
+                # Backlog B18.1
+                "apob_mg_dl": e.apob_mg_dl,
+                "lpa_value": e.lpa_value,
+                "lpa_unit": e.lpa_unit,
+                "hba1c_percent": e.hba1c_percent,
+                "waist_cm": e.waist_cm,
             }
             for e in entries
         ]
-        latest = entry_dicts[0]
+        latest = _latest_value_per_metric(entry_dicts)
+        # Waist-to-height needs the member's height, which lives on the
+        # member rather than the entry (B18.3).
+        latest["waist_to_height"] = waist_to_height_ratio(latest.get("waist_cm"), member.height_cm)
         weight_trend = compute_metric_trend(entry_dicts, "weight_kg")
         line = format_member_health_line(member.name, latest, weight_trend)
         if line:
@@ -215,6 +283,20 @@ if needed (mg/dL = mmol/L * 88.57), or null
 - "blood_pressure_diastolic": integer mmHg, or null
 - "blood_glucose_mg_dl": blood glucose in mg/dL -- convert from mmol/L \
 if needed (mg/dL = mmol/L * 18.02), or null
+- "apob_mg_dl": apolipoprotein B in mg/dL, or null. Often labelled \
+"ApoB" or "Apolipoprotein B"
+- "lpa_value": lipoprotein(a), the NUMBER only, or null. Often labelled \
+"Lp(a)" or "Lipoprotein (a)"
+- "lpa_unit": the unit lipoprotein(a) was reported in -- exactly \
+"mg_dl" or "nmol_l" -- or null if there is no Lp(a) result. DO NOT \
+convert between these two units. They are not reliably \
+interconvertible, so report the number and the unit the lab actually \
+printed
+- "hba1c_percent": hemoglobin A1c as a PERCENT, or null. Often labelled \
+"HbA1c" or "A1c". If the report gives mmol/mol instead, leave this null \
+rather than converting
+- "waist_cm": waist circumference in CENTIMETRES -- convert from inches \
+if the source uses them (cm = inches * 2.54), or null
 
 Content:
 {content}"""
@@ -261,7 +343,34 @@ BLOODWORK_FIELDS = [
     "total_cholesterol_mg_dl",
     "triglycerides_mg_dl",
     "blood_glucose_mg_dl",
+    # Backlog B18.1. `lpa_unit` is deliberately NOT in this list: a unit
+    # with no number is not a result, and an entry carrying only a unit
+    # should still be dropped as empty.
+    "apob_mg_dl",
+    "lpa_value",
+    "hba1c_percent",
+    "waist_cm",
 ]
+
+# The only two things `lpa_unit` may be. Anything else the model returns is
+# discarded rather than stored, because a value whose scale is unknown is
+# worse than no value -- it would join a trend line it does not belong to.
+LPA_UNITS = ("mg_dl", "nmol_l")
+
+
+def normalize_lpa_unit(raw) -> str | None:
+    """Accepts the shapes a lab report and a model actually produce --
+    "mg/dL", "MG_DL", "nmol/L", "nmol per L" -- and returns one of
+    LPA_UNITS or None. Never guesses: an unrecognized unit is None, and
+    the caller drops the value with it."""
+    if raw is None:
+        return None
+    text = str(raw).strip().lower().replace(" ", "").replace("/", "_").replace("-", "_")
+    if text in ("mg_dl", "mgdl", "mg_perdl", "mg_per_dl"):
+        return "mg_dl"
+    if text in ("nmol_l", "nmoll", "nmol_perl", "nmol_per_l"):
+        return "nmol_l"
+    return None
 
 
 def parse_bloodwork_response(raw_text: str) -> list[dict]:
@@ -289,7 +398,18 @@ def parse_bloodwork_response(raw_text: str) -> list[dict]:
             "blood_pressure_systolic": _safe_int(e.get("blood_pressure_systolic")),
             "blood_pressure_diastolic": _safe_int(e.get("blood_pressure_diastolic")),
             "blood_glucose_mg_dl": _safe_float(e.get("blood_glucose_mg_dl")),
+            "apob_mg_dl": _safe_float(e.get("apob_mg_dl")),
+            "lpa_value": _safe_float(e.get("lpa_value")),
+            "lpa_unit": normalize_lpa_unit(e.get("lpa_unit")),
+            "hba1c_percent": _safe_float(e.get("hba1c_percent")),
+            "waist_cm": _safe_float(e.get("waist_cm")),
         }
+        # A lipoprotein(a) number whose SCALE is unknown is worse than no
+        # number: mg/dL and nmol/L differ by roughly 2.5x and are not
+        # reliably interconvertible, so an unlabelled value would silently
+        # corrupt the trend it joined. Drop the pair together.
+        if entry["lpa_value"] is not None and entry["lpa_unit"] is None:
+            entry["lpa_value"] = None
         has_any_value = any(entry[f] is not None for f in BLOODWORK_FIELDS) or (
             entry["blood_pressure_systolic"] is not None and entry["blood_pressure_diastolic"] is not None
         )

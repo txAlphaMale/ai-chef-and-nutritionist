@@ -39,5 +39,33 @@ class HealthMetricEntry(Base, TimestampMixin):
     blood_pressure_diastolic: Mapped[int | None] = mapped_column(Integer, nullable=True)
     blood_glucose_mg_dl: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Backlog B18.1 (2026-08-18). The 2026 ACC/AHA multi-society
+    # dyslipidemia guideline names apolipoprotein B and lipoprotein(a) as
+    # measurements that change risk assessment, and HbA1c and waist
+    # circumference are the two other things a household working on LDL is
+    # routinely handed by a doctor. None of them had anywhere to go, in an
+    # app whose stated purpose is LDL reduction -- so they were transcribed
+    # nowhere and trended never.
+    apob_mg_dl: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Lp(a) is reported in BOTH mg/dL and nmol/L, and the two are NOT
+    # reliably interconvertible: the conversion depends on apo(a) isoform
+    # size, which varies between people, so any fixed factor is an
+    # approximation that different labs and guidelines disagree about.
+    # Storing a bare number would silently mix two scales in one trend
+    # line. The unit rides WITH the value, and the UI shows it -- same
+    # discipline as nutrition provenance: carry what you know, do not
+    # convert what you cannot.
+    lpa_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lpa_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)  # mg_dl | nmol_l
+
+    hba1c_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Waist circumference, cm. The 2025 Lancet Commission on clinical
+    # obesity moved diagnosis off BMI alone toward BMI plus an
+    # anthropometric measure; waist-to-height is computed from this and the
+    # member's height (see health_service.waist_to_height_ratio).
+    waist_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual|import
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

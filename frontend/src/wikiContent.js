@@ -977,6 +977,51 @@ export const WIKI_ENTRIES = [
     ],
   },
   {
+    id: "biomarkers",
+    category: "Health & nutrition",
+    title: "ApoB, Lp(a), HbA1c and waist: what Chef tracks and why",
+    body: [
+      {
+        type: "p",
+        text:
+          "Chef tracks four values beyond the standard lipid panel. All four are things a doctor may hand you " +
+          "on a report, and all four had nowhere to go in this app until 2026-08-18 -- which meant they were " +
+          "transcribed nowhere and trended never, in an app built around lowering cholesterol.",
+      },
+      {
+        type: "steps",
+        items: [
+          "**ApoB (apolipoprotein B)** counts the atherogenic particles themselves rather than the cholesterol " +
+            "they carry. The 2026 ACC/AHA multi-society dyslipidemia guideline treats it as a measurement that " +
+            "can change risk assessment, particularly when it disagrees with LDL-C.",
+          "**Lp(a) (lipoprotein(a))** is largely genetic and stable across a lifetime, so a single measurement " +
+            "is usually enough. The same guideline recommends that adults have it measured at least once.",
+          "**HbA1c** is a three-month average of blood glucose, which a single fasting glucose reading is not.",
+          "**Waist circumference**, from which Chef computes waist-to-height. Shown beside BMI, never instead " +
+            "of it: BMI cannot tell where mass sits, and the 2025 Lancet Commission on clinical obesity moved " +
+            "diagnosis toward BMI *plus* an anthropometric measure like this one.",
+        ],
+      },
+      {
+        type: "note",
+        text:
+          "**Lp(a) is entered with its unit, and Chef will not convert between them.** Labs report it in both " +
+          "mg/dL and nmol/L, and the two are not reliably interconvertible -- the factor depends on a protein " +
+          "size that varies between people, so any fixed conversion is an approximation that different labs " +
+          "disagree about. A number without its scale would be ambiguous by roughly 2.5x and would silently " +
+          "corrupt the trend it joined, so Chef stores the unit alongside the value and always displays both.",
+      },
+      {
+        type: "note",
+        text:
+          "**Chef attaches no thresholds, targets or risk labels to any of these.** It records what you enter, " +
+          "charts the trend, and passes the current values into meal-plan generation so the planner can see " +
+          "what the household is working on. What a given number means for you is a conversation with your " +
+          "doctor -- this app is a meal planner, and it is not qualified to have that one.",
+      },
+    ],
+  },
+  {
     id: "bloodwork-import",
     category: "Health & nutrition",
     title: "Importing bloodwork and wearable data",

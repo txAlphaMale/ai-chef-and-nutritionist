@@ -24,6 +24,13 @@ class HealthMetricEntryBase(BaseModel):
     blood_pressure_systolic: int | None = None
     blood_pressure_diastolic: int | None = None
     blood_glucose_mg_dl: float | None = None
+    # Backlog B18.1 -- see app/models/health.py for why Lp(a) carries its
+    # own unit instead of being normalized to one scale.
+    apob_mg_dl: float | None = None
+    lpa_value: float | None = None
+    lpa_unit: str | None = None  # mg_dl | nmol_l
+    hba1c_percent: float | None = None
+    waist_cm: float | None = None
     notes: str | None = None
 
 
@@ -44,6 +51,13 @@ class HealthMetricEntryUpdate(BaseModel):
     blood_pressure_systolic: int | None = None
     blood_pressure_diastolic: int | None = None
     blood_glucose_mg_dl: float | None = None
+    # Backlog B18.1 -- see app/models/health.py for why Lp(a) carries its
+    # own unit instead of being normalized to one scale.
+    apob_mg_dl: float | None = None
+    lpa_value: float | None = None
+    lpa_unit: str | None = None  # mg_dl | nmol_l
+    hba1c_percent: float | None = None
+    waist_cm: float | None = None
     notes: str | None = None
 
 
@@ -94,6 +108,13 @@ class HealthBloodworkEntryPreview(BaseModel):
     blood_pressure_systolic: int | None = None
     blood_pressure_diastolic: int | None = None
     blood_glucose_mg_dl: float | None = None
+    # Backlog B18.1 -- see app/models/health.py for why Lp(a) carries its
+    # own unit instead of being normalized to one scale.
+    apob_mg_dl: float | None = None
+    lpa_value: float | None = None
+    lpa_unit: str | None = None  # mg_dl | nmol_l
+    hba1c_percent: float | None = None
+    waist_cm: float | None = None
 
 
 class HealthBloodworkImportResponse(BaseModel):
