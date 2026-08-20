@@ -33,6 +33,7 @@ from app.routers import (
     auth,
     chat,
     dining,
+    food_log,
     google_calendar,
     health,
     household,
@@ -211,6 +212,7 @@ app.include_router(kitchen.router)
 app.include_router(meal_plan.router)
 app.include_router(household.router)
 app.include_router(health.router)
+app.include_router(food_log.router)
 app.include_router(knowledge.router)
 app.include_router(chat.router)
 app.include_router(google_calendar.router)

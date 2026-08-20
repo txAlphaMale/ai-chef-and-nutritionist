@@ -5,6 +5,35 @@ import InfoTip from "./InfoTip";
 /** Nutritionist knowledge file management -- upload a PDF/txt/md, see
  * whether text extraction succeeded (has_content), toggle it active
  * (only active files ground meal-plan generation), and delete it. */
+/** What the index tag says about one file.
+ *
+ * Capstone review 2026-08-20. This used to read `chunk_count > 0 ? "N
+ * chunks indexed" : "indexing..."`, which was wrong for the commonest
+ * case in the whole list. Indexing is LAZY and only happens for ACTIVE
+ * files -- `knowledge_service.ensure_indexed`/`search_knowledge` skip
+ * inactive ones, and seeding deliberately does not embed the bundled
+ * defaults (see app/seed.py). So every bundled reference sat here
+ * permanently announcing "indexing...", describing work that was never
+ * going to start, right next to the word "inactive" that explains why.
+ * The author read the list and concluded a newly shipped file had not
+ * arrived.
+ *
+ * Now the tag says which of the three real states a file is in, and the
+ * inactive one names the button that changes it.
+ */
+function indexLabel(kf) {
+  if (kf.chunk_count > 0) {
+    return `${kf.chunk_count} chunk${kf.chunk_count === 1 ? "" : "s"} indexed`;
+  }
+  // Not indexed and not going to be, until somebody activates it. This
+  // is a resting state, not a pending one.
+  if (!kf.is_active) return "not indexed";
+  // Active with nothing indexed: the first retrieval builds the index, so
+  // this genuinely is pending -- but it starts on next use rather than
+  // now, and saying "indexing..." implied a job already running.
+  return "indexes on first use";
+}
+
 export default function KnowledgeFilesPanel() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -124,9 +153,7 @@ export default function KnowledgeFilesPanel() {
               <div>
                 <strong>{kf.filename}</strong>
                 {!kf.has_content && <span className="tag">text not extracted</span>}
-                {kf.has_content && (
-                  <span className="tag">{kf.chunk_count > 0 ? `${kf.chunk_count} chunk${kf.chunk_count === 1 ? "" : "s"} indexed` : "indexing..."}</span>
-                )}
+                {kf.has_content && <span className="tag">{indexLabel(kf)}</span>}
                 {!kf.is_active && <span className="tag">inactive</span>}
                 {kf.description && <p className="hint">{kf.description}</p>}
                 {kf.content_excerpt && <p className="hint knowledge-excerpt">&ldquo;{kf.content_excerpt}&hellip;&rdquo;</p>}

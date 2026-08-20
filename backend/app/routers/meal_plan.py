@@ -42,6 +42,7 @@ from app.services import (
     cost_service,
     diet_quality_service,
     dri_service,
+    food_log_service,
     google_calendar_service,
     icloud_calendar_service,
     inventory_service,
@@ -561,6 +562,16 @@ def confirm_meal_plan_entry(
                     )
 
     entry.is_confirmed = True
+    # Backlog B17.1: confirming a planned meal also records that it was
+    # EATEN, so the plan path stays one click instead of two. Note this
+    # sits OUTSIDE the recipe/leftover guard above -- a leftover portion
+    # deducts no inventory (the origin cook already did) but is genuinely
+    # eaten on its own day, and a consumption log that skipped it would
+    # undercount that day and overcount the day the batch was cooked.
+    # Inventory and intake are different questions; see
+    # food_log_service.log_for_confirmed_plan_entry, which owns every
+    # reason this may decline to write a row.
+    food_log_service.log_for_confirmed_plan_entry(db, entry)
     db.commit()
     db.refresh(entry)
     result = _to_entry_read(entry)

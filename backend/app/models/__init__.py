@@ -2,6 +2,7 @@
 the full schema, and so relationship() string references resolve."""
 
 from app.models.chat import ChatMessage
+from app.models.food_log import FOOD_LOG_SOURCES, FoodLogEntry
 from app.models.health import HealthMetricEntry
 from app.models.household import HouseholdMember, HouseholdPreferences
 from app.models.inventory import (
@@ -21,6 +22,8 @@ __all__ = [
     "AppLogEntry",
     "AppSetting",
     "ChatMessage",
+    "FOOD_LOG_SOURCES",
+    "FoodLogEntry",
     "GroceryListItem",
     "HealthMetricEntry",
     "HouseholdMember",
