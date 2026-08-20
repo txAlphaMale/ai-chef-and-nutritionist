@@ -30,9 +30,50 @@ def test_bundled_files_exist_on_disk():
     # Sanity check the fixture directory itself before trusting anything
     # the seeding function reports about it.
     filenames = _bundled_filenames()
-    assert len(filenames) == 5
+    assert len(filenames) == 6
     assert "fda_major_food_allergens.md" in filenames
     assert "dietary_guidelines_2025_2030.md" in filenames
+    assert "mediterranean_eating_pattern.md" in filenames  # B18.2, 2026-08-20
+
+
+# --- B18.2: what the bundle is allowed to contain -------------------------
+
+
+def test_every_bundled_file_has_a_hand_written_description(db_session, monkeypatch, tmp_path):
+    """The seeding function falls back to a generic description for any
+    filename it does not recognise. That fallback is a safety net, not a
+    licence to add a file without saying where it came from -- the
+    description is what a household reads in the Knowledge files list
+    when deciding whether to switch a reference on."""
+    from app.seed import DEFAULT_KNOWLEDGE_FILE_DESCRIPTIONS
+
+    missing = [f for f in _bundled_filenames() if f not in DEFAULT_KNOWLEDGE_FILE_DESCRIPTIONS]
+    assert not missing, f"bundled without a description: {missing}"
+
+
+def test_no_bundled_file_states_a_lab_threshold_as_advice():
+    """PROJECT-PLAN B18.2's own constraint, enforced rather than trusted:
+    these are grounding documents for a MEAL PLANNER, and the framing has
+    to stay dietary. A bundled file carrying "LDL-C <55 mg/dL" would be
+    retrieved and quoted by the chat surface as though this app were
+    qualified to say it.
+
+    Matches a number immediately next to a clinical lipid/glucose unit,
+    which is the shape a treatment target takes. Nutrition figures are
+    unaffected: sodium is mg, not mg/dL, and a per-100g nutrient is not
+    expressed in mmol/L.
+    """
+    import re
+
+    pattern = re.compile(r"\d[\d.,]*\s*(mg/dL|mmol/L|nmol/L)", re.IGNORECASE)
+    offenders = []
+    for filename in _bundled_filenames():
+        with open(os.path.join(DEFAULT_KNOWLEDGE_FILES_DIR, filename), encoding="utf-8") as handle:
+            for number, line in enumerate(handle, start=1):
+                if pattern.search(line):
+                    offenders.append(f"{filename}:{number}: {line.strip()[:90]}")
+
+    assert not offenders, "bundled reference states a clinical threshold:\n" + "\n".join(offenders)
 
 
 def test_seed_creates_inactive_rows_for_every_bundled_file(db_session, monkeypatch, tmp_path):

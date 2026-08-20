@@ -124,6 +124,12 @@ DEFAULT_KNOWLEDGE_FILE_DESCRIPTIONS = {
         "Bundled default (repo-shipped, inactive until enabled). "
         "NIH/NHLBI DASH eating plan summary -- public domain federal source."
     ),
+    "mediterranean_eating_pattern.md": (
+        "Bundled default (repo-shipped, inactive until enabled). "
+        "Mediterranean-style eating pattern, from the 2025 Dietary "
+        "Guidelines Advisory Committee's graded conclusions -- public "
+        "domain federal source. Dietary only: no lab thresholds."
+    ),
     "portfolio_diet_ldl_cholesterol.md": (
         "Bundled default (repo-shipped, inactive until enabled). "
         "Original synthesis of published research on the Portfolio diet "

@@ -1070,6 +1070,24 @@ export const WIKI_ENTRIES = [
           "what the household is working on. What a given number means for you is a conversation with your " +
           "doctor -- this app is a meal planner, and it is not qualified to have that one.",
       },
+      {
+        type: "p",
+        text:
+          "The guideline referred to above is: Blumenthal RS, Morris PB, Gaudino M, et al. *2026 " +
+          "ACC/AHA/AACVPR/ABC/ACPM/ADA/AGS/APhA/ASPC/NLA/PCNA guideline on the management of dyslipidemia.* " +
+          "Circulation, published online March 13, 2026, doi:10.1161/CIR.0000000000001423. It replaces the " +
+          "2018 AHA/ACC cholesterol guideline.",
+      },
+      {
+        type: "note",
+        text:
+          "**Chef does not ship a copy of that guideline, on purpose.** It is a copyrighted journal " +
+          "publication rather than a public-domain federal document like the rest of the bundled reference " +
+          "files, so redistributing it in a public repository would not be ours to do. It is also a clinical " +
+          "treatment guideline full of lab targets, and this app's bundled references are deliberately " +
+          "dietary. If you want Chef's AI to be able to read it, download it from the DOI above and add it " +
+          "yourself under Health > Knowledge files -- your own copy, in your own instance.",
+      },
     ],
   },
   {
